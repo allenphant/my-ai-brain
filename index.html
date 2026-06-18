@@ -3,62 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>我的個人中樞 (AI 助理)</title>
+    <title>我的個人中樞</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script>
         tailwind.config = {
             theme: {
                 extend: {
-                    colors: {
-                        primary: '#6366f1',
-                        surface: '#ffffff',
-                        background: '#f8fafc',
-                    }
+                    colors: { primary: '#6366f1', background: '#f8fafc', surface: '#ffffff' }
                 }
             }
         }
     </script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
-        /* 簡單的載入動畫 */
-        .loader {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #6366f1;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-        }
+        .loader { border-top-color: transparent; animation: spin 1s linear infinite; border-radius: 50%; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        /* 新增 Todo 完成的樣式 */
         .todo-checked { text-decoration: line-through; color: #94a3b8; }
-        
-        /* 隱藏已完成的 CSS 狀態 */
         .hide-completed-mode .todo-item-completed { display: none !important; }
     </style>
 </head>
 <body class="bg-background text-slate-800 font-sans min-h-screen p-4 md:p-8 relative">
 
-    <div class="max-w-7xl mx-auto">
-        <!-- 頂部標題與輸入區 -->
-        <header class="mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
-            <div>
-                <div class="flex items-center gap-4">
-                    <h1 class="text-3xl md:text-4xl font-bold text-slate-900 flex items-center gap-3">
-                        <div class="bg-primary/10 p-3 rounded-2xl">
-                            <i class="fas fa-brain text-primary"></i>
-                        </div>
-                        我的個人中樞
-                    </h1>
-                    <!-- 設定 API Key 的按鈕 -->
-                    <button id="settings-btn" class="mt-2 text-slate-400 hover:text-slate-600 transition-colors p-2 bg-white rounded-full shadow-sm border border-slate-100">
-                        <i class="fas fa-cog"></i>
-                    </button>
-                </div>
+    <div class="max-w-5xl mx-auto">
+        <!-- 頂部標題區 -->
+        <header class="flex justify-between items-center mb-6">
+            <div class="flex items-center gap-3">
+                <i class="fas fa-brain text-3xl text-indigo-500"></i>
+                <h1 class="text-2xl font-bold tracking-tight text-slate-800">我的個人中樞</h1>
+                <button id="settings-btn" class="ml-2 text-slate-400 hover:text-slate-600 transition-colors bg-white p-1.5 rounded-full shadow-sm"><i class="fas fa-cog"></i></button>
+            </div>
+            
+            <div class="flex items-center gap-4">
                 <p class="text-slate-500 text-sm mt-2 ml-16 flex items-center gap-2">
                     <span id="auth-status" class="w-2 h-2 rounded-full bg-amber-500"></span>
                     <span id="auth-text">等待登入...</span>
@@ -66,54 +45,52 @@
                     <button id="logout-btn" class="ml-2 bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-xs hover:bg-slate-200 transition-colors hidden">登出</button>
                 </p>
             </div>
-            
-            <!-- 無延遲新增輸入框 (加入分類選擇) -->
-            <form id="add-form" class="w-full lg:w-[600px] flex flex-col sm:flex-row gap-2 relative">
-                <!-- 分類下拉選單 -->
-                <div class="relative shrink-0">
-                    <select id="category-select" class="w-full sm:w-auto appearance-none bg-white border border-slate-200 text-slate-700 py-3 pl-4 pr-10 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary cursor-pointer text-sm font-semibold transition-all hover:bg-slate-50">
-                        <option value="inbox">✨ 進收件匣 (由 AI 分類)</option>
-                        <option value="todos">✅ 指定：待辦事項</option>
-                        <option value="learning">📚 指定：待學習/探討</option>
-                        <option value="ideas">💡 指定：點子庫</option>
-                        <option value="bookmarks">📌 指定：收藏貼文/影片</option>
-                    </select>
-                    <i class="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
-                </div>
-
-                <!-- 輸入框本體 -->
-                <div class="relative flex-1">
-                    <input type="text" id="idea-input" required autocomplete="off"
-                        placeholder="丟個點子、待辦或網址給我..." 
-                        class="w-full pl-4 pr-12 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-sm">
-                    <button type="submit" id="submit-btn" class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-primary text-white rounded-lg hover:bg-primary/90 flex items-center justify-center transition-colors">
-                        <i class="fas fa-paper-plane text-xs"></i>
-                    </button>
-                </div>
-            </form>
         </header>
 
-        <!-- 收件匣 (Inbox) 獨立置頂 -->
-        <div class="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-2xl p-6 shadow-sm relative overflow-hidden mb-6">
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-2">
-                    <i class="fas fa-inbox text-indigo-500 text-xl"></i>
-                    <h2 class="text-xl font-bold text-slate-800">📥 收件匣 (未分類碎片)</h2>
-                    <span id="inbox-count" class="text-xs text-indigo-600 bg-indigo-100 px-2 py-1 rounded-full ml-2">0</span>
-                </div>
-                <!-- AI 魔法整理按鈕 -->
-                <button id="ai-sort-btn" class="bg-white border border-indigo-200 text-indigo-600 px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                    <i class="fas fa-magic"></i> <span id="ai-sort-text">AI 魔法整理</span>
-                </button>
+        <!-- 無延遲新增輸入框 -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-2 mb-8 flex gap-2 items-center sticky top-4 z-40 group focus-within:ring-2 focus-within:ring-indigo-200 transition-all">
+            
+            <!-- 修正：加入 relative 容器包覆，並加大按鈕與內距 -->
+            <div class="relative shrink-0 flex items-center">
+                <select id="category-select" class="bg-indigo-50 text-indigo-700 font-semibold px-4 py-2.5 rounded-xl text-sm border-none outline-none cursor-pointer appearance-none pr-10 hover:bg-indigo-100 transition-colors">
+                    <option value="inbox">📥 收件匣 (由 AI 分類)</option>
+                    <option value="todos">✅ 待辦事項</option>
+                    <option value="learning">📚 待學習/探討</option>
+                    <option value="ideas">💡 點子庫</option>
+                    <option value="bookmarks">📌 收藏網址</option>
+                </select>
+                <!-- 修正：將箭頭改為 right-3.5 靠右對齊，確保不與文字重疊 -->
+                <i class="fas fa-chevron-down absolute right-3.5 text-indigo-500 text-xs pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity"></i>
             </div>
-            <ul id="inbox-list" class="space-y-3">
-                <li class="flex justify-center py-4 text-slate-400"><div class="loader"></div></li>
-            </ul>
+            
+            <form id="add-form" class="flex-1 flex gap-2">
+                <input type="text" id="idea-input" placeholder="丟個點子、待辦或網址給我..." class="w-full bg-transparent border-none focus:outline-none px-2 text-slate-700 placeholder-slate-400 font-medium" autocomplete="off">
+                <button type="submit" id="submit-btn" class="bg-indigo-600 text-white w-10 h-10 rounded-xl hover:bg-indigo-700 transition-all shadow-md flex items-center justify-center shrink-0 disabled:opacity-50">
+                    <i class="fas fa-paper-plane text-xs"></i>
+                </button>
+            </form>
         </div>
+
+        <!-- AI 魔法分類大按鈕 -->
+        <div class="mb-8 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-4 border border-indigo-100 flex justify-between items-start md:items-center flex-col md:flex-row gap-4">
+            <div>
+                <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fas fa-inbox text-indigo-500"></i> 收件匣 (未分類碎片)
+                    <span id="inbox-count" class="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-bold">0</span>
+                </h2>
+            </div>
+            <button id="ai-sort-btn" class="w-full md:w-auto bg-white border border-indigo-200 text-indigo-600 px-5 py-2.5 rounded-xl font-bold hover:bg-indigo-50 hover:shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fas fa-magic"></i> <span id="ai-sort-text">AI 魔法整理</span>
+            </button>
+        </div>
+
+        <!-- 未分類清單 -->
+        <ul id="inbox-list" class="space-y-3 mb-8 min-h-[50px]">
+            <li class="bg-white/80 p-4 rounded-xl border border-indigo-100 text-slate-500 text-sm text-center">載入中...</li>
+        </ul>
 
         <!-- 網格佈局區：四大分類 -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
             <!-- ✅ 待辦事項 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
                 <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center justify-between">
@@ -131,9 +108,7 @@
 
             <!-- 📚 待學習/探討資源 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
-                    <i class="fas fa-book-open text-purple-500 mr-2 text-xl"></i>待學習/探討資源
-                </h2>
+                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center"><i class="fas fa-book-open text-purple-500 mr-2 text-xl"></i>待學習/探討資源</h2>
                 <ul id="learning-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
@@ -141,24 +116,19 @@
 
             <!-- 💡 點子庫 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
-                    <i class="fas fa-lightbulb text-amber-500 mr-2 text-xl"></i>點子庫
-                </h2>
+                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center"><i class="fas fa-lightbulb text-amber-500 mr-2 text-xl"></i>點子庫</h2>
                 <ul id="ideas-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
 
-            <!-- 📌 收藏的貼文/影片 -->
+            <!-- 📌 收藏貼文/影片 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
-                    <i class="fas fa-bookmark text-rose-500 mr-2 text-xl"></i>收藏貼文/影片
-                </h2>
+                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center"><i class="fas fa-bookmark text-rose-500 mr-2 text-xl"></i>收藏貼文/影片</h2>
                 <ul id="bookmarks-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
-
         </div>
     </div>
 
@@ -175,16 +145,26 @@
                     <input type="password" id="api-key-input" placeholder="AIzaSy..." class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm font-mono">
                     <button id="verify-key-btn" class="bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg text-sm font-bold hover:bg-indigo-200 transition-colors shrink-0">驗證載入</button>
                 </div>
-                <p class="text-xs text-slate-500 mt-2">
-                    填入 API Key 才能啟用魔法整理。<a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-primary hover:underline">點此前往申請</a>
-                </p>
+                <p class="text-xs text-slate-500 mt-2">填入 API Key 才能啟用魔法整理。</p>
             </div>
             
-            <!-- 新增：動態模型選擇區塊 -->
-            <div class="mb-6 hidden" id="model-select-container">
+            <div class="mb-4 hidden" id="model-select-container">
                 <label class="block text-sm font-semibold text-slate-700 mb-2">選擇 AI 模型</label>
                 <select id="model-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer"></select>
-                <p class="text-[10px] text-slate-400 mt-1">建議使用 flash 結尾的模型，速度最快。</p>
+            </div>
+
+            <!-- 新增：懶人觸發自動整理設定 -->
+            <div class="mb-6">
+                <label class="block text-sm font-semibold text-slate-700 mb-2 flex justify-between">
+                    自動整理 (懶人觸發) 
+                    <i class="fas fa-robot text-indigo-400"></i>
+                </label>
+                <select id="auto-sort-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer">
+                    <option value="off">關閉 (僅手動整理)</option>
+                    <option value="always">每次開啟網頁時</option>
+                    <option value="daily">每天開啟時整理一次</option>
+                </select>
+                <p class="text-[10px] text-slate-400 mt-1">當您開啟網頁時，系統會在背景自動執行分類。</p>
             </div>
 
             <button id="save-settings-btn" class="w-full bg-slate-800 text-white py-2 rounded-lg font-semibold hover:bg-slate-700 transition-colors">
@@ -193,7 +173,7 @@
         </div>
     </div>
 
-    <!-- 新增：刪除確認 Modal -->
+    <!-- 刪除確認 Modal -->
     <div id="confirm-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <h3 class="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
@@ -209,7 +189,7 @@
         </div>
     </div>
 
-    <!-- 新增：移動分類 Modal -->
+    <!-- 移動分類 Modal -->
     <div id="move-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] flex flex-col">
             <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -239,7 +219,7 @@
         </div>
     </div>
 
-    <!-- 新增：編輯碎片 Modal -->
+    <!-- 編輯碎片 Modal -->
     <div id="edit-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] flex flex-col">
             <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 shrink-0">
@@ -268,7 +248,7 @@
             firebaseConfig = JSON.parse(__firebase_config);
             appId = typeof __app_id !== 'undefined' ? __app_id : appId;
         } else {
-            // ✅ 已成功將你的專屬金鑰填入
+            // 你的專屬金鑰
             firebaseConfig = {
                 apiKey: "AIzaSyC30YPS_CkGVBS8IBrq74sBW0pkP1-ev6w",
                 authDomain: "my-ai-brain-6867e.firebaseapp.com",
@@ -288,10 +268,12 @@
         // --- 全域變數 ---
         let currentUser = null;
         let currentInboxItems = []; 
-        let pendingDeleteTarget = null; // 儲存準備刪除的目標 {id, col}
-        let pendingMoveTarget = null;   // 儲存準備移動的目標 {id, col, data}
-        let pendingEditTarget = null;   // 儲存準備編輯的目標 {id, col}
-        let isHideCompleted = false;    // 隱藏已完成的狀態切換
+        let pendingDeleteTarget = null;
+        let pendingMoveTarget = null;
+        let pendingEditTarget = null;
+        let isHideCompleted = false;
+        let isSorting = false; // AI 整理的執行鎖定狀態
+        let isInitialInboxLoad = true; // 紀錄是否為初次載入
 
         // --- DOM 元素 ---
         const inboxList = document.getElementById('inbox-list');
@@ -303,44 +285,36 @@
         const aiSortBtn = document.getElementById('ai-sort-btn');
         const aiSortText = document.getElementById('ai-sort-text');
         
-        // 設定與模型 Modal
         const settingsModal = document.getElementById('settings-modal');
         const apiKeyInput = document.getElementById('api-key-input');
         const verifyKeyBtn = document.getElementById('verify-key-btn');
         const modelSelectContainer = document.getElementById('model-select-container');
         const modelSelect = document.getElementById('model-select');
-        
+        const autoSortSelect = document.getElementById('auto-sort-select'); // 自動整理選單
         const categorySelect = document.getElementById('category-select');
-        
         const loginBtn = document.getElementById('login-btn');
         const logoutBtn = document.getElementById('logout-btn');
 
-        // 刪除確認 Modal
         const confirmModal = document.getElementById('confirm-modal');
         const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
         const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
 
-        // 移動分類 Modal
         const moveModal = document.getElementById('move-modal');
         const cancelMoveBtn = document.getElementById('cancel-move-btn');
         const moveOptionBtns = document.querySelectorAll('.move-option-btn');
 
-        // 編輯分類 Modal
         const editModal = document.getElementById('edit-modal');
         const editInput = document.getElementById('edit-input');
         const cancelEditBtn = document.getElementById('cancel-edit-btn');
         const confirmEditBtn = document.getElementById('confirm-edit-btn');
 
-        // 隱藏已完成按鈕
         const toggleCompletedBtn = document.getElementById('toggle-completed-btn');
-        // (修正：已刪除重複宣告的 todosList 變數)
 
         // --- 隱藏已完成按鈕邏輯 ---
         toggleCompletedBtn.addEventListener('click', () => {
             isHideCompleted = !isHideCompleted;
             const icon = document.getElementById('toggle-completed-icon');
             const text = document.getElementById('toggle-completed-text');
-            
             if (isHideCompleted) {
                 todosList.classList.add('hide-completed-mode');
                 icon.className = 'fas fa-eye text-indigo-500';
@@ -354,33 +328,20 @@
             }
         });
 
-        // --- 認證 (改為 Google 登入) ---
+        // --- 認證 ---
         const initAuth = async () => {
-            // 如果在 Canvas 測試環境有自訂 token，維持內部預覽運作
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                try {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } catch (error) { console.error("Canvas 登入失敗:", error); }
+                try { await signInWithCustomToken(auth, __initial_auth_token); } catch (e) {}
             }
         };
         initAuth();
 
-        // 綁定 Google 登入按鈕
         loginBtn.addEventListener('click', async () => {
-            try {
-                await signInWithPopup(auth, provider);
-            } catch (error) { 
-                console.error("Google 登入失敗:", error); 
-                alert("登入失敗：" + error.message); 
-            }
+            try { await signInWithPopup(auth, provider); } catch (e) { alert("登入失敗：" + e.message); }
         });
 
-        // 綁定登出按鈕
         logoutBtn.addEventListener('click', async () => {
-            try {
-                await signOut(auth);
-                window.location.reload(); // 登出後重整頁面清空資料
-            } catch (error) { console.error("登出失敗:", error); }
+            try { await signOut(auth); window.location.reload(); } catch (e) {}
         });
 
         onAuthStateChanged(auth, (user) => {
@@ -400,7 +361,39 @@
             }
         });
 
-        // --- 即時監聽 5 個區塊的資料庫 ---
+        // --- 🤖 自動整理 (懶人觸發) 邏輯 ---
+        function checkAutoSortCondition() {
+            if (isSorting || currentInboxItems.length === 0) return; // 沒東西就不理他
+
+            const apiKey = localStorage.getItem('geminiApiKey');
+            if (!apiKey) return; // 沒金鑰無法運作
+
+            const autoSetting = localStorage.getItem('autoSortSetting') || 'off';
+            if (autoSetting === 'off') return;
+
+            const now = Date.now();
+            const lastSortTime = parseInt(localStorage.getItem('lastAutoSortTime') || '0', 10);
+
+            // 判斷是否滿足觸發條件
+            let shouldTrigger = false;
+            if (autoSetting === 'always') {
+                shouldTrigger = true;
+            } else if (autoSetting === 'daily') {
+                // 檢查是否超過 24 小時 (24 * 60 * 60 * 1000 毫秒)
+                if (now - lastSortTime > 86400000) {
+                    shouldTrigger = true;
+                }
+            }
+
+            if (shouldTrigger) {
+                // 立即鎖定時間，防禦多裝置同時開網頁的 Race Condition
+                localStorage.setItem('lastAutoSortTime', now.toString());
+                console.log('🤖 懶人觸發條件達成，開始自動背景整理...');
+                performAISort();
+            }
+        }
+
+        // --- 即時監聽資料庫 ---
         function setupRealtimeListeners(userId) {
             const getCol = (colName) => collection(db, 'artifacts', appId, 'users', userId, colName);
 
@@ -412,25 +405,23 @@
                 renderList(currentInboxItems, inboxList, 'inbox');
                 document.getElementById('inbox-count').innerText = currentInboxItems.length;
                 aiSortBtn.disabled = currentInboxItems.length === 0;
+
+                // 🌟 當初次載入完成時，檢查是否要觸發「懶人整理」
+                if (isInitialInboxLoad) {
+                    isInitialInboxLoad = false;
+                    setTimeout(checkAutoSortCondition, 800); // 延遲一下讓畫面跑完再觸發
+                }
             });
 
-            // 2. Todos (客製化勾選渲染)
             onSnapshot(getCol('todos'), (snapshot) => {
-                const items = [];
-                snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
-                items.sort((a, b) => b.createdAt - a.createdAt);
-                renderTodos(items, todosList);
+                const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+                items.sort((a, b) => b.createdAt - a.createdAt); renderTodos(items, todosList);
             });
-            // 3. Learning
             onSnapshot(getCol('learning'), (snapshot) => renderCollection(snapshot, learningList, 'learning', 'fas fa-book text-purple-300'));
-            // 4. Ideas
             onSnapshot(getCol('ideas'), (snapshot) => renderCollection(snapshot, ideasList, 'ideas', 'fas fa-bolt text-amber-400'));
-            // 5. Bookmarks (客製化超連結預覽渲染)
             onSnapshot(getCol('bookmarks'), (snapshot) => {
-                const items = [];
-                snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
-                items.sort((a, b) => b.createdAt - a.createdAt);
-                renderBookmarks(items, bookmarksList);
+                const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+                items.sort((a, b) => b.createdAt - a.createdAt); renderBookmarks(items, bookmarksList);
             });
         }
 
@@ -441,90 +432,53 @@
             renderList(items, containerEl, collectionName, iconClass);
         }
 
-        // 共通的按鈕 HTML 產生器 (依據分類判斷是否顯示移動按鈕)
         function getActionButtonsHTML(col) {
             if (col === 'inbox') {
                 return `
                     <div class="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
-                        <button class="edit-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="編輯">
-                            <i class="fas fa-pen"></i>
-                        </button>
-                        <button class="delete-btn text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="刪除">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
-                    </div>
-                `;
+                        <button class="edit-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="編輯"><i class="fas fa-pen"></i></button>
+                        <button class="delete-btn text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="刪除"><i class="fas fa-trash-alt"></i></button>
+                    </div>`;
             }
             return `
                 <div class="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
-                    <button class="edit-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="編輯">
-                        <i class="fas fa-pen"></i>
-                    </button>
-                    <button class="move-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="移動分類">
-                        <i class="fas fa-folder-open"></i>
-                    </button>
-                    <button class="delete-btn text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="刪除">
-                        <i class="fas fa-trash-alt"></i>
-                    </button>
-                </div>
-            `;
+                    <button class="edit-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="編輯"><i class="fas fa-pen"></i></button>
+                    <button class="move-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="移動分類"><i class="fas fa-folder-open"></i></button>
+                    <button class="delete-btn text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="刪除"><i class="fas fa-trash-alt"></i></button>
+                </div>`;
         }
 
-        // 共通的按鈕綁定邏輯 (刪除 & 移動 & 編輯)
         function attachItemListeners(li, item, collectionName) {
             const deleteBtn = li.querySelector('.delete-btn');
             if (deleteBtn) {
-                deleteBtn.addEventListener('click', () => {
-                    pendingDeleteTarget = { id: item.id, col: collectionName };
-                    confirmModal.classList.remove('hidden');
-                });
+                deleteBtn.addEventListener('click', () => { pendingDeleteTarget = { id: item.id, col: collectionName }; confirmModal.classList.remove('hidden'); });
             }
-
             const moveBtn = li.querySelector('.move-btn');
             if (moveBtn) {
                 moveBtn.addEventListener('click', () => {
                     pendingMoveTarget = { id: item.id, col: collectionName, data: item };
-                    
-                    moveOptionBtns.forEach(btn => {
-                        if (btn.getAttribute('data-target') === collectionName) {
-                            btn.classList.add('hidden');
-                        } else {
-                            btn.classList.remove('hidden');
-                        }
-                    });
+                    moveOptionBtns.forEach(btn => btn.classList.toggle('hidden', btn.getAttribute('data-target') === collectionName));
                     moveModal.classList.remove('hidden');
                 });
             }
-
             const editBtn = li.querySelector('.edit-btn');
             if (editBtn) {
                 editBtn.addEventListener('click', () => {
                     pendingEditTarget = { id: item.id, col: collectionName };
-                    editInput.value = item.text; // 帶入舊文字
+                    editInput.value = item.text;
                     editModal.classList.remove('hidden');
                 });
             }
         }
 
-        // 偵測並轉換超連結
-        function linkify(text) {
-            const urlRegex = /(https?:\/\/[^\s]+)/g;
-            return escapeHtml(text).replace(urlRegex, function(url) {
-                return `<a href="${url}" target="_blank" class="text-blue-500 hover:text-blue-700 hover:underline break-all" rel="noopener noreferrer" title="在新分頁開啟"><i class="fas fa-external-link-alt text-[10px] mr-1"></i>${url}</a>`;
-            });
-        }
+        function escapeHtml(unsafe) { return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
 
         // --- 通用渲染函式 ---
         function renderList(items, containerEl, collectionName, iconClass = 'fas fa-circle text-[8px] mt-1 text-indigo-400') {
             if (items.length === 0) {
-                if(collectionName === 'inbox') {
-                    containerEl.innerHTML = `<li class="bg-white/80 p-4 rounded-xl border border-indigo-100 text-slate-500 text-sm text-center">空空如也，丟點東西給我吧！</li>`;
-                } else {
-                    containerEl.innerHTML = `<li class="text-sm text-slate-400 italic">目前沒有項目</li>`;
-                }
+                containerEl.innerHTML = collectionName === 'inbox' ? `<li class="bg-white/80 p-4 rounded-xl border border-indigo-100 text-slate-500 text-sm text-center">空空如也，丟點東西給我吧！</li>` : `<li class="text-sm text-slate-400 italic">目前沒有項目</li>`;
                 return;
             }
-
             containerEl.innerHTML = '';
             items.forEach(item => {
                 const li = document.createElement('li');
@@ -534,24 +488,19 @@
                         <i class="${iconClass} shrink-0 mr-1"></i>
                         <div class="leading-relaxed break-words break-all pr-2 line-clamp-3 text-left flex-1">${escapeHtml(item.text)}</div>
                     </div>
-                    ${getActionButtonsHTML(collectionName)}
-                `;
+                    ${getActionButtonsHTML(collectionName)}`;
                 attachItemListeners(li, item, collectionName);
                 containerEl.appendChild(li);
             });
         }
 
-        // --- 待辦事項 (Todos) 專屬渲染 ---
+        // --- 待辦事項 ---
         function renderTodos(items, containerEl) {
-            if (items.length === 0) {
-                containerEl.innerHTML = `<li class="text-sm text-slate-400 italic">目前沒有項目</li>`;
-                return;
-            }
+            if (items.length === 0) { containerEl.innerHTML = `<li class="text-sm text-slate-400 italic">目前沒有項目</li>`; return; }
             containerEl.innerHTML = '';
             items.forEach(item => {
                 const isCompleted = item.completed || false;
                 const textClass = isCompleted ? 'todo-checked' : '';
-                
                 const li = document.createElement('li');
                 li.className = `bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-center justify-between shadow-sm group hover:shadow-md transition-all ${isCompleted ? 'todo-item-completed' : ''}`;
                 li.innerHTML = `
@@ -559,285 +508,149 @@
                         <input type="checkbox" ${isCompleted ? 'checked' : ''} class="w-4 h-4 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0">
                         <div class="leading-relaxed break-words break-all pr-2 flex-1 transition-all line-clamp-3 ${textClass}">${escapeHtml(item.text)}</div>
                     </label>
-                    ${getActionButtonsHTML('todos')}
-                `;
-
-                // 綁定打勾事件
-                const checkbox = li.querySelector('input[type="checkbox"]');
-                checkbox.addEventListener('change', async (e) => {
-                    if(currentUser) {
-                        try {
-                            await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'todos', item.id), {
-                                completed: e.target.checked
-                            });
-                        } catch(err) { console.error('更新待辦失敗', err); }
-                    }
+                    ${getActionButtonsHTML('todos')}`;
+                li.querySelector('input[type="checkbox"]').addEventListener('change', async (e) => {
+                    if(currentUser) try { await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'todos', item.id), { completed: e.target.checked }); } catch(err) {}
                 });
-
                 attachItemListeners(li, item, 'todos');
                 containerEl.appendChild(li);
             });
         }
 
-        // --- 收藏 (Bookmarks) 專屬渲染 (升級：支援 YouTube 預覽與連結卡片) ---
+        // --- 收藏 ---
         function renderBookmarks(items, containerEl) {
-            if (items.length === 0) {
-                containerEl.innerHTML = `<li class="text-sm text-slate-400 italic">目前沒有項目</li>`;
-                return;
-            }
+            if (items.length === 0) { containerEl.innerHTML = `<li class="text-sm text-slate-400 italic">目前沒有項目</li>`; return; }
             containerEl.innerHTML = '';
             items.forEach(item => {
                 const li = document.createElement('li');
                 li.className = 'bg-white p-3 rounded-xl border border-slate-100 shadow-sm group hover:shadow-md transition-all flex flex-col gap-3 relative';
-                
                 const safeText = item.text || '';
-                // 解析網址來建立預覽卡片
                 const urlMatch = safeText.match(/(https?:\/\/[^\s]+)/);
                 let previewHTML = '';
 
                 if (urlMatch) {
                     const url = urlMatch[0];
-                    // 1. 判斷是否為 YouTube 網址
                     const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-                    
                     if (ytMatch) {
-                        const videoId = ytMatch[1];
-                        previewHTML = `
-                            <a href="${url}" target="_blank" class="block rounded-xl overflow-hidden border border-slate-200 hover:border-rose-300 transition-colors relative group/preview">
-                                <img src="https://img.youtube.com/vi/${videoId}/mqdefault.jpg" alt="YouTube Preview" class="w-full h-auto object-cover aspect-video">
-                                <div class="absolute inset-0 bg-black/20 flex items-center justify-center opacity-80 group-hover/preview:opacity-100 transition-opacity">
-                                    <i class="fab fa-youtube text-red-500 text-5xl drop-shadow-md bg-white rounded-full"></i>
-                                </div>
-                            </a>`;
-                    } 
-                    // 2. 判斷是否為 GitHub 網址
-                    else if (url.includes('github.com')) {
+                        previewHTML = `<a href="${url}" target="_blank" class="block rounded-xl overflow-hidden border border-slate-200 hover:border-rose-300 transition-colors relative group/preview"><img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="w-full h-auto object-cover aspect-video"><div class="absolute inset-0 bg-black/20 flex items-center justify-center opacity-80 group-hover/preview:opacity-100 transition-opacity"><i class="fab fa-youtube text-red-500 text-5xl drop-shadow-md bg-white rounded-full"></i></div></a>`;
+                    } else if (url.includes('github.com')) {
                         const repoPath = url.replace('https://github.com/', '').split('/').slice(0, 2).join('/');
-                        previewHTML = `
-                            <a href="${url}" target="_blank" class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-slate-700">
-                                <i class="fab fa-github text-2xl"></i>
-                                <div class="flex flex-col overflow-hidden">
-                                    <span class="text-xs text-slate-400">GitHub Repository</span>
-                                    <span class="text-sm font-bold truncate">${repoPath || 'GitHub Link'}</span>
-                                </div>
-                            </a>`;
-                    } 
-                    // 3. 其他通用網址卡片
-                    else {
-                        previewHTML = `
-                            <a href="${url}" target="_blank" class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-slate-700">
-                                <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center shrink-0">
-                                    <i class="fas fa-link"></i>
-                                </div>
-                                <div class="flex flex-col overflow-hidden w-full">
-                                    <span class="text-sm font-semibold truncate text-blue-600">${url}</span>
-                                    <span class="text-xs text-slate-400 truncate">點擊前往外部網站</span>
-                                </div>
-                            </a>`;
+                        previewHTML = `<a href="${url}" target="_blank" class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-slate-700"><i class="fab fa-github text-2xl"></i><div class="flex flex-col overflow-hidden"><span class="text-xs text-slate-400">GitHub Repository</span><span class="text-sm font-bold truncate">${repoPath || 'GitHub Link'}</span></div></a>`;
+                    } else {
+                        previewHTML = `<a href="${url}" target="_blank" class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-slate-700"><div class="w-10 h-10 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center shrink-0"><i class="fas fa-link"></i></div><div class="flex flex-col overflow-hidden w-full"><span class="text-sm font-semibold truncate text-blue-600">${url}</span><span class="text-xs text-slate-400 truncate">外部網站</span></div></a>`;
                     }
                 }
 
-                // 修改：只移除被擷取為預覽圖的第一個網址，避免其他網址被吃掉
                 let textWithoutUrl = safeText;
-                if (urlMatch) {
-                    textWithoutUrl = safeText.replace(urlMatch[0], '').trim();
-                }
-                
-                // 加入 line-clamp-3 防止超長備註撐爆卡片
+                if (urlMatch) textWithoutUrl = safeText.replace(urlMatch[0], '').trim();
                 let textHTML = textWithoutUrl ? `<div class="leading-relaxed break-words break-all text-slate-700 text-sm flex-1 line-clamp-3">${escapeHtml(textWithoutUrl)}</div>` : '';
 
-                li.innerHTML = `
-                    <div class="flex items-center justify-between gap-2 w-full min-w-0">
-                        <div class="flex items-center gap-2 flex-1 min-w-0">
-                            <i class="fas fa-star text-rose-300 shrink-0"></i>
-                            ${textHTML}
-                        </div>
-                        ${getActionButtonsHTML('bookmarks')}
-                    </div>
-                    ${previewHTML}
-                `;
+                li.innerHTML = `<div class="flex items-center justify-between gap-2 w-full min-w-0"><div class="flex items-center gap-2 flex-1 min-w-0"><i class="fas fa-star text-rose-300 shrink-0"></i>${textHTML}</div>${getActionButtonsHTML('bookmarks')}</div>${previewHTML}`;
                 attachItemListeners(li, item, 'bookmarks');
                 containerEl.appendChild(li);
             });
         }
 
-        // --- 確認刪除 Modal 行為 ---
-        cancelDeleteBtn.addEventListener('click', () => {
-            confirmModal.classList.add('hidden');
-            pendingDeleteTarget = null;
-        });
-
+        // --- UI Modal 行為 ---
+        cancelDeleteBtn.addEventListener('click', () => { confirmModal.classList.add('hidden'); pendingDeleteTarget = null; });
         confirmDeleteBtn.addEventListener('click', async () => {
             if (currentUser && pendingDeleteTarget) {
-                // 加入 Loading 鎖定，防禦雙重點擊的 Race Condition
                 const originalHTML = confirmDeleteBtn.innerHTML;
                 confirmDeleteBtn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>';
                 confirmDeleteBtn.disabled = true;
-
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingDeleteTarget.col, pendingDeleteTarget.id));
-                } catch(err) { 
-                    console.error('刪除失敗', err); 
-                } finally {
-                    confirmDeleteBtn.innerHTML = originalHTML;
-                    confirmDeleteBtn.disabled = false;
-                    confirmModal.classList.add('hidden');
-                    pendingDeleteTarget = null;
-                }
+                try { await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingDeleteTarget.col, pendingDeleteTarget.id)); } 
+                catch(err) {} finally { confirmDeleteBtn.innerHTML = originalHTML; confirmDeleteBtn.disabled = false; confirmModal.classList.add('hidden'); pendingDeleteTarget = null; }
             }
         });
 
-        // --- 編輯 Modal 行為 ---
-        cancelEditBtn.addEventListener('click', () => {
-            editModal.classList.add('hidden');
-            pendingEditTarget = null;
+        cancelMoveBtn.addEventListener('click', () => { moveModal.classList.add('hidden'); pendingMoveTarget = null; });
+        moveOptionBtns.forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const targetBtn = e.currentTarget; const targetCol = targetBtn.getAttribute('data-target');
+                if (currentUser && pendingMoveTarget) {
+                    const originalHTML = targetBtn.innerHTML; targetBtn.innerHTML = '<div class="loader w-5 h-5 mx-auto border-t-slate-500"></div>';
+                    try {
+                        const { id, ...dataToMove } = pendingMoveTarget.data;
+                        if (targetCol !== 'todos' && dataToMove.completed !== undefined) delete dataToMove.completed;
+                        await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCol), dataToMove);
+                        await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingMoveTarget.col, pendingMoveTarget.id));
+                    } catch(err) {} finally { targetBtn.innerHTML = originalHTML; moveModal.classList.add('hidden'); pendingMoveTarget = null; }
+                }
+            });
         });
 
+        cancelEditBtn.addEventListener('click', () => { editModal.classList.add('hidden'); pendingEditTarget = null; });
         confirmEditBtn.addEventListener('click', async () => {
             if (currentUser && pendingEditTarget) {
-                const newText = editInput.value.trim();
-                if (!newText) return;
-
-                const originalHTML = confirmEditBtn.innerHTML;
-                confirmEditBtn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>';
-                confirmEditBtn.disabled = true;
-
-                try {
-                    await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingEditTarget.col, pendingEditTarget.id), {
-                        text: newText
-                    });
-                } catch(err) {
-                    console.error('更新失敗', err);
-                } finally {
-                    confirmEditBtn.innerHTML = originalHTML;
-                    confirmEditBtn.disabled = false;
-                    editModal.classList.add('hidden');
-                    pendingEditTarget = null;
-                }
+                const newText = editInput.value.trim(); if (!newText) return;
+                const originalHTML = confirmEditBtn.innerHTML; confirmEditBtn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>'; confirmEditBtn.disabled = true;
+                try { await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingEditTarget.col, pendingEditTarget.id), { text: newText }); } 
+                catch(err) {} finally { confirmEditBtn.innerHTML = originalHTML; confirmEditBtn.disabled = false; editModal.classList.add('hidden'); pendingEditTarget = null; }
             }
         });
 
-        // --- 新增碎片 (支援手動分類) ---
+        // --- 新增碎片 ---
         document.getElementById('add-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            if (!currentUser) return;
-            
-            const inputEl = document.getElementById('idea-input');
-            const text = inputEl.value.trim();
-            if (!text) return;
-
-            // 取得使用者選擇的目標集合
+            e.preventDefault(); if (!currentUser) return;
+            const inputEl = document.getElementById('idea-input'); const text = inputEl.value.trim(); if (!text) return;
             const targetCollection = categorySelect.value; 
-
-            // ✨ 優化：立即清空輸入框與重置分類 (樂觀更新)，達成真正的零延遲體驗
-            inputEl.value = '';
-            categorySelect.value = 'inbox';
-            
-            const btn = document.getElementById('submit-btn');
-            btn.disabled = true;
-            btn.innerHTML = '<div class="loader w-4 h-4 border-2"></div>';
-
-            try {
-                // 背景非同步寫入資料庫，不阻擋使用者繼續輸入
-                await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), {
-                    text: text,
-                    createdAt: Date.now()
-                });
-            } catch (error) { 
-                console.error("寫入失敗:", error); 
-                // 如果遇到斷網等極端情況，把文字救回來
-                inputEl.value = text;
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>';
-                inputEl.focus(); // 確保游標馬上準備好接下一個點子
-            }
+            inputEl.value = ''; categorySelect.value = 'inbox';
+            const btn = document.getElementById('submit-btn'); btn.disabled = true; btn.innerHTML = '<div class="loader w-4 h-4 border-2"></div>';
+            try { await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), { text: text, createdAt: Date.now() }); } 
+            catch (error) { inputEl.value = text; } finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>'; inputEl.focus(); }
         });
 
         // ==========================================
         // ✨ Gemini AI 魔法整理邏輯與設定
         // ==========================================
-
         document.getElementById('settings-btn').addEventListener('click', () => {
             apiKeyInput.value = localStorage.getItem('geminiApiKey') || '';
             const savedModel = localStorage.getItem('geminiModel');
-            
-            // 如果已經有金鑰，打開時自動嘗試載入模型
-            if (apiKeyInput.value) {
-                loadModels(apiKeyInput.value, savedModel);
-            }
-            
+            autoSortSelect.value = localStorage.getItem('autoSortSetting') || 'off'; // 載入自動整理設定
+            if (apiKeyInput.value) loadModels(apiKeyInput.value, savedModel);
             settingsModal.classList.remove('hidden');
         });
-        
         document.getElementById('close-modal-btn').addEventListener('click', () => settingsModal.classList.add('hidden'));
         
-        // 驗證按鈕與載入模型
         verifyKeyBtn.addEventListener('click', async () => {
-            const key = apiKeyInput.value.trim();
-            if(!key) { alert("請先輸入 API Key"); return; }
-            
-            verifyKeyBtn.disabled = true;
-            verifyKeyBtn.innerHTML = '<div class="loader w-4 h-4 border-2 border-t-indigo-700 mx-auto"></div>';
-            
+            const key = apiKeyInput.value.trim(); if(!key) { alert("請先輸入 API Key"); return; }
+            verifyKeyBtn.disabled = true; verifyKeyBtn.innerHTML = '<div class="loader w-4 h-4 border-2 border-t-indigo-700 mx-auto"></div>';
             await loadModels(key, localStorage.getItem('geminiModel'));
-            
-            verifyKeyBtn.disabled = false;
-            verifyKeyBtn.innerText = '驗證載入';
+            verifyKeyBtn.disabled = false; verifyKeyBtn.innerText = '驗證載入';
         });
 
-        // 抓取可用模型清單
         async function loadModels(apiKey, savedModel) {
             try {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
                 if (!res.ok) throw new Error('API 驗證失敗');
                 const data = await res.json();
-                
-                // 過濾支援文字生成的模型
                 const models = data.models.filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'));
-                
                 modelSelect.innerHTML = '';
                 models.forEach(m => {
-                    const option = document.createElement('option');
-                    const modelName = m.name.replace('models/', '');
-                    option.value = modelName;
-                    option.textContent = m.displayName ? `${m.displayName} (${modelName})` : modelName;
-                    modelSelect.appendChild(option);
+                    const option = document.createElement('option'); const modelName = m.name.replace('models/', '');
+                    option.value = modelName; option.textContent = m.displayName ? `${m.displayName} (${modelName})` : modelName; modelSelect.appendChild(option);
                 });
-
-                // 回復選擇紀錄或預設 flash
-                if (savedModel && Array.from(modelSelect.options).some(opt => opt.value === savedModel)) {
-                    modelSelect.value = savedModel;
-                } else {
-                    const flashOpt = Array.from(modelSelect.options).find(opt => opt.value.includes('flash'));
-                    if (flashOpt) modelSelect.value = flashOpt.value;
-                }
-                
+                if (savedModel && Array.from(modelSelect.options).some(opt => opt.value === savedModel)) modelSelect.value = savedModel;
+                else { const flashOpt = Array.from(modelSelect.options).find(opt => opt.value.includes('flash')); if (flashOpt) modelSelect.value = flashOpt.value; }
                 modelSelectContainer.classList.remove('hidden');
-            } catch (err) {
-                console.error("載入模型失敗", err);
-                modelSelectContainer.classList.add('hidden');
-                // 不使用 alert 阻擋 UX，可讓使用者知道就好
-            }
+            } catch (err) { modelSelectContainer.classList.add('hidden'); }
         }
 
-        // 儲存設定
         document.getElementById('save-settings-btn').addEventListener('click', () => {
             const key = apiKeyInput.value.trim();
             if(key) {
                 localStorage.setItem('geminiApiKey', key);
-                if (modelSelect.value) {
-                    localStorage.setItem('geminiModel', modelSelect.value);
-                }
+                if (modelSelect.value) localStorage.setItem('geminiModel', modelSelect.value);
             }
+            // 儲存自動整理設定
+            localStorage.setItem('autoSortSetting', autoSortSelect.value);
+            
             settingsModal.classList.add('hidden');
         });
 
-        // 呼叫 Gemini AI 分類
         async function fetchGeminiCategorization(texts, apiKey, modelName) {
             const useModel = modelName || 'gemini-2.5-flash';
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent?key=${apiKey}`;
-            
             const promptText = `請將以下使用者丟入的凌亂筆記碎片進行分類。
             1. todos: 待辦事項（帶有行動意圖、生活任務、業務、購買清單）。
             2. learning: 待學習/探討資源（想研究的主題、教學文章、知識點）。
@@ -845,85 +658,61 @@
             4. bookmarks: 收藏的貼文/影片（網址、影片連結、社群貼文、資源網站）。
             
             碎片列表：
-            ${texts.map((t, i) => `[${i}] ${t}`).join('\n')}
-            `;
+            ${texts.map((t, i) => `[${i}] ${t}`).join('\n')}`;
 
             const payload = {
                 contents: [{ parts: [{ text: promptText }] }],
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: "OBJECT",
-                        properties: {
-                            todos: { type: "ARRAY", items: { type: "STRING" } },
-                            learning: { type: "ARRAY", items: { type: "STRING" } },
-                            ideas: { type: "ARRAY", items: { type: "STRING" } },
-                            bookmarks: { type: "ARRAY", items: { type: "STRING" } }
-                        }
-                    }
-                }
+                generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { todos: { type: "ARRAY", items: { type: "STRING" } }, learning: { type: "ARRAY", items: { type: "STRING" } }, ideas: { type: "ARRAY", items: { type: "STRING" } }, bookmarks: { type: "ARRAY", items: { type: "STRING" } } } } }
             };
-
             const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`API Error ${response.status}: ${errText}`);
-            }
-            const data = await response.json();
-            return JSON.parse(data.candidates[0].content.parts[0].text);
+            if (!response.ok) throw new Error(`API Error ${response.status}`);
+            const data = await response.json(); return JSON.parse(data.candidates[0].content.parts[0].text);
         }
 
-        aiSortBtn.addEventListener('click', async () => {
+        // --- 核心：執行 AI 整理 ---
+        async function performAISort() {
+            if (isSorting || currentInboxItems.length === 0 || !currentUser) return;
+            
             const apiKey = localStorage.getItem('geminiApiKey');
             const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
+            if (!apiKey) { settingsModal.classList.remove('hidden'); return; }
 
-            if (!apiKey) {
-                settingsModal.classList.remove('hidden');
-                return;
-            }
-
-            if (currentInboxItems.length === 0 || !currentUser) return;
-
+            // 狀態鎖定 (防禦雙重點擊與觸發)
+            isSorting = true;
             aiSortBtn.disabled = true;
-            aiSortText.innerText = "AI 思考中...";
-            aiSortBtn.innerHTML = `<div class="loader w-4 h-4 border-2 border-t-white"></div> <span id="ai-sort-text">AI 思考中...</span>`;
+            const originalHTML = aiSortBtn.innerHTML;
+            aiSortBtn.innerHTML = `<div class="loader w-4 h-4 border-2 border-t-white"></div> <span id="ai-sort-text">AI 背景整理中...</span>`;
 
             try {
-                const textsToCategorize = currentInboxItems.map(item => item.text);
+                // 快取「當下」的收件匣狀態，這能防禦在 API 呼叫期間新增的碎片被誤刪除
+                const itemsToCategorize = [...currentInboxItems];
+                const textsToCategorize = itemsToCategorize.map(item => item.text);
+                
                 const result = await fetchGeminiCategorization(textsToCategorize, apiKey, targetModel);
                 
                 const addItems = async (items, colName) => {
                     if(!items || items.length === 0) return;
                     const colRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, colName);
-                    for (const text of items) {
-                        await addDoc(colRef, { text: text, createdAt: Date.now() });
-                    }
+                    for (const text of items) await addDoc(colRef, { text: text, createdAt: Date.now() });
                 };
                 
-                // 同時將分類好的資料寫入四個資料庫集合
-                await Promise.all([
-                    addItems(result.todos, 'todos'),
-                    addItems(result.learning, 'learning'),
-                    addItems(result.ideas, 'ideas'),
-                    addItems(result.bookmarks, 'bookmarks')
-                ]);
+                await Promise.all([ addItems(result.todos, 'todos'), addItems(result.learning, 'learning'), addItems(result.ideas, 'ideas'), addItems(result.bookmarks, 'bookmarks') ]);
 
-                // 刪除 Inbox 舊資料
-                for (const item of currentInboxItems) {
+                // 刪除快取的舊資料 (保留思考期間新增的新資料)
+                for (const item of itemsToCategorize) {
                     await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', item.id));
                 }
             } catch (error) {
                 console.error("AI 整理失敗:", error);
-                alert("整理失敗，錯誤：" + error.message);
             } finally {
+                isSorting = false;
                 aiSortBtn.disabled = false;
-                aiSortBtn.innerHTML = `<i class="fas fa-magic"></i> <span id="ai-sort-text">AI 魔法整理</span>`;
+                aiSortBtn.innerHTML = originalHTML;
             }
-        });
-
-        function escapeHtml(unsafe) {
-            return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
+
+        aiSortBtn.addEventListener('click', performAISort);
+
     </script>
 </body>
 </html>
