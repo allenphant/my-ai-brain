@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>我的個人中樞</title>
+    <title>我的筆記區</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script>
@@ -40,7 +40,7 @@
             <div class="flex items-center justify-between w-full md:w-auto">
                 <div class="flex items-center gap-2 md:gap-3">
                     <i class="fas fa-brain text-2xl md:text-3xl text-indigo-500"></i>
-                    <h1 class="text-xl md:text-2xl font-bold tracking-tight text-slate-800">我的個人中樞</h1>
+                    <h1 class="text-xl md:text-2xl font-bold tracking-tight text-slate-800">我的筆記區</h1>
                 </div>
                 <button id="settings-btn" class="md:ml-4 text-slate-400 hover:text-slate-600 transition-colors bg-white p-2 rounded-full shadow-sm border border-slate-100"><i class="fas fa-cog"></i></button>
             </div>
@@ -68,11 +68,19 @@
                 <i class="fas fa-chevron-down absolute right-4 text-indigo-500 text-xs pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity"></i>
             </div>
             
-            <form id="add-form" class="flex-1 flex gap-2 w-full">
-                <input type="text" id="idea-input" placeholder="丟個點子、待辦或網址給我..." class="w-full bg-slate-50 md:bg-transparent border border-slate-100 md:border-none rounded-xl md:rounded-none px-3 py-2 md:py-0 md:px-2 focus:outline-none text-slate-700 placeholder-slate-400 font-medium" autocomplete="off">
-                <button type="submit" id="submit-btn" class="bg-indigo-600 text-white w-11 h-11 md:w-10 md:h-10 rounded-xl hover:bg-indigo-700 transition-all shadow-md flex items-center justify-center shrink-0 disabled:opacity-50">
-                    <i class="fas fa-paper-plane text-xs"></i>
-                </button>
+            <form id="add-form" class="flex-1 flex gap-2 w-full items-end md:items-center relative">
+                <!-- 將 input 改為 textarea 支援多行輸入 -->
+                <textarea id="idea-input" placeholder="丟個點子、待辦或網址給我... (按 Enter 送出，Shift+Enter 換行)" class="w-full bg-slate-50 md:bg-transparent border border-slate-100 md:border-none rounded-xl md:rounded-none px-3 py-2 md:py-2 focus:outline-none text-slate-700 placeholder-slate-400 font-medium resize-none overflow-hidden custom-scrollbar min-h-[40px] max-h-[150px] flex-1 leading-relaxed" rows="1"></textarea>
+                
+                <div class="flex items-center gap-1 shrink-0 pb-1 md:pb-0">
+                    <!-- 新增貼上按鈕 -->
+                    <button type="button" id="paste-btn" class="text-slate-400 hover:text-indigo-500 transition-colors p-2 rounded-lg hover:bg-slate-100" title="貼上剪貼簿內容">
+                        <i class="fas fa-clipboard"></i>
+                    </button>
+                    <button type="submit" id="submit-btn" class="bg-indigo-600 text-white w-10 h-10 rounded-xl hover:bg-indigo-700 transition-all shadow-md flex items-center justify-center shrink-0 disabled:opacity-50">
+                        <i class="fas fa-paper-plane text-xs"></i>
+                    </button>
+                </div>
             </form>
         </div>
 
@@ -106,7 +114,8 @@
                         <i class="fas fa-eye-slash" id="toggle-completed-icon"></i> <span id="toggle-completed-text">隱藏已完成</span>
                     </button>
                 </h2>
-                <ul id="todos-list" class="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+                <!-- 修改 max-h-60 為 max-h-96 讓電腦版捲軸更明顯 -->
+                <ul id="todos-list" class="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
@@ -114,7 +123,7 @@
             <!-- 📚 待學習/探討資源 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
                 <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center"><i class="fas fa-book-open text-purple-500 mr-2 text-xl"></i>待學習/探討資源</h2>
-                <ul id="learning-list" class="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+                <ul id="learning-list" class="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
@@ -122,7 +131,7 @@
             <!-- 💡 點子庫 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
                 <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center"><i class="fas fa-lightbulb text-amber-500 mr-2 text-xl"></i>點子庫</h2>
-                <ul id="ideas-list" class="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+                <ul id="ideas-list" class="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
@@ -130,7 +139,7 @@
             <!-- 📌 收藏貼文/影片 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
                 <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center"><i class="fas fa-bookmark text-rose-500 mr-2 text-xl"></i>收藏貼文/影片</h2>
-                <ul id="bookmarks-list" class="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+                <ul id="bookmarks-list" class="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
@@ -434,9 +443,10 @@
         }
 
         function getActionButtonsHTML(col) {
-            // 讓所有分類（包含 inbox）都顯示「編輯」、「移動」與「刪除」按鈕
+            // 新增複製按鈕
             return `
                 <div class="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
+                    <button class="copy-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="複製"><i class="fas fa-copy"></i></button>
                     <button class="edit-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="編輯"><i class="fas fa-pen"></i></button>
                     <button class="move-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="移動分類"><i class="fas fa-folder-open"></i></button>
                     <button class="delete-btn text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="刪除"><i class="fas fa-trash-alt"></i></button>
@@ -444,6 +454,26 @@
         }
 
         function attachItemListeners(li, item, collectionName) {
+            // 新增複製功能綁定
+            const copyBtn = li.querySelector('.copy-btn');
+            if (copyBtn) {
+                copyBtn.addEventListener('click', () => {
+                    const textArea = document.createElement("textarea");
+                    textArea.value = item.text;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    try {
+                        document.execCommand('copy');
+                        const icon = copyBtn.querySelector('i');
+                        icon.className = 'fas fa-check text-emerald-500';
+                        setTimeout(() => icon.className = 'fas fa-copy', 2000);
+                    } catch (err) {
+                        console.error('複製失敗', err);
+                    }
+                    document.body.removeChild(textArea);
+                });
+            }
+
             const deleteBtn = li.querySelector('.delete-btn');
             if (deleteBtn) {
                 deleteBtn.addEventListener('click', () => { pendingDeleteTarget = { id: item.id, col: collectionName }; confirmModal.classList.remove('hidden'); });
@@ -584,16 +614,46 @@
             }
         });
 
-        // --- 新增碎片 ---
+        // --- 多行輸入框與新增邏輯 ---
+        const ideaInput = document.getElementById('idea-input');
+        
+        // 自動長高邏輯
+        ideaInput.addEventListener('input', function() {
+            this.style.height = '40px'; // 先重置
+            this.style.height = (this.scrollHeight) + 'px'; // 再依內容撐高
+        });
+
+        // 綁定 Enter 送出，Shift+Enter 換行
+        ideaInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault(); // 阻止預設換行
+                document.getElementById('add-form').dispatchEvent(new Event('submit')); // 觸發送出
+            }
+        });
+
+        // 貼上按鈕邏輯
+        document.getElementById('paste-btn').addEventListener('click', async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                ideaInput.value += text;
+                ideaInput.dispatchEvent(new Event('input')); // 觸發自動長高
+                ideaInput.focus();
+            } catch (err) {
+                alert("無法自動讀取剪貼簿，請點擊輸入框並使用 Ctrl+V / 貼上。");
+            }
+        });
+
+        // 送出表單邏輯
         document.getElementById('add-form').addEventListener('submit', async (e) => {
             e.preventDefault(); if (!currentUser) return;
-            const inputEl = document.getElementById('idea-input'); const text = inputEl.value.trim(); if (!text) return;
+            const text = ideaInput.value.trim(); if (!text) return;
             const targetCollection = categorySelect.value; 
-            inputEl.value = ''; 
-            // 移除原本的 categorySelect.value = 'inbox'; 讓選單保持在使用者最後選擇的項目
+            ideaInput.value = ''; 
+            ideaInput.style.height = '40px'; // 送出後重置高度
+            
             const btn = document.getElementById('submit-btn'); btn.disabled = true; btn.innerHTML = '<div class="loader w-4 h-4 border-2"></div>';
             try { await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), { text: text, createdAt: Date.now() }); } 
-            catch (error) { inputEl.value = text; } finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>'; inputEl.focus(); }
+            catch (error) { ideaInput.value = text; } finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>'; ideaInput.focus(); }
         });
 
         // ==========================================
