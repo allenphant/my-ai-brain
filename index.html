@@ -18,8 +18,14 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
         body { font-family: 'Noto Sans TC', sans-serif; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* 客製化、優雅的滾動軸 */
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar:hover::-webkit-scrollbar-thumb { background-color: #94a3b8; }
+        .custom-scrollbar { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+        
         .loader { border-top-color: transparent; animation: spin 1s linear infinite; border-radius: 50%; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .todo-checked { text-decoration: line-through; color: #94a3b8; }
@@ -29,43 +35,42 @@
 <body class="bg-background text-slate-800 font-sans min-h-screen p-4 md:p-8 relative">
 
     <div class="max-w-5xl mx-auto">
-        <!-- 頂部標題區 -->
-        <header class="flex justify-between items-center mb-6">
-            <div class="flex items-center gap-3">
-                <i class="fas fa-brain text-3xl text-indigo-500"></i>
-                <h1 class="text-2xl font-bold tracking-tight text-slate-800">我的個人中樞</h1>
-                <button id="settings-btn" class="ml-2 text-slate-400 hover:text-slate-600 transition-colors bg-white p-1.5 rounded-full shadow-sm"><i class="fas fa-cog"></i></button>
+        <!-- 頂部標題區 (RWD 重構) -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+            <div class="flex items-center justify-between w-full md:w-auto">
+                <div class="flex items-center gap-2 md:gap-3">
+                    <i class="fas fa-brain text-2xl md:text-3xl text-indigo-500"></i>
+                    <h1 class="text-xl md:text-2xl font-bold tracking-tight text-slate-800">我的個人中樞</h1>
+                </div>
+                <button id="settings-btn" class="md:ml-4 text-slate-400 hover:text-slate-600 transition-colors bg-white p-2 rounded-full shadow-sm border border-slate-100"><i class="fas fa-cog"></i></button>
             </div>
             
-            <div class="flex items-center gap-4">
-                <p class="text-slate-500 text-sm mt-2 ml-16 flex items-center gap-2">
-                    <span id="auth-status" class="w-2 h-2 rounded-full bg-amber-500"></span>
-                    <span id="auth-text">等待登入...</span>
-                    <button id="login-btn" class="ml-2 bg-white border border-slate-200 text-slate-600 px-3 py-1 rounded-lg text-xs hover:bg-slate-50 shadow-sm transition-colors hidden"><i class="fab fa-google text-red-500 mr-1"></i>Google 登入</button>
-                    <button id="logout-btn" class="ml-2 bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-xs hover:bg-slate-200 transition-colors hidden">登出</button>
-                </p>
+            <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm w-full md:w-auto justify-between md:justify-end">
+                <div class="flex items-center gap-2">
+                    <span id="auth-status" class="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-inner shrink-0"></span>
+                    <span id="auth-text" class="text-slate-600 text-sm font-medium truncate max-w-[150px]">等待登入...</span>
+                </div>
+                <button id="login-btn" class="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors hidden shrink-0"><i class="fab fa-google text-red-500 mr-1"></i>登入</button>
+                <button id="logout-btn" class="bg-slate-100 text-slate-500 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-200 transition-colors hidden shrink-0">登出</button>
             </div>
         </header>
 
-        <!-- 無延遲新增輸入框 -->
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-2 mb-8 flex gap-2 items-center sticky top-4 z-40 group focus-within:ring-2 focus-within:ring-indigo-200 transition-all">
-            
-            <!-- 修正：加入 relative 容器包覆，並加大按鈕與內距 -->
-            <div class="relative shrink-0 flex items-center">
-                <select id="category-select" class="bg-indigo-50 text-indigo-700 font-semibold px-4 py-2.5 rounded-xl text-sm border-none outline-none cursor-pointer appearance-none pr-10 hover:bg-indigo-100 transition-colors">
+        <!-- 無延遲新增輸入框 (RWD 重構) -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-2 mb-8 flex flex-col md:flex-row gap-2 sticky top-4 z-40 group focus-within:ring-2 focus-within:ring-indigo-200 transition-all">
+            <div class="relative shrink-0 flex items-center w-full md:w-auto">
+                <select id="category-select" class="w-full md:w-auto bg-indigo-50 text-indigo-700 font-semibold px-4 py-2.5 rounded-xl text-sm border-none outline-none cursor-pointer appearance-none pr-10 hover:bg-indigo-100 transition-colors">
                     <option value="inbox">📥 收件匣 (由 AI 分類)</option>
                     <option value="todos">✅ 待辦事項</option>
                     <option value="learning">📚 待學習/探討</option>
                     <option value="ideas">💡 點子庫</option>
                     <option value="bookmarks">📌 收藏網址</option>
                 </select>
-                <!-- 修正：將箭頭改為 right-3.5 靠右對齊，確保不與文字重疊 -->
-                <i class="fas fa-chevron-down absolute right-3.5 text-indigo-500 text-xs pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity"></i>
+                <i class="fas fa-chevron-down absolute right-4 text-indigo-500 text-xs pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity"></i>
             </div>
             
-            <form id="add-form" class="flex-1 flex gap-2">
-                <input type="text" id="idea-input" placeholder="丟個點子、待辦或網址給我..." class="w-full bg-transparent border-none focus:outline-none px-2 text-slate-700 placeholder-slate-400 font-medium" autocomplete="off">
-                <button type="submit" id="submit-btn" class="bg-indigo-600 text-white w-10 h-10 rounded-xl hover:bg-indigo-700 transition-all shadow-md flex items-center justify-center shrink-0 disabled:opacity-50">
+            <form id="add-form" class="flex-1 flex gap-2 w-full">
+                <input type="text" id="idea-input" placeholder="丟個點子、待辦或網址給我..." class="w-full bg-slate-50 md:bg-transparent border border-slate-100 md:border-none rounded-xl md:rounded-none px-3 py-2 md:py-0 md:px-2 focus:outline-none text-slate-700 placeholder-slate-400 font-medium" autocomplete="off">
+                <button type="submit" id="submit-btn" class="bg-indigo-600 text-white w-11 h-11 md:w-10 md:h-10 rounded-xl hover:bg-indigo-700 transition-all shadow-md flex items-center justify-center shrink-0 disabled:opacity-50">
                     <i class="fas fa-paper-plane text-xs"></i>
                 </button>
             </form>
@@ -85,7 +90,7 @@
         </div>
 
         <!-- 未分類清單 -->
-        <ul id="inbox-list" class="space-y-3 mb-8 min-h-[50px]">
+        <ul id="inbox-list" class="space-y-3 mb-8 min-h-[50px] custom-scrollbar">
             <li class="bg-white/80 p-4 rounded-xl border border-indigo-100 text-slate-500 text-sm text-center">載入中...</li>
         </ul>
 
@@ -101,7 +106,7 @@
                         <i class="fas fa-eye-slash" id="toggle-completed-icon"></i> <span id="toggle-completed-text">隱藏已完成</span>
                     </button>
                 </h2>
-                <ul id="todos-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
+                <ul id="todos-list" class="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
@@ -109,7 +114,7 @@
             <!-- 📚 待學習/探討資源 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
                 <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center"><i class="fas fa-book-open text-purple-500 mr-2 text-xl"></i>待學習/探討資源</h2>
-                <ul id="learning-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
+                <ul id="learning-list" class="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
@@ -117,7 +122,7 @@
             <!-- 💡 點子庫 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
                 <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center"><i class="fas fa-lightbulb text-amber-500 mr-2 text-xl"></i>點子庫</h2>
-                <ul id="ideas-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
+                <ul id="ideas-list" class="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
@@ -125,7 +130,7 @@
             <!-- 📌 收藏貼文/影片 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
                 <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center"><i class="fas fa-bookmark text-rose-500 mr-2 text-xl"></i>收藏貼文/影片</h2>
-                <ul id="bookmarks-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
+                <ul id="bookmarks-list" class="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
                 </ul>
             </div>
@@ -134,7 +139,7 @@
 
     <!-- API 金鑰設定 Modal -->
     <div id="settings-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-bold text-slate-800">⚙️ 系統設定</h3>
                 <button id="close-modal-btn" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
@@ -153,7 +158,7 @@
                 <select id="model-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer"></select>
             </div>
 
-            <!-- 新增：懶人觸發自動整理設定 -->
+            <!-- 自動整理設定 -->
             <div class="mb-6">
                 <label class="block text-sm font-semibold text-slate-700 mb-2 flex justify-between">
                     自動整理 (懶人觸發) 
@@ -175,7 +180,7 @@
 
     <!-- 刪除確認 Modal -->
     <div id="confirm-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
             <h3 class="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
                 <i class="fas fa-exclamation-triangle text-amber-500"></i> 確定要刪除嗎？
             </h3>
@@ -195,7 +200,7 @@
             <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
                 <i class="fas fa-folder-open text-indigo-500"></i> 移動到...
             </h3>
-            <div class="flex flex-col gap-2 mb-6 overflow-y-auto no-scrollbar" id="move-options-container">
+            <div class="flex flex-col gap-2 mb-6 overflow-y-auto custom-scrollbar" id="move-options-container">
                 <button class="move-option-btn p-3 text-left rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 transition-colors flex items-center gap-3" data-target="todos">
                     <i class="fas fa-check-square text-emerald-500 text-xl w-6 text-center"></i>
                     <span class="font-semibold text-slate-700">待辦事項</span>
@@ -225,7 +230,7 @@
             <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 shrink-0">
                 <i class="fas fa-pen text-indigo-500"></i> 編輯碎片
             </h3>
-            <textarea id="edit-input" class="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm mb-4 h-32 resize-none flex-1 min-h-[100px]"></textarea>
+            <textarea id="edit-input" class="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm mb-4 h-32 resize-none flex-1 min-h-[100px] custom-scrollbar"></textarea>
             <div class="flex justify-end gap-3 shrink-0">
                 <button id="cancel-edit-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100 transition-colors">取消</button>
                 <button id="confirm-edit-btn" class="px-4 py-2 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-sm">
@@ -290,7 +295,7 @@
         const verifyKeyBtn = document.getElementById('verify-key-btn');
         const modelSelectContainer = document.getElementById('model-select-container');
         const modelSelect = document.getElementById('model-select');
-        const autoSortSelect = document.getElementById('auto-sort-select'); // 自動整理選單
+        const autoSortSelect = document.getElementById('auto-sort-select'); 
         const categorySelect = document.getElementById('category-select');
         const loginBtn = document.getElementById('login-btn');
         const logoutBtn = document.getElementById('logout-btn');
@@ -363,10 +368,10 @@
 
         // --- 🤖 自動整理 (懶人觸發) 邏輯 ---
         function checkAutoSortCondition() {
-            if (isSorting || currentInboxItems.length === 0) return; // 沒東西就不理他
+            if (isSorting || currentInboxItems.length === 0) return; 
 
             const apiKey = localStorage.getItem('geminiApiKey');
-            if (!apiKey) return; // 沒金鑰無法運作
+            if (!apiKey) return; 
 
             const autoSetting = localStorage.getItem('autoSortSetting') || 'off';
             if (autoSetting === 'off') return;
@@ -374,19 +379,16 @@
             const now = Date.now();
             const lastSortTime = parseInt(localStorage.getItem('lastAutoSortTime') || '0', 10);
 
-            // 判斷是否滿足觸發條件
             let shouldTrigger = false;
             if (autoSetting === 'always') {
                 shouldTrigger = true;
             } else if (autoSetting === 'daily') {
-                // 檢查是否超過 24 小時 (24 * 60 * 60 * 1000 毫秒)
                 if (now - lastSortTime > 86400000) {
                     shouldTrigger = true;
                 }
             }
 
             if (shouldTrigger) {
-                // 立即鎖定時間，防禦多裝置同時開網頁的 Race Condition
                 localStorage.setItem('lastAutoSortTime', now.toString());
                 console.log('🤖 懶人觸發條件達成，開始自動背景整理...');
                 performAISort();
@@ -406,10 +408,9 @@
                 document.getElementById('inbox-count').innerText = currentInboxItems.length;
                 aiSortBtn.disabled = currentInboxItems.length === 0;
 
-                // 🌟 當初次載入完成時，檢查是否要觸發「懶人整理」
                 if (isInitialInboxLoad) {
                     isInitialInboxLoad = false;
-                    setTimeout(checkAutoSortCondition, 800); // 延遲一下讓畫面跑完再觸發
+                    setTimeout(checkAutoSortCondition, 800); 
                 }
             });
 
@@ -433,13 +434,7 @@
         }
 
         function getActionButtonsHTML(col) {
-            if (col === 'inbox') {
-                return `
-                    <div class="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
-                        <button class="edit-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="編輯"><i class="fas fa-pen"></i></button>
-                        <button class="delete-btn text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="刪除"><i class="fas fa-trash-alt"></i></button>
-                    </div>`;
-            }
+            // 讓所有分類（包含 inbox）都顯示「編輯」、「移動」與「刪除」按鈕
             return `
                 <div class="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
                     <button class="edit-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="編輯"><i class="fas fa-pen"></i></button>
@@ -484,9 +479,9 @@
                 const li = document.createElement('li');
                 li.className = 'bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-center justify-between shadow-sm group hover:shadow-md transition-all';
                 li.innerHTML = `
-                    <div class="flex items-center gap-2 flex-1 min-w-0">
-                        <i class="${iconClass} shrink-0 mr-1"></i>
-                        <div class="leading-relaxed break-words break-all pr-2 line-clamp-3 text-left flex-1">${escapeHtml(item.text)}</div>
+                    <div class="flex items-start gap-2 flex-1 min-w-0">
+                        <i class="${iconClass} shrink-0 mt-1.5 mr-1"></i>
+                        <div class="leading-relaxed break-words break-all pr-2 line-clamp-3 text-left flex-1 whitespace-pre-wrap">${escapeHtml(item.text)}</div>
                     </div>
                     ${getActionButtonsHTML(collectionName)}`;
                 attachItemListeners(li, item, collectionName);
@@ -504,9 +499,9 @@
                 const li = document.createElement('li');
                 li.className = `bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-center justify-between shadow-sm group hover:shadow-md transition-all ${isCompleted ? 'todo-item-completed' : ''}`;
                 li.innerHTML = `
-                    <label class="flex items-center gap-3 flex-1 cursor-pointer min-w-0">
-                        <input type="checkbox" ${isCompleted ? 'checked' : ''} class="w-4 h-4 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0">
-                        <div class="leading-relaxed break-words break-all pr-2 flex-1 transition-all line-clamp-3 ${textClass}">${escapeHtml(item.text)}</div>
+                    <label class="flex items-start gap-3 flex-1 cursor-pointer min-w-0">
+                        <input type="checkbox" ${isCompleted ? 'checked' : ''} class="w-4 h-4 mt-0.5 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0">
+                        <div class="leading-relaxed break-words break-all pr-2 flex-1 transition-all line-clamp-3 whitespace-pre-wrap ${textClass}">${escapeHtml(item.text)}</div>
                     </label>
                     ${getActionButtonsHTML('todos')}`;
                 li.querySelector('input[type="checkbox"]').addEventListener('change', async (e) => {
@@ -543,9 +538,9 @@
 
                 let textWithoutUrl = safeText;
                 if (urlMatch) textWithoutUrl = safeText.replace(urlMatch[0], '').trim();
-                let textHTML = textWithoutUrl ? `<div class="leading-relaxed break-words break-all text-slate-700 text-sm flex-1 line-clamp-3">${escapeHtml(textWithoutUrl)}</div>` : '';
+                let textHTML = textWithoutUrl ? `<div class="leading-relaxed break-words break-all text-slate-700 text-sm flex-1 line-clamp-3 whitespace-pre-wrap">${escapeHtml(textWithoutUrl)}</div>` : '';
 
-                li.innerHTML = `<div class="flex items-center justify-between gap-2 w-full min-w-0"><div class="flex items-center gap-2 flex-1 min-w-0"><i class="fas fa-star text-rose-300 shrink-0"></i>${textHTML}</div>${getActionButtonsHTML('bookmarks')}</div>${previewHTML}`;
+                li.innerHTML = `<div class="flex items-start justify-between gap-2 w-full min-w-0"><div class="flex items-start gap-2 flex-1 min-w-0"><i class="fas fa-star text-rose-300 shrink-0 mt-1"></i>${textHTML}</div>${getActionButtonsHTML('bookmarks')}</div>${previewHTML}`;
                 attachItemListeners(li, item, 'bookmarks');
                 containerEl.appendChild(li);
             });
@@ -594,7 +589,8 @@
             e.preventDefault(); if (!currentUser) return;
             const inputEl = document.getElementById('idea-input'); const text = inputEl.value.trim(); if (!text) return;
             const targetCollection = categorySelect.value; 
-            inputEl.value = ''; categorySelect.value = 'inbox';
+            inputEl.value = ''; 
+            // 移除原本的 categorySelect.value = 'inbox'; 讓選單保持在使用者最後選擇的項目
             const btn = document.getElementById('submit-btn'); btn.disabled = true; btn.innerHTML = '<div class="loader w-4 h-4 border-2"></div>';
             try { await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), { text: text, createdAt: Date.now() }); } 
             catch (error) { inputEl.value = text; } finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>'; inputEl.focus(); }
@@ -606,7 +602,7 @@
         document.getElementById('settings-btn').addEventListener('click', () => {
             apiKeyInput.value = localStorage.getItem('geminiApiKey') || '';
             const savedModel = localStorage.getItem('geminiModel');
-            autoSortSelect.value = localStorage.getItem('autoSortSetting') || 'off'; // 載入自動整理設定
+            autoSortSelect.value = localStorage.getItem('autoSortSetting') || 'off'; 
             if (apiKeyInput.value) loadModels(apiKeyInput.value, savedModel);
             settingsModal.classList.remove('hidden');
         });
@@ -642,23 +638,25 @@
                 localStorage.setItem('geminiApiKey', key);
                 if (modelSelect.value) localStorage.setItem('geminiModel', modelSelect.value);
             }
-            // 儲存自動整理設定
             localStorage.setItem('autoSortSetting', autoSortSelect.value);
-            
             settingsModal.classList.add('hidden');
         });
 
         async function fetchGeminiCategorization(texts, apiKey, modelName) {
             const useModel = modelName || 'gemini-2.5-flash';
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent?key=${apiKey}`;
+            
             const promptText = `請將以下使用者丟入的凌亂筆記碎片進行分類。
             1. todos: 待辦事項（帶有行動意圖、生活任務、業務、購買清單）。
             2. learning: 待學習/探討資源（想研究的主題、教學文章、知識點）。
             3. ideas: 點子庫（靈感、專案構想、草稿）。
             4. bookmarks: 收藏的貼文/影片（網址、影片連結、社群貼文、資源網站）。
             
-            碎片列表：
-            ${texts.map((t, i) => `[${i}] ${t}`).join('\n')}`;
+            【重要指示】
+            輸入的資料是一個 JSON 陣列。請絕對尊重每一筆獨立的字串（即使裡面包含換行符號 \\n 也不要把它切斷）。請完整輸出原字串。
+            
+            碎片列表 (JSON Array):
+            ${JSON.stringify(texts)}`;
 
             const payload = {
                 contents: [{ parts: [{ text: promptText }] }],
@@ -677,14 +675,12 @@
             const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
             if (!apiKey) { settingsModal.classList.remove('hidden'); return; }
 
-            // 狀態鎖定 (防禦雙重點擊與觸發)
             isSorting = true;
             aiSortBtn.disabled = true;
             const originalHTML = aiSortBtn.innerHTML;
             aiSortBtn.innerHTML = `<div class="loader w-4 h-4 border-2 border-t-white"></div> <span id="ai-sort-text">AI 背景整理中...</span>`;
 
             try {
-                // 快取「當下」的收件匣狀態，這能防禦在 API 呼叫期間新增的碎片被誤刪除
                 const itemsToCategorize = [...currentInboxItems];
                 const textsToCategorize = itemsToCategorize.map(item => item.text);
                 
@@ -698,7 +694,6 @@
                 
                 await Promise.all([ addItems(result.todos, 'todos'), addItems(result.learning, 'learning'), addItems(result.ideas, 'ideas'), addItems(result.bookmarks, 'bookmarks') ]);
 
-                // 刪除快取的舊資料 (保留思考期間新增的新資料)
                 for (const item of itemsToCategorize) {
                     await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', item.id));
                 }
@@ -716,4 +711,3 @@
     </script>
 </body>
 </html>
-
