@@ -110,9 +110,16 @@
                     <div class="flex items-center">
                         <i class="fas fa-check-square text-emerald-500 mr-2 text-xl"></i>待辦事項
                     </div>
-                    <button id="toggle-completed-btn" class="text-xs font-normal text-slate-500 hover:text-slate-800 bg-slate-50 border border-slate-200 hover:bg-slate-100 px-2 py-1 rounded-md transition-colors flex items-center gap-1 focus:outline-none shadow-sm">
-                        <i class="fas fa-eye-slash" id="toggle-completed-icon"></i> <span id="toggle-completed-text">隱藏已完成</span>
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <!-- 新增：刪除所有已完成按鈕 -->
+                        <button id="delete-completed-btn" class="text-xs font-normal text-rose-500 hover:text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 px-2 py-1 rounded-md transition-colors flex items-center gap-1 focus:outline-none shadow-sm opacity-50 cursor-not-allowed">
+                            <i class="fas fa-trash-alt"></i> <span class="hidden sm:inline">清空已完成</span>
+                        </button>
+                        <!-- 隱藏已完成按鈕 -->
+                        <button id="toggle-completed-btn" class="text-xs font-normal text-slate-500 hover:text-slate-800 bg-slate-50 border border-slate-200 hover:bg-slate-100 px-2 py-1 rounded-md transition-colors flex items-center gap-1 focus:outline-none shadow-sm">
+                            <i class="fas fa-eye-slash" id="toggle-completed-icon"></i> <span id="toggle-completed-text">隱藏已完成</span>
+                        </button>
+                    </div>
                 </h2>
                 <!-- 修改 max-h-60 為 max-h-96 讓電腦版捲軸更明顯 -->
                 <ul id="todos-list" class="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
@@ -203,6 +210,22 @@
         </div>
     </div>
 
+    <!-- 新增：清空已完成確認 Modal -->
+    <div id="confirm-delete-completed-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <h3 class="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
+                <i class="fas fa-exclamation-triangle text-rose-500"></i> 刪除所有已完成？
+            </h3>
+            <p class="text-sm text-slate-500 mb-6">這將會永久刪除所有已打勾的待辦事項，無法復原。</p>
+            <div class="flex justify-end gap-3">
+                <button id="cancel-delete-completed-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100 transition-colors">取消</button>
+                <button id="confirm-delete-completed-btn" class="px-4 py-2 rounded-lg font-semibold bg-rose-500 text-white hover:bg-rose-600 transition-colors flex items-center gap-2">
+                    <i class="fas fa-trash-alt"></i> 一鍵清空
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 移動分類 Modal -->
     <div id="move-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] flex flex-col">
@@ -282,6 +305,7 @@
         // --- 全域變數 ---
         let currentUser = null;
         let currentInboxItems = []; 
+        let currentTodoItems = []; // 新增：保存當前的待辦事項清單以便執行批次刪除
         let pendingDeleteTarget = null;
         let pendingMoveTarget = null;
         let pendingEditTarget = null;
@@ -323,6 +347,46 @@
         const confirmEditBtn = document.getElementById('confirm-edit-btn');
 
         const toggleCompletedBtn = document.getElementById('toggle-completed-btn');
+        const deleteCompletedBtn = document.getElementById('delete-completed-btn');
+        
+        const confirmDeleteCompletedModal = document.getElementById('confirm-delete-completed-modal');
+        const cancelDeleteCompletedBtn = document.getElementById('cancel-delete-completed-btn');
+        const confirmDeleteCompletedBtn = document.getElementById('confirm-delete-completed-btn');
+
+        // --- 刪除所有已完成邏輯 ---
+        deleteCompletedBtn.addEventListener('click', () => {
+            const hasCompleted = currentTodoItems.some(item => item.completed);
+            if (!hasCompleted) return; // 如果按鈕因為被強制點擊，再做一次防呆
+            confirmDeleteCompletedModal.classList.remove('hidden');
+        });
+
+        cancelDeleteCompletedBtn.addEventListener('click', () => {
+            confirmDeleteCompletedModal.classList.add('hidden');
+        });
+
+        confirmDeleteCompletedBtn.addEventListener('click', async () => {
+            if (!currentUser) return;
+            const completedTodos = currentTodoItems.filter(item => item.completed);
+            if (completedTodos.length === 0) return;
+
+            const originalHTML = confirmDeleteCompletedBtn.innerHTML;
+            confirmDeleteCompletedBtn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>';
+            confirmDeleteCompletedBtn.disabled = true;
+
+            try {
+                // 批次執行所有已完成項目的刪除
+                const deletePromises = completedTodos.map(item => 
+                    deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'todos', item.id))
+                );
+                await Promise.all(deletePromises);
+            } catch(err) {
+                console.error("批次刪除已完成項目失敗", err);
+            } finally {
+                confirmDeleteCompletedBtn.innerHTML = originalHTML;
+                confirmDeleteCompletedBtn.disabled = false;
+                confirmDeleteCompletedModal.classList.add('hidden');
+            }
+        });
 
         // --- 隱藏已完成按鈕邏輯 ---
         toggleCompletedBtn.addEventListener('click', () => {
@@ -423,10 +487,26 @@
                 }
             });
 
+            // 2. Todos
             onSnapshot(getCol('todos'), (snapshot) => {
-                const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
-                items.sort((a, b) => b.createdAt - a.createdAt); renderTodos(items, todosList);
+                const items = []; 
+                snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+                items.sort((a, b) => b.createdAt - a.createdAt); 
+                currentTodoItems = items; // 將狀態同步至全域，供「清空已完成」使用
+                
+                // 動態設定「清空已完成」按鈕的外觀與狀態
+                const hasCompleted = items.some(item => item.completed);
+                if (hasCompleted) {
+                    deleteCompletedBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    deleteCompletedBtn.classList.add('cursor-pointer');
+                } else {
+                    deleteCompletedBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    deleteCompletedBtn.classList.remove('cursor-pointer');
+                }
+
+                renderTodos(items, todosList);
             });
+
             onSnapshot(getCol('learning'), (snapshot) => renderCollection(snapshot, learningList, 'learning', 'fas fa-book text-purple-300'));
             onSnapshot(getCol('ideas'), (snapshot) => renderCollection(snapshot, ideasList, 'ideas', 'fas fa-bolt text-amber-400'));
             onSnapshot(getCol('bookmarks'), (snapshot) => {
