@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的個人中樞 (AI 助理)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366f1',
+                        surface: '#ffffff',
+                        background: '#f8fafc',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* 簡單的載入動畫 */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #6366f1;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* 新增 Todo 完成的樣式 */
+        .todo-checked { text-decoration: line-through; color: #94a3b8; }
+    </style>
+</head>
+<body class="bg-background text-slate-800 font-sans min-h-screen p-4 md:p-8 relative">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- 頂部標題與輸入區 -->
+        <header class="mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
+            <div>
+                <div class="flex items-center gap-4">
+                    <h1 class="text-3xl md:text-4xl font-bold text-slate-900 flex items-center gap-3">
+                        <div class="bg-primary/10 p-3 rounded-2xl">
+                            <i class="fas fa-brain text-primary"></i>
+                        </div>
+                        我的個人中樞
+                    </h1>
+                    <!-- 設定 API Key 的按鈕 -->
+                    <button id="settings-btn" class="mt-2 text-slate-400 hover:text-slate-600 transition-colors p-2 bg-white rounded-full shadow-sm border border-slate-100">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+                <p class="text-slate-500 text-sm mt-2 ml-16 flex items-center gap-2">
+                    <span id="auth-status" class="w-2 h-2 rounded-full bg-amber-500"></span>
+                    <span id="auth-text">等待登入...</span>
+                    <button id="login-btn" class="ml-2 bg-white border border-slate-200 text-slate-600 px-3 py-1 rounded-lg text-xs hover:bg-slate-50 shadow-sm transition-colors hidden"><i class="fab fa-google text-red-500 mr-1"></i>Google 登入</button>
+                    <button id="logout-btn" class="ml-2 bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-xs hover:bg-slate-200 transition-colors hidden">登出</button>
+                </p>
+            </div>
+            
+            <!-- 無延遲新增輸入框 (加入分類選擇) -->
+            <form id="add-form" class="w-full lg:w-[600px] flex flex-col sm:flex-row gap-2 relative">
+                <!-- 分類下拉選單 -->
+                <div class="relative shrink-0">
+                    <select id="category-select" class="w-full sm:w-auto appearance-none bg-white border border-slate-200 text-slate-700 py-3 pl-4 pr-10 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary cursor-pointer text-sm font-semibold transition-all hover:bg-slate-50">
+                        <option value="inbox">✨ 進收件匣 (由 AI 分類)</option>
+                        <option value="todos">✅ 指定：待辦事項</option>
+                        <option value="learning">📚 指定：待學習/探討</option>
+                        <option value="ideas">💡 指定：點子庫</option>
+                        <option value="bookmarks">📌 指定：收藏貼文/影片</option>
+                    </select>
+                    <i class="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
+                </div>
+
+                <!-- 輸入框本體 -->
+                <div class="relative flex-1">
+                    <input type="text" id="idea-input" required autocomplete="off"
+                        placeholder="丟個點子、待辦或網址給我..." 
+                        class="w-full pl-4 pr-12 py-3 rounded-xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-sm">
+                    <button type="submit" id="submit-btn" class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-primary text-white rounded-lg hover:bg-primary/90 flex items-center justify-center transition-colors">
+                        <i class="fas fa-paper-plane text-xs"></i>
+                    </button>
+                </div>
+            </form>
+        </header>
+
+        <!-- 收件匣 (Inbox) 獨立置頂 -->
+        <div class="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-2xl p-6 shadow-sm relative overflow-hidden mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-inbox text-indigo-500 text-xl"></i>
+                    <h2 class="text-xl font-bold text-slate-800">📥 收件匣 (未分類碎片)</h2>
+                    <span id="inbox-count" class="text-xs text-indigo-600 bg-indigo-100 px-2 py-1 rounded-full ml-2">0</span>
+                </div>
+                <!-- AI 魔法整理按鈕 -->
+                <button id="ai-sort-btn" class="bg-white border border-indigo-200 text-indigo-600 px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-magic"></i> <span id="ai-sort-text">AI 魔法整理</span>
+                </button>
+            </div>
+            <ul id="inbox-list" class="space-y-3">
+                <li class="flex justify-center py-4 text-slate-400"><div class="loader"></div></li>
+            </ul>
+        </div>
+
+        <!-- 網格佈局區：四大分類 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <!-- ✅ 待辦事項 -->
+            <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
+                    <i class="fas fa-check-square text-emerald-500 mr-2 text-xl"></i>待辦事項
+                </h2>
+                <ul id="todos-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
+                    <li class="text-sm text-slate-400 italic">載入中...</li>
+                </ul>
+            </div>
+
+            <!-- 📚 待學習/探討資源 -->
+            <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
+                    <i class="fas fa-book-open text-purple-500 mr-2 text-xl"></i>待學習/探討資源
+                </h2>
+                <ul id="learning-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
+                    <li class="text-sm text-slate-400 italic">載入中...</li>
+                </ul>
+            </div>
+
+            <!-- 💡 點子庫 -->
+            <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
+                    <i class="fas fa-lightbulb text-amber-500 mr-2 text-xl"></i>點子庫
+                </h2>
+                <ul id="ideas-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
+                    <li class="text-sm text-slate-400 italic">載入中...</li>
+                </ul>
+            </div>
+
+            <!-- 📌 收藏的貼文/影片 -->
+            <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
+                    <i class="fas fa-bookmark text-rose-500 mr-2 text-xl"></i>收藏貼文/影片
+                </h2>
+                <ul id="bookmarks-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
+                    <li class="text-sm text-slate-400 italic">載入中...</li>
+                </ul>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- API 金鑰設定 Modal -->
+    <div id="settings-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-slate-800">⚙️ 系統設定</h3>
+                <button id="close-modal-btn" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-semibold text-slate-700 mb-2">Google Gemini API Key</label>
+                <div class="flex gap-2 mb-2">
+                    <input type="password" id="api-key-input" placeholder="AIzaSy..." class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm font-mono">
+                    <button id="verify-key-btn" class="bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg text-sm font-bold hover:bg-indigo-200 transition-colors shrink-0">驗證載入</button>
+                </div>
+                <p class="text-xs text-slate-500 mt-2">
+                    填入 API Key 才能啟用魔法整理。<a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-primary hover:underline">點此前往申請</a>
+                </p>
+            </div>
+            
+            <!-- 新增：動態模型選擇區塊 -->
+            <div class="mb-6 hidden" id="model-select-container">
+                <label class="block text-sm font-semibold text-slate-700 mb-2">選擇 AI 模型</label>
+                <select id="model-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer"></select>
+                <p class="text-[10px] text-slate-400 mt-1">建議使用 flash 結尾的模型，速度最快。</p>
+            </div>
+
+            <button id="save-settings-btn" class="w-full bg-slate-800 text-white py-2 rounded-lg font-semibold hover:bg-slate-700 transition-colors">
+                儲存設定
+            </button>
+        </div>
+    </div>
+
+    <!-- 新增：刪除確認 Modal -->
+    <div id="confirm-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
+            <h3 class="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
+                <i class="fas fa-exclamation-triangle text-amber-500"></i> 確定要刪除嗎？
+            </h3>
+            <p class="text-sm text-slate-500 mb-6">這個碎片將會被永久刪除，無法復原。</p>
+            <div class="flex justify-end gap-3">
+                <button id="cancel-delete-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100 transition-colors">取消</button>
+                <button id="confirm-delete-btn" class="px-4 py-2 rounded-lg font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors flex items-center gap-2">
+                    <i class="fas fa-trash-alt"></i> 確認刪除
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增：移動分類 Modal -->
+    <div id="move-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
+            <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <i class="fas fa-folder-open text-indigo-500"></i> 移動到...
+            </h3>
+            <div class="flex flex-col gap-2 mb-6" id="move-options-container">
+                <button class="move-option-btn p-3 text-left rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 transition-colors flex items-center gap-3" data-target="todos">
+                    <i class="fas fa-check-square text-emerald-500 text-xl w-6 text-center"></i>
+                    <span class="font-semibold text-slate-700">待辦事項</span>
+                </button>
+                <button class="move-option-btn p-3 text-left rounded-xl border border-slate-200 hover:border-purple-500 hover:bg-purple-50 transition-colors flex items-center gap-3" data-target="learning">
+                    <i class="fas fa-book-open text-purple-500 text-xl w-6 text-center"></i>
+                    <span class="font-semibold text-slate-700">待學習/探討資源</span>
+                </button>
+                <button class="move-option-btn p-3 text-left rounded-xl border border-slate-200 hover:border-amber-500 hover:bg-amber-50 transition-colors flex items-center gap-3" data-target="ideas">
+                    <i class="fas fa-lightbulb text-amber-500 text-xl w-6 text-center"></i>
+                    <span class="font-semibold text-slate-700">點子庫</span>
+                </button>
+                <button class="move-option-btn p-3 text-left rounded-xl border border-slate-200 hover:border-rose-500 hover:bg-rose-50 transition-colors flex items-center gap-3" data-target="bookmarks">
+                    <i class="fas fa-bookmark text-rose-500 text-xl w-6 text-center"></i>
+                    <span class="font-semibold text-slate-700">收藏貼文/影片</span>
+                </button>
+            </div>
+            <div class="flex justify-end">
+                <button id="cancel-move-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100 transition-colors w-full">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase 模組化 SDK & 邏輯 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase 初始化 ---
+        let firebaseConfig;
+        let appId = 'my-personal-ai-brain'; 
+        if (typeof __firebase_config !== 'undefined') {
+            firebaseConfig = JSON.parse(__firebase_config);
+            appId = typeof __app_id !== 'undefined' ? __app_id : appId;
+        } else {
+            // ✅ 已成功將你的專屬金鑰填入
+            firebaseConfig = {
+                apiKey: "AIzaSyC30YPS_CkGVBS8IBrq74sBW0pkP1-ev6w",
+                authDomain: "my-ai-brain-6867e.firebaseapp.com",
+                projectId: "my-ai-brain-6867e",
+                storageBucket: "my-ai-brain-6867e.firebasestorage.app",
+                messagingSenderId: "755512158785",
+                appId: "1:755512158785:web:8376054556e01717f9b4c0",
+                measurementId: "G-7HKT6FQ10L"
+            };
+        }
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+        const db = getFirestore(app);
+
+        // --- 全域變數 ---
+        let currentUser = null;
+        let currentInboxItems = []; 
+        let pendingDeleteTarget = null; // 儲存準備刪除的目標 {id, col}
+        let pendingMoveTarget = null;   // 儲存準備移動的目標 {id, col, data}
+
+        // --- DOM 元素 ---
+        const inboxList = document.getElementById('inbox-list');
+        const todosList = document.getElementById('todos-list');
+        const learningList = document.getElementById('learning-list');
+        const ideasList = document.getElementById('ideas-list');
+        const bookmarksList = document.getElementById('bookmarks-list');
+        
+        const aiSortBtn = document.getElementById('ai-sort-btn');
+        const aiSortText = document.getElementById('ai-sort-text');
+        
+        // 設定與模型 Modal
+        const settingsModal = document.getElementById('settings-modal');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const verifyKeyBtn = document.getElementById('verify-key-btn');
+        const modelSelectContainer = document.getElementById('model-select-container');
+        const modelSelect = document.getElementById('model-select');
+        
+        const categorySelect = document.getElementById('category-select');
+        
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+
+        // 刪除確認 Modal
+        const confirmModal = document.getElementById('confirm-modal');
+        const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+        const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+
+        // 移動分類 Modal
+        const moveModal = document.getElementById('move-modal');
+        const cancelMoveBtn = document.getElementById('cancel-move-btn');
+        const moveOptionBtns = document.querySelectorAll('.move-option-btn');
+
+        // --- 認證 (改為 Google 登入) ---
+        const initAuth = async () => {
+            // 如果在 Canvas 測試環境有自訂 token，維持內部預覽運作
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                try {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } catch (error) { console.error("Canvas 登入失敗:", error); }
+            }
+        };
+        initAuth();
+
+        // 綁定 Google 登入按鈕
+        loginBtn.addEventListener('click', async () => {
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (error) { 
+                console.error("Google 登入失敗:", error); 
+                alert("登入失敗：" + error.message); 
+            }
+        });
+
+        // 綁定登出按鈕
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await signOut(auth);
+                window.location.reload(); // 登出後重整頁面清空資料
+            } catch (error) { console.error("登出失敗:", error); }
+        });
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                document.getElementById('auth-status').classList.replace('bg-amber-500', 'bg-emerald-500');
+                document.getElementById('auth-text').innerText = user.displayName ? `嗨，${user.displayName}` : "已登入同步";
+                loginBtn.classList.add('hidden');
+                logoutBtn.classList.remove('hidden');
+                setupRealtimeListeners(user.uid);
+            } else {
+                currentUser = null;
+                document.getElementById('auth-status').classList.replace('bg-emerald-500', 'bg-amber-500');
+                document.getElementById('auth-text').innerText = "請先登入";
+                loginBtn.classList.remove('hidden');
+                logoutBtn.classList.add('hidden');
+            }
+        });
+
+        // --- 即時監聽 5 個區塊的資料庫 ---
+        function setupRealtimeListeners(userId) {
+            const getCol = (colName) => collection(db, 'artifacts', appId, 'users', userId, colName);
+
+            // 1. Inbox
+            onSnapshot(getCol('inbox'), (snapshot) => {
+                currentInboxItems = [];
+                snapshot.forEach(doc => currentInboxItems.push({ id: doc.id, ...doc.data() }));
+                currentInboxItems.sort((a, b) => b.createdAt - a.createdAt);
+                renderList(currentInboxItems, inboxList, 'inbox');
+                document.getElementById('inbox-count').innerText = currentInboxItems.length;
+                aiSortBtn.disabled = currentInboxItems.length === 0;
+            });
+
+            // 2. Todos (客製化勾選渲染)
+            onSnapshot(getCol('todos'), (snapshot) => {
+                const items = [];
+                snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+                items.sort((a, b) => b.createdAt - a.createdAt);
+                renderTodos(items, todosList);
+            });
+            // 3. Learning
+            onSnapshot(getCol('learning'), (snapshot) => renderCollection(snapshot, learningList, 'learning', 'fas fa-book text-purple-300'));
+            // 4. Ideas
+            onSnapshot(getCol('ideas'), (snapshot) => renderCollection(snapshot, ideasList, 'ideas', 'fas fa-bolt text-amber-400'));
+            // 5. Bookmarks (客製化超連結預覽渲染)
+            onSnapshot(getCol('bookmarks'), (snapshot) => {
+                const items = [];
+                snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+                items.sort((a, b) => b.createdAt - a.createdAt);
+                renderBookmarks(items, bookmarksList);
+            });
+        }
+
+        function renderCollection(snapshot, containerEl, collectionName, iconClass) {
+            const items = [];
+            snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+            items.sort((a, b) => b.createdAt - a.createdAt);
+            renderList(items, containerEl, collectionName, iconClass);
+        }
+
+        // 共通的按鈕 HTML 產生器 (依據分類判斷是否顯示移動按鈕)
+        function getActionButtonsHTML(col) {
+            if (col === 'inbox') {
+                return `
+                    <button class="delete-btn md:opacity-0 md:group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 shrink-0 bg-white rounded-full z-10" title="刪除">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                `;
+            }
+            return `
+                <div class="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
+                    <button class="move-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="移動分類">
+                        <i class="fas fa-folder-open"></i>
+                    </button>
+                    <button class="delete-btn text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="刪除">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            `;
+        }
+
+        // 共通的按鈕綁定邏輯 (刪除 & 移動)
+        function attachItemListeners(li, item, collectionName) {
+            const deleteBtn = li.querySelector('.delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', () => {
+                    pendingDeleteTarget = { id: item.id, col: collectionName };
+                    confirmModal.classList.remove('hidden');
+                });
+            }
+
+            const moveBtn = li.querySelector('.move-btn');
+            if (moveBtn) {
+                moveBtn.addEventListener('click', () => {
+                    pendingMoveTarget = { id: item.id, col: collectionName, data: item };
+                    
+                    // 顯示 Modal 並隱藏當前的分類選項
+                    moveOptionBtns.forEach(btn => {
+                        if (btn.getAttribute('data-target') === collectionName) {
+                            btn.classList.add('hidden');
+                        } else {
+                            btn.classList.remove('hidden');
+                        }
+                    });
+                    moveModal.classList.remove('hidden');
+                });
+            }
+        }
+
+        // 偵測並轉換超連結
+        function linkify(text) {
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            return escapeHtml(text).replace(urlRegex, function(url) {
+                return `<a href="${url}" target="_blank" class="text-blue-500 hover:text-blue-700 hover:underline break-all" rel="noopener noreferrer" title="在新分頁開啟"><i class="fas fa-external-link-alt text-[10px] mr-1"></i>${url}</a>`;
+            });
+        }
+
+        // --- 通用渲染函式 ---
+        function renderList(items, containerEl, collectionName, iconClass = 'fas fa-circle text-[8px] mt-1.5 text-indigo-400') {
+            if (items.length === 0) {
+                if(collectionName === 'inbox') {
+                    containerEl.innerHTML = `<li class="bg-white/80 p-4 rounded-xl border border-indigo-100 text-slate-500 text-sm text-center">空空如也，丟點東西給我吧！</li>`;
+                } else {
+                    containerEl.innerHTML = `<li class="text-sm text-slate-400 italic">目前沒有項目</li>`;
+                }
+                return;
+            }
+
+            containerEl.innerHTML = '';
+            items.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-start justify-between shadow-sm group hover:shadow-md transition-all';
+                li.innerHTML = `
+                    <div class="flex items-start gap-2 flex-1">
+                        <i class="${iconClass} shrink-0 mt-0.5 mr-1"></i>
+                        <span class="leading-relaxed break-words pr-2">${escapeHtml(item.text)}</span>
+                    </div>
+                    ${getActionButtonsHTML(collectionName)}
+                `;
+                attachItemListeners(li, item, collectionName);
+                containerEl.appendChild(li);
+            });
+        }
+
+        // --- 待辦事項 (Todos) 專屬渲染 ---
+        function renderTodos(items, containerEl) {
+            if (items.length === 0) {
+                containerEl.innerHTML = `<li class="text-sm text-slate-400 italic">目前沒有項目</li>`;
+                return;
+            }
+            containerEl.innerHTML = '';
+            items.forEach(item => {
+                const isCompleted = item.completed || false;
+                const textClass = isCompleted ? 'todo-checked' : '';
+                
+                const li = document.createElement('li');
+                li.className = 'bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-start justify-between shadow-sm group hover:shadow-md transition-all';
+                li.innerHTML = `
+                    <label class="flex items-start gap-3 flex-1 cursor-pointer">
+                        <input type="checkbox" ${isCompleted ? 'checked' : ''} class="mt-1 w-4 h-4 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0">
+                        <span class="leading-relaxed break-words pr-2 flex-1 transition-all ${textClass}">${escapeHtml(item.text)}</span>
+                    </label>
+                    ${getActionButtonsHTML('todos')}
+                `;
+
+                // 綁定打勾事件
+                const checkbox = li.querySelector('input[type="checkbox"]');
+                checkbox.addEventListener('change', async (e) => {
+                    if(currentUser) {
+                        try {
+                            await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'todos', item.id), {
+                                completed: e.target.checked
+                            });
+                        } catch(err) { console.error('更新待辦失敗', err); }
+                    }
+                });
+
+                attachItemListeners(li, item, 'todos');
+                containerEl.appendChild(li);
+            });
+        }
+
+        // --- 收藏 (Bookmarks) 專屬渲染 (升級：支援 YouTube 預覽與連結卡片) ---
+        function renderBookmarks(items, containerEl) {
+            if (items.length === 0) {
+                containerEl.innerHTML = `<li class="text-sm text-slate-400 italic">目前沒有項目</li>`;
+                return;
+            }
+            containerEl.innerHTML = '';
+            items.forEach(item => {
+                const li = document.createElement('li');
+                // 改為 flex-col 垂直排列，以容納下方的大塊預覽圖
+                li.className = 'bg-white p-3 rounded-xl border border-slate-100 shadow-sm group hover:shadow-md transition-all flex flex-col gap-3 relative';
+                
+                const safeText = item.text || '';
+                // 解析網址來建立預覽卡片
+                const urlMatch = safeText.match(/(https?:\/\/[^\s]+)/);
+                let previewHTML = '';
+
+                if (urlMatch) {
+                    const url = urlMatch[0];
+                    // 1. 判斷是否為 YouTube 網址
+                    const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+                    
+                    if (ytMatch) {
+                        const videoId = ytMatch[1];
+                        previewHTML = `
+                            <a href="${url}" target="_blank" class="block rounded-xl overflow-hidden border border-slate-200 hover:border-rose-300 transition-colors relative group/preview">
+                                <img src="https://img.youtube.com/vi/${videoId}/mqdefault.jpg" alt="YouTube Preview" class="w-full h-auto object-cover aspect-video">
+                                <div class="absolute inset-0 bg-black/20 flex items-center justify-center opacity-80 group-hover/preview:opacity-100 transition-opacity">
+                                    <i class="fab fa-youtube text-red-500 text-5xl drop-shadow-md bg-white rounded-full"></i>
+                                </div>
+                            </a>`;
+                    } 
+                    // 2. 判斷是否為 GitHub 網址
+                    else if (url.includes('github.com')) {
+                        const repoPath = url.replace('https://github.com/', '').split('/').slice(0, 2).join('/');
+                        previewHTML = `
+                            <a href="${url}" target="_blank" class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-slate-700">
+                                <i class="fab fa-github text-2xl"></i>
+                                <div class="flex flex-col overflow-hidden">
+                                    <span class="text-xs text-slate-400">GitHub Repository</span>
+                                    <span class="text-sm font-bold truncate">${repoPath || 'GitHub Link'}</span>
+                                </div>
+                            </a>`;
+                    } 
+                    // 3. 其他通用網址卡片
+                    else {
+                        previewHTML = `
+                            <a href="${url}" target="_blank" class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-slate-700">
+                                <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center shrink-0">
+                                    <i class="fas fa-link"></i>
+                                </div>
+                                <div class="flex flex-col overflow-hidden w-full">
+                                    <span class="text-sm font-semibold truncate text-blue-600">${url}</span>
+                                    <span class="text-xs text-slate-400 truncate">點擊前往外部網站</span>
+                                </div>
+                            </a>`;
+                    }
+                }
+
+                // 移除原文字中的網址，只顯示使用者打的備註文字（如果有備註的話）
+                let textWithoutUrl = safeText.replace(/(https?:\/\/[^\s]+)/g, '').trim();
+                let textHTML = textWithoutUrl ? `<span class="leading-relaxed break-words text-slate-700 text-sm flex-1">${escapeHtml(textWithoutUrl)}</span>` : '';
+
+                li.innerHTML = `
+                    <div class="flex items-start justify-between gap-2 w-full">
+                        <div class="flex items-start gap-2 flex-1">
+                            <i class="fas fa-star text-rose-300 mt-1 shrink-0"></i>
+                            ${textHTML}
+                        </div>
+                        ${getActionButtonsHTML('bookmarks')}
+                    </div>
+                    ${previewHTML}
+                `;
+                attachItemListeners(li, item, 'bookmarks');
+                containerEl.appendChild(li);
+            });
+        }
+
+        // --- 確認刪除 Modal 行為 ---
+        cancelDeleteBtn.addEventListener('click', () => {
+            confirmModal.classList.add('hidden');
+            pendingDeleteTarget = null;
+        });
+
+        confirmDeleteBtn.addEventListener('click', async () => {
+            if (currentUser && pendingDeleteTarget) {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingDeleteTarget.col, pendingDeleteTarget.id));
+                } catch(err) { 
+                    console.error('刪除失敗', err); 
+                } finally {
+                    confirmModal.classList.add('hidden');
+                    pendingDeleteTarget = null;
+                }
+            }
+        });
+
+        // --- 移動分類 Modal 行為 ---
+        cancelMoveBtn.addEventListener('click', () => {
+            moveModal.classList.add('hidden');
+            pendingMoveTarget = null;
+        });
+
+        moveOptionBtns.forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                // ⚠️ 修復核心：在非同步開始前，先將當下的按鈕元素快取起來
+                const targetBtn = e.currentTarget;
+                const targetCol = targetBtn.getAttribute('data-target');
+                
+                if (currentUser && pendingMoveTarget) {
+                    
+                    // 讓按鈕顯示轉圈圈讀取狀態
+                    const originalHTML = targetBtn.innerHTML;
+                    targetBtn.innerHTML = '<div class="loader w-5 h-5 mx-auto border-t-slate-500"></div>';
+
+                    try {
+                        // 1. 建立新資料 (剔除不必要的 completed 屬性，除非是移回待辦)
+                        const { id, ...dataToMove } = pendingMoveTarget.data;
+                        if (targetCol !== 'todos' && dataToMove.completed !== undefined) {
+                            delete dataToMove.completed;
+                        }
+                        
+                        await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCol), dataToMove);
+                        
+                        // 2. 刪除舊資料
+                        await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingMoveTarget.col, pendingMoveTarget.id));
+                        
+                    } catch(err) {
+                        console.error('移動失敗', err);
+                    } finally {
+                        // 使用快取的 targetBtn 恢復原本的 HTML
+                        targetBtn.innerHTML = originalHTML;
+                        moveModal.classList.add('hidden');
+                        pendingMoveTarget = null;
+                    }
+                }
+            });
+        });
+
+        // --- 新增碎片 (支援手動分類) ---
+        document.getElementById('add-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentUser) return;
+            
+            const inputEl = document.getElementById('idea-input');
+            const text = inputEl.value.trim();
+            if (!text) return;
+
+            // 取得使用者選擇的目標集合
+            const targetCollection = categorySelect.value; 
+
+            // ✨ 優化：立即清空輸入框與重置分類 (樂觀更新)，達成真正的零延遲體驗
+            inputEl.value = '';
+            categorySelect.value = 'inbox';
+            
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader w-4 h-4 border-2"></div>';
+
+            try {
+                // 背景非同步寫入資料庫，不阻擋使用者繼續輸入
+                await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), {
+                    text: text,
+                    createdAt: Date.now()
+                });
+            } catch (error) { 
+                console.error("寫入失敗:", error); 
+                // 如果遇到斷網等極端情況，把文字救回來
+                inputEl.value = text;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>';
+                inputEl.focus(); // 確保游標馬上準備好接下一個點子
+            }
+        });
+
+        // ==========================================
+        // ✨ Gemini AI 魔法整理邏輯與設定
+        // ==========================================
+
+        document.getElementById('settings-btn').addEventListener('click', () => {
+            apiKeyInput.value = localStorage.getItem('geminiApiKey') || '';
+            const savedModel = localStorage.getItem('geminiModel');
+            
+            // 如果已經有金鑰，打開時自動嘗試載入模型
+            if (apiKeyInput.value) {
+                loadModels(apiKeyInput.value, savedModel);
+            }
+            
+            settingsModal.classList.remove('hidden');
+        });
+        
+        document.getElementById('close-modal-btn').addEventListener('click', () => settingsModal.classList.add('hidden'));
+        
+        // 驗證按鈕與載入模型
+        verifyKeyBtn.addEventListener('click', async () => {
+            const key = apiKeyInput.value.trim();
+            if(!key) { alert("請先輸入 API Key"); return; }
+            
+            verifyKeyBtn.disabled = true;
+            verifyKeyBtn.innerHTML = '<div class="loader w-4 h-4 border-2 border-t-indigo-700 mx-auto"></div>';
+            
+            await loadModels(key, localStorage.getItem('geminiModel'));
+            
+            verifyKeyBtn.disabled = false;
+            verifyKeyBtn.innerText = '驗證載入';
+        });
+
+        // 抓取可用模型清單
+        async function loadModels(apiKey, savedModel) {
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                if (!res.ok) throw new Error('API 驗證失敗');
+                const data = await res.json();
+                
+                // 過濾支援文字生成的模型
+                const models = data.models.filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'));
+                
+                modelSelect.innerHTML = '';
+                models.forEach(m => {
+                    const option = document.createElement('option');
+                    const modelName = m.name.replace('models/', '');
+                    option.value = modelName;
+                    option.textContent = m.displayName ? `${m.displayName} (${modelName})` : modelName;
+                    modelSelect.appendChild(option);
+                });
+
+                // 回復選擇紀錄或預設 flash
+                if (savedModel && Array.from(modelSelect.options).some(opt => opt.value === savedModel)) {
+                    modelSelect.value = savedModel;
+                } else {
+                    const flashOpt = Array.from(modelSelect.options).find(opt => opt.value.includes('flash'));
+                    if (flashOpt) modelSelect.value = flashOpt.value;
+                }
+                
+                modelSelectContainer.classList.remove('hidden');
+            } catch (err) {
+                console.error("載入模型失敗", err);
+                modelSelectContainer.classList.add('hidden');
+                // 不使用 alert 阻擋 UX，可讓使用者知道就好
+            }
+        }
+
+        // 儲存設定
+        document.getElementById('save-settings-btn').addEventListener('click', () => {
+            const key = apiKeyInput.value.trim();
+            if(key) {
+                localStorage.setItem('geminiApiKey', key);
+                if (modelSelect.value) {
+                    localStorage.setItem('geminiModel', modelSelect.value);
+                }
+            }
+            settingsModal.classList.add('hidden');
+        });
+
+        // 呼叫 Gemini AI 分類
+        async function fetchGeminiCategorization(texts, apiKey, modelName) {
+            const useModel = modelName || 'gemini-2.5-flash';
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent?key=${apiKey}`;
+            
+            const promptText = `請將以下使用者丟入的凌亂筆記碎片進行分類。
+            1. todos: 待辦事項（帶有行動意圖、生活任務、業務、購買清單）。
+            2. learning: 待學習/探討資源（想研究的主題、教學文章、知識點）。
+            3. ideas: 點子庫（靈感、專案構想、草稿）。
+            4. bookmarks: 收藏的貼文/影片（網址、影片連結、社群貼文、資源網站）。
+            
+            碎片列表：
+            ${texts.map((t, i) => `[${i}] ${t}`).join('\n')}
+            `;
+
+            const payload = {
+                contents: [{ parts: [{ text: promptText }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            todos: { type: "ARRAY", items: { type: "STRING" } },
+                            learning: { type: "ARRAY", items: { type: "STRING" } },
+                            ideas: { type: "ARRAY", items: { type: "STRING" } },
+                            bookmarks: { type: "ARRAY", items: { type: "STRING" } }
+                        }
+                    }
+                }
+            };
+
+            const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`API Error ${response.status}: ${errText}`);
+            }
+            const data = await response.json();
+            return JSON.parse(data.candidates[0].content.parts[0].text);
+        }
+
+        aiSortBtn.addEventListener('click', async () => {
+            const apiKey = localStorage.getItem('geminiApiKey');
+            const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
+
+            if (!apiKey) {
+                settingsModal.classList.remove('hidden');
+                return;
+            }
+
+            if (currentInboxItems.length === 0 || !currentUser) return;
+
+            aiSortBtn.disabled = true;
+            aiSortText.innerText = "AI 思考中...";
+            aiSortBtn.innerHTML = `<div class="loader w-4 h-4 border-2 border-t-white"></div> <span id="ai-sort-text">AI 思考中...</span>`;
+
+            try {
+                const textsToCategorize = currentInboxItems.map(item => item.text);
+                const result = await fetchGeminiCategorization(textsToCategorize, apiKey, targetModel);
+                
+                const addItems = async (items, colName) => {
+                    if(!items || items.length === 0) return;
+                    const colRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, colName);
+                    for (const text of items) {
+                        await addDoc(colRef, { text: text, createdAt: Date.now() });
+                    }
+                };
+                
+                // 同時將分類好的資料寫入四個資料庫集合
+                await Promise.all([
+                    addItems(result.todos, 'todos'),
+                    addItems(result.learning, 'learning'),
+                    addItems(result.ideas, 'ideas'),
+                    addItems(result.bookmarks, 'bookmarks')
+                ]);
+
+                // 刪除 Inbox 舊資料
+                for (const item of currentInboxItems) {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', item.id));
+                }
+            } catch (error) {
+                console.error("AI 整理失敗:", error);
+                alert("整理失敗，錯誤：" + error.message);
+            } finally {
+                aiSortBtn.disabled = false;
+                aiSortBtn.innerHTML = `<i class="fas fa-magic"></i> <span id="ai-sort-text">AI 魔法整理</span>`;
+            }
+        });
+
+        function escapeHtml(unsafe) {
+            return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
