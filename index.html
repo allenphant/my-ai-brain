@@ -36,6 +36,9 @@
         
         /* 新增 Todo 完成的樣式 */
         .todo-checked { text-decoration: line-through; color: #94a3b8; }
+        
+        /* 隱藏已完成的 CSS 狀態 */
+        .hide-completed-mode .todo-item-completed { display: none !important; }
     </style>
 </head>
 <body class="bg-background text-slate-800 font-sans min-h-screen p-4 md:p-8 relative">
@@ -113,8 +116,13 @@
 
             <!-- ✅ 待辦事項 -->
             <div class="bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
-                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
-                    <i class="fas fa-check-square text-emerald-500 mr-2 text-xl"></i>待辦事項
+                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center justify-between">
+                    <div class="flex items-center">
+                        <i class="fas fa-check-square text-emerald-500 mr-2 text-xl"></i>待辦事項
+                    </div>
+                    <button id="toggle-completed-btn" class="text-xs font-normal text-slate-500 hover:text-slate-800 bg-slate-50 border border-slate-200 hover:bg-slate-100 px-2 py-1 rounded-md transition-colors flex items-center gap-1 focus:outline-none shadow-sm">
+                        <i class="fas fa-eye-slash" id="toggle-completed-icon"></i> <span id="toggle-completed-text">隱藏已完成</span>
+                    </button>
                 </h2>
                 <ul id="todos-list" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar pr-2">
                     <li class="text-sm text-slate-400 italic">載入中...</li>
@@ -156,7 +164,7 @@
 
     <!-- API 金鑰設定 Modal -->
     <div id="settings-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-bold text-slate-800">⚙️ 系統設定</h3>
                 <button id="close-modal-btn" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
@@ -187,7 +195,7 @@
 
     <!-- 新增：刪除確認 Modal -->
     <div id="confirm-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <h3 class="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
                 <i class="fas fa-exclamation-triangle text-amber-500"></i> 確定要刪除嗎？
             </h3>
@@ -203,11 +211,11 @@
 
     <!-- 新增：移動分類 Modal -->
     <div id="move-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] flex flex-col">
             <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
                 <i class="fas fa-folder-open text-indigo-500"></i> 移動到...
             </h3>
-            <div class="flex flex-col gap-2 mb-6" id="move-options-container">
+            <div class="flex flex-col gap-2 mb-6 overflow-y-auto no-scrollbar" id="move-options-container">
                 <button class="move-option-btn p-3 text-left rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 transition-colors flex items-center gap-3" data-target="todos">
                     <i class="fas fa-check-square text-emerald-500 text-xl w-6 text-center"></i>
                     <span class="font-semibold text-slate-700">待辦事項</span>
@@ -227,6 +235,22 @@
             </div>
             <div class="flex justify-end">
                 <button id="cancel-move-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100 transition-colors w-full">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增：編輯碎片 Modal -->
+    <div id="edit-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] flex flex-col">
+            <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 shrink-0">
+                <i class="fas fa-pen text-indigo-500"></i> 編輯碎片
+            </h3>
+            <textarea id="edit-input" class="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm mb-4 h-32 resize-none flex-1 min-h-[100px]"></textarea>
+            <div class="flex justify-end gap-3 shrink-0">
+                <button id="cancel-edit-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100 transition-colors">取消</button>
+                <button id="confirm-edit-btn" class="px-4 py-2 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-sm">
+                    <i class="fas fa-save"></i> 儲存
+                </button>
             </div>
         </div>
     </div>
@@ -266,6 +290,8 @@
         let currentInboxItems = []; 
         let pendingDeleteTarget = null; // 儲存準備刪除的目標 {id, col}
         let pendingMoveTarget = null;   // 儲存準備移動的目標 {id, col, data}
+        let pendingEditTarget = null;   // 儲存準備編輯的目標 {id, col}
+        let isHideCompleted = false;    // 隱藏已完成的狀態切換
 
         // --- DOM 元素 ---
         const inboxList = document.getElementById('inbox-list');
@@ -298,6 +324,35 @@
         const moveModal = document.getElementById('move-modal');
         const cancelMoveBtn = document.getElementById('cancel-move-btn');
         const moveOptionBtns = document.querySelectorAll('.move-option-btn');
+
+        // 編輯分類 Modal
+        const editModal = document.getElementById('edit-modal');
+        const editInput = document.getElementById('edit-input');
+        const cancelEditBtn = document.getElementById('cancel-edit-btn');
+        const confirmEditBtn = document.getElementById('confirm-edit-btn');
+
+        // 隱藏已完成按鈕
+        const toggleCompletedBtn = document.getElementById('toggle-completed-btn');
+        // (修正：已刪除重複宣告的 todosList 變數)
+
+        // --- 隱藏已完成按鈕邏輯 ---
+        toggleCompletedBtn.addEventListener('click', () => {
+            isHideCompleted = !isHideCompleted;
+            const icon = document.getElementById('toggle-completed-icon');
+            const text = document.getElementById('toggle-completed-text');
+            
+            if (isHideCompleted) {
+                todosList.classList.add('hide-completed-mode');
+                icon.className = 'fas fa-eye text-indigo-500';
+                text.innerText = '顯示已完成';
+                text.classList.add('text-indigo-600', 'font-semibold');
+            } else {
+                todosList.classList.remove('hide-completed-mode');
+                icon.className = 'fas fa-eye-slash';
+                text.innerText = '隱藏已完成';
+                text.classList.remove('text-indigo-600', 'font-semibold');
+            }
+        });
 
         // --- 認證 (改為 Google 登入) ---
         const initAuth = async () => {
@@ -390,13 +445,21 @@
         function getActionButtonsHTML(col) {
             if (col === 'inbox') {
                 return `
-                    <button class="delete-btn md:opacity-0 md:group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 shrink-0 bg-white rounded-full z-10" title="刪除">
-                        <i class="fas fa-trash-alt"></i>
-                    </button>
+                    <div class="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
+                        <button class="edit-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="編輯">
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        <button class="delete-btn text-slate-300 hover:text-red-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="刪除">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
                 `;
             }
             return `
                 <div class="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
+                    <button class="edit-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="編輯">
+                        <i class="fas fa-pen"></i>
+                    </button>
                     <button class="move-btn text-slate-300 hover:text-indigo-500 transition-all cursor-pointer p-1.5 bg-white rounded-full" title="移動分類">
                         <i class="fas fa-folder-open"></i>
                     </button>
@@ -407,7 +470,7 @@
             `;
         }
 
-        // 共通的按鈕綁定邏輯 (刪除 & 移動)
+        // 共通的按鈕綁定邏輯 (刪除 & 移動 & 編輯)
         function attachItemListeners(li, item, collectionName) {
             const deleteBtn = li.querySelector('.delete-btn');
             if (deleteBtn) {
@@ -422,7 +485,6 @@
                 moveBtn.addEventListener('click', () => {
                     pendingMoveTarget = { id: item.id, col: collectionName, data: item };
                     
-                    // 顯示 Modal 並隱藏當前的分類選項
                     moveOptionBtns.forEach(btn => {
                         if (btn.getAttribute('data-target') === collectionName) {
                             btn.classList.add('hidden');
@@ -431,6 +493,15 @@
                         }
                     });
                     moveModal.classList.remove('hidden');
+                });
+            }
+
+            const editBtn = li.querySelector('.edit-btn');
+            if (editBtn) {
+                editBtn.addEventListener('click', () => {
+                    pendingEditTarget = { id: item.id, col: collectionName };
+                    editInput.value = item.text; // 帶入舊文字
+                    editModal.classList.remove('hidden');
                 });
             }
         }
@@ -444,7 +515,7 @@
         }
 
         // --- 通用渲染函式 ---
-        function renderList(items, containerEl, collectionName, iconClass = 'fas fa-circle text-[8px] mt-1.5 text-indigo-400') {
+        function renderList(items, containerEl, collectionName, iconClass = 'fas fa-circle text-[8px] mt-1 text-indigo-400') {
             if (items.length === 0) {
                 if(collectionName === 'inbox') {
                     containerEl.innerHTML = `<li class="bg-white/80 p-4 rounded-xl border border-indigo-100 text-slate-500 text-sm text-center">空空如也，丟點東西給我吧！</li>`;
@@ -457,11 +528,11 @@
             containerEl.innerHTML = '';
             items.forEach(item => {
                 const li = document.createElement('li');
-                li.className = 'bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-start justify-between shadow-sm group hover:shadow-md transition-all';
+                li.className = 'bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-center justify-between shadow-sm group hover:shadow-md transition-all';
                 li.innerHTML = `
-                    <div class="flex items-start gap-2 flex-1">
-                        <i class="${iconClass} shrink-0 mt-0.5 mr-1"></i>
-                        <span class="leading-relaxed break-words pr-2">${escapeHtml(item.text)}</span>
+                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                        <i class="${iconClass} shrink-0 mr-1"></i>
+                        <div class="leading-relaxed break-words break-all pr-2 line-clamp-3 text-left flex-1">${escapeHtml(item.text)}</div>
                     </div>
                     ${getActionButtonsHTML(collectionName)}
                 `;
@@ -482,11 +553,11 @@
                 const textClass = isCompleted ? 'todo-checked' : '';
                 
                 const li = document.createElement('li');
-                li.className = 'bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-start justify-between shadow-sm group hover:shadow-md transition-all';
+                li.className = `bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-center justify-between shadow-sm group hover:shadow-md transition-all ${isCompleted ? 'todo-item-completed' : ''}`;
                 li.innerHTML = `
-                    <label class="flex items-start gap-3 flex-1 cursor-pointer">
-                        <input type="checkbox" ${isCompleted ? 'checked' : ''} class="mt-1 w-4 h-4 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0">
-                        <span class="leading-relaxed break-words pr-2 flex-1 transition-all ${textClass}">${escapeHtml(item.text)}</span>
+                    <label class="flex items-center gap-3 flex-1 cursor-pointer min-w-0">
+                        <input type="checkbox" ${isCompleted ? 'checked' : ''} class="w-4 h-4 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0">
+                        <div class="leading-relaxed break-words break-all pr-2 flex-1 transition-all line-clamp-3 ${textClass}">${escapeHtml(item.text)}</div>
                     </label>
                     ${getActionButtonsHTML('todos')}
                 `;
@@ -517,7 +588,6 @@
             containerEl.innerHTML = '';
             items.forEach(item => {
                 const li = document.createElement('li');
-                // 改為 flex-col 垂直排列，以容納下方的大塊預覽圖
                 li.className = 'bg-white p-3 rounded-xl border border-slate-100 shadow-sm group hover:shadow-md transition-all flex flex-col gap-3 relative';
                 
                 const safeText = item.text || '';
@@ -567,14 +637,19 @@
                     }
                 }
 
-                // 移除原文字中的網址，只顯示使用者打的備註文字（如果有備註的話）
-                let textWithoutUrl = safeText.replace(/(https?:\/\/[^\s]+)/g, '').trim();
-                let textHTML = textWithoutUrl ? `<span class="leading-relaxed break-words text-slate-700 text-sm flex-1">${escapeHtml(textWithoutUrl)}</span>` : '';
+                // 修改：只移除被擷取為預覽圖的第一個網址，避免其他網址被吃掉
+                let textWithoutUrl = safeText;
+                if (urlMatch) {
+                    textWithoutUrl = safeText.replace(urlMatch[0], '').trim();
+                }
+                
+                // 加入 line-clamp-3 防止超長備註撐爆卡片
+                let textHTML = textWithoutUrl ? `<div class="leading-relaxed break-words break-all text-slate-700 text-sm flex-1 line-clamp-3">${escapeHtml(textWithoutUrl)}</div>` : '';
 
                 li.innerHTML = `
-                    <div class="flex items-start justify-between gap-2 w-full">
-                        <div class="flex items-start gap-2 flex-1">
-                            <i class="fas fa-star text-rose-300 mt-1 shrink-0"></i>
+                    <div class="flex items-center justify-between gap-2 w-full min-w-0">
+                        <div class="flex items-center gap-2 flex-1 min-w-0">
+                            <i class="fas fa-star text-rose-300 shrink-0"></i>
                             ${textHTML}
                         </div>
                         ${getActionButtonsHTML('bookmarks')}
@@ -594,57 +669,52 @@
 
         confirmDeleteBtn.addEventListener('click', async () => {
             if (currentUser && pendingDeleteTarget) {
+                // 加入 Loading 鎖定，防禦雙重點擊的 Race Condition
+                const originalHTML = confirmDeleteBtn.innerHTML;
+                confirmDeleteBtn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>';
+                confirmDeleteBtn.disabled = true;
+
                 try {
                     await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingDeleteTarget.col, pendingDeleteTarget.id));
                 } catch(err) { 
                     console.error('刪除失敗', err); 
                 } finally {
+                    confirmDeleteBtn.innerHTML = originalHTML;
+                    confirmDeleteBtn.disabled = false;
                     confirmModal.classList.add('hidden');
                     pendingDeleteTarget = null;
                 }
             }
         });
 
-        // --- 移動分類 Modal 行為 ---
-        cancelMoveBtn.addEventListener('click', () => {
-            moveModal.classList.add('hidden');
-            pendingMoveTarget = null;
+        // --- 編輯 Modal 行為 ---
+        cancelEditBtn.addEventListener('click', () => {
+            editModal.classList.add('hidden');
+            pendingEditTarget = null;
         });
 
-        moveOptionBtns.forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                // ⚠️ 修復核心：在非同步開始前，先將當下的按鈕元素快取起來
-                const targetBtn = e.currentTarget;
-                const targetCol = targetBtn.getAttribute('data-target');
-                
-                if (currentUser && pendingMoveTarget) {
-                    
-                    // 讓按鈕顯示轉圈圈讀取狀態
-                    const originalHTML = targetBtn.innerHTML;
-                    targetBtn.innerHTML = '<div class="loader w-5 h-5 mx-auto border-t-slate-500"></div>';
+        confirmEditBtn.addEventListener('click', async () => {
+            if (currentUser && pendingEditTarget) {
+                const newText = editInput.value.trim();
+                if (!newText) return;
 
-                    try {
-                        // 1. 建立新資料 (剔除不必要的 completed 屬性，除非是移回待辦)
-                        const { id, ...dataToMove } = pendingMoveTarget.data;
-                        if (targetCol !== 'todos' && dataToMove.completed !== undefined) {
-                            delete dataToMove.completed;
-                        }
-                        
-                        await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCol), dataToMove);
-                        
-                        // 2. 刪除舊資料
-                        await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingMoveTarget.col, pendingMoveTarget.id));
-                        
-                    } catch(err) {
-                        console.error('移動失敗', err);
-                    } finally {
-                        // 使用快取的 targetBtn 恢復原本的 HTML
-                        targetBtn.innerHTML = originalHTML;
-                        moveModal.classList.add('hidden');
-                        pendingMoveTarget = null;
-                    }
+                const originalHTML = confirmEditBtn.innerHTML;
+                confirmEditBtn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>';
+                confirmEditBtn.disabled = true;
+
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingEditTarget.col, pendingEditTarget.id), {
+                        text: newText
+                    });
+                } catch(err) {
+                    console.error('更新失敗', err);
+                } finally {
+                    confirmEditBtn.innerHTML = originalHTML;
+                    confirmEditBtn.disabled = false;
+                    editModal.classList.add('hidden');
+                    pendingEditTarget = null;
                 }
-            });
+            }
         });
 
         // --- 新增碎片 (支援手動分類) ---
