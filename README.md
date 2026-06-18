@@ -14,7 +14,8 @@
 * 🔄 **跨裝置即時同步 (Real-time Sync)：** 底層使用 Firebase Firestore，手機端送出點子，電腦端畫面 0.1 秒內自動同步，無需重新整理。
 * ✏️ **碎片管理與編輯：** 支援全碎片即時編輯修改、跨分類無縫轉移，確保思緒隨時可以更新迭代。
 * 🔗 **智慧連結預覽 (Smart URL Previews)：** 自動解析「收藏區」的超連結。若是 YouTube 網址會自動抓取並顯示影片縮圖；若是 GitHub 網址則會轉換為專屬連結卡片。
-* 🔐 **極致隱私與安全 (Privacy & Security)：** * 採用 Google 帳號登入 (Firebase Auth)，確保資料只有自己看得到。
+* 🔐 **極致隱私與安全 (Privacy & Security)：**
+  * 採用 Google 帳號登入 (Firebase Auth)，確保資料只有自己看得到。
   * 你的個人 Gemini API Key 僅儲存於本地端瀏覽器 (`localStorage`)，不會上傳至任何伺服器。
 
 ## 🛠️ 技術棧 (Tech Stack)
@@ -53,3 +54,19 @@
        }
      }
    }
+   ```
+
+### 2. 部署至 GitHub Pages
+1. 將本專案的 `index.html` Fork 或下載至你的本地端。
+2. 將你獲得的 `firebaseConfig` 替換掉 `index.html` 中的預設金鑰設定。
+3. 將程式碼 Push 至你的 GitHub Repository。
+4. 於 Repository 的 Settings -> Pages 中，將來源設為 `main` 分支並儲存。
+5. **(重要)** 回到 Firebase 的 Authentication -> Settings -> Authorized domains，將你的 `[GitHub帳號].github.io` 加入白名單中。
+
+### 3. 設定 Gemini API
+1. 使用瀏覽器開啟你部署好的 GitHub Pages 網址。
+2. 點擊右上角的「設定 (⚙️)」圖示。
+3. 前往 [Google AI Studio](https://aistudio.google.com/app/apikey) 申請一組免費的 API Key。
+4. 將 API Key 填入網頁設定中並儲存，即可解鎖「✨ AI 魔法整理」按鈕！
+
+---
