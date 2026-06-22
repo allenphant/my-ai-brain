@@ -33,12 +33,12 @@
         .hide-completed-mode .todo-item-completed { display: none !important; }
 
         /* ✨ 拖曳功能的視覺回饋 CSS */
-        .sortable-ghost { opacity: 0.3; } /* 原本的位置留下半透明殘影 */
+        .sortable-ghost { opacity: 0.3; }
         .sortable-drag { cursor: grabbing !important; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
         
         body.is-dragging .sortable-list { position: relative; min-height: 80px; }
         body.is-dragging .sortable-list::after {
-            content: '\f067  加入 ' attr(data-name); /* 讀取 data-name 顯示加入 XXX 區 */
+            content: '\f067  加入 ' attr(data-name);
             font-family: "Font Awesome 6 Free", "Noto Sans TC";
             font-weight: 900;
             position: absolute;
@@ -57,14 +57,13 @@
             pointer-events: none;
             transition: all 0.2s ease;
         }
-        /* 當拖曳進入該區域時，顯示虛化與加號 */
         body.is-dragging .sortable-list.is-dragover::after { opacity: 1; }
     </style>
 </head>
 <body class="bg-background text-slate-800 font-sans min-h-screen p-4 md:p-8 relative">
 
     <div class="max-w-5xl mx-auto">
-        <!-- 頂部標題區 (RWD 重構) -->
+        <!-- 頂部標題區 -->
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div class="flex items-center justify-between w-full md:w-auto">
                 <div class="flex items-center gap-2 md:gap-3">
@@ -124,7 +123,7 @@
             </button>
         </div>
 
-        <!-- 未分類清單 (加入 sortable-list class 與 data 屬性供拖曳使用) -->
+        <!-- 未分類清單 -->
         <ul id="inbox-list" class="sortable-list space-y-3 mb-8 min-h-[50px] custom-scrollbar pb-4" data-col="inbox" data-name="收件匣">
             <li class="bg-white/80 p-4 rounded-xl border border-indigo-100 text-slate-500 text-sm text-center ignore-drag">載入中...</li>
         </ul>
@@ -175,8 +174,7 @@
         </div>
     </div>
 
-    <!-- Modals 區塊 (保持不變) -->
-    <!-- API 金鑰設定 Modal -->
+    <!-- Modals -->
     <div id="settings-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div class="flex justify-between items-center mb-4">
@@ -190,29 +188,22 @@
                     <button id="verify-key-btn" class="bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg text-sm font-bold hover:bg-indigo-200 transition-colors shrink-0">驗證載入</button>
                 </div>
             </div>
-            
             <div class="mb-4 hidden" id="model-select-container">
                 <label class="block text-sm font-semibold text-slate-700 mb-2">選擇 AI 模型</label>
                 <select id="model-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer"></select>
             </div>
-
             <div class="mb-6">
-                <label class="block text-sm font-semibold text-slate-700 mb-2 flex justify-between">
-                    自動整理 (懶人觸發) 
-                    <i class="fas fa-robot text-indigo-400"></i>
-                </label>
+                <label class="block text-sm font-semibold text-slate-700 mb-2 flex justify-between">自動整理 (懶人觸發) <i class="fas fa-robot text-indigo-400"></i></label>
                 <select id="auto-sort-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer">
                     <option value="off">關閉 (僅手動整理)</option>
                     <option value="always">每次開啟網頁時</option>
                     <option value="daily">每天開啟時整理一次</option>
                 </select>
-                <p class="text-[10px] text-slate-400 mt-1">當您開啟網頁時，系統會在背景自動執行分類。</p>
             </div>
             <button id="save-settings-btn" class="w-full bg-slate-800 text-white py-2 rounded-lg font-semibold hover:bg-slate-700 transition-colors">儲存設定</button>
         </div>
     </div>
 
-    <!-- 其他刪除/移動/編輯 Modal -->
     <div id="confirm-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl"><h3 class="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2"><i class="fas fa-exclamation-triangle text-amber-500"></i> 確定要刪除嗎？</h3><div class="flex justify-end gap-3 mt-6"><button id="cancel-delete-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100">取消</button><button id="confirm-delete-btn" class="px-4 py-2 rounded-lg font-semibold bg-red-500 text-white hover:bg-red-600">確認刪除</button></div></div>
     </div>
@@ -242,7 +233,6 @@
         </div>
     </div>
 
-    <!-- Firebase 模組化 SDK & 邏輯 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -255,15 +245,13 @@
             firebaseConfig = JSON.parse(__firebase_config);
             appId = typeof __app_id !== 'undefined' ? __app_id : appId;
         } else {
-            // 你的專屬金鑰
             firebaseConfig = {
                 apiKey: "AIzaSyC30YPS_CkGVBS8IBrq74sBW0pkP1-ev6w",
                 authDomain: "my-ai-brain-6867e.firebaseapp.com",
                 projectId: "my-ai-brain-6867e",
                 storageBucket: "my-ai-brain-6867e.firebasestorage.app",
                 messagingSenderId: "755512158785",
-                appId: "1:755512158785:web:8376054556e01717f9b4c0",
-                measurementId: "G-7HKT6FQ10L"
+                appId: "1:755512158785:web:8376054556e01717f9b4c0"
             };
         }
 
@@ -272,7 +260,6 @@
         const provider = new GoogleAuthProvider();
         const db = getFirestore(app);
 
-        // --- 全域變數 ---
         let currentUser = null;
         let currentInboxItems = []; 
         let currentTodoItems = [];
@@ -282,36 +269,23 @@
         let isHideCompleted = false;
         let isSorting = false; 
         let isInitialInboxLoad = true; 
+        let justDropped = false; // ✨ 防彈機制：用來鎖定剛拖曳完的點擊行為
 
-        const inboxList = document.getElementById('inbox-list');
-        const todosList = document.getElementById('todos-list');
-        const learningList = document.getElementById('learning-list');
-        const ideasList = document.getElementById('ideas-list');
-        const bookmarksList = document.getElementById('bookmarks-list');
-        const aiSortBtn = document.getElementById('ai-sort-btn');
-        const categorySelect = document.getElementById('category-select');
-        const confirmModal = document.getElementById('confirm-modal');
-        const moveModal = document.getElementById('move-modal');
-        const editModal = document.getElementById('edit-modal');
-        const editInput = document.getElementById('edit-input');
-        
-        // --- ✨ 初始化 SortableJS (支援長按與跨區拖曳) ---
+        const getOrder = (item) => item.order !== undefined ? item.order : item.createdAt;
+
         const initDragAndDrop = () => {
             document.querySelectorAll('.sortable-list').forEach(list => {
                 new Sortable(list, {
-                    group: 'shared', // 允許跨列表拖曳
+                    group: 'shared',
                     animation: 150,
-                    delay: 500, // 手機長按 0.5 秒觸發
-                    delayOnTouchOnly: true, // 電腦版直接拖曳，手機版長按
+                    delay: 500,
+                    delayOnTouchOnly: true,
                     ghostClass: 'sortable-ghost',
                     dragClass: 'sortable-drag',
-                    filter: '.ignore-drag', // 忽略「載入中」或「空列表」文字
+                    filter: '.ignore-drag',
                     
-                    onStart: function (evt) {
-                        document.body.classList.add('is-dragging'); // 啟動全域拖曳狀態 (顯示虛化與加號)
-                    },
+                    onStart: function () { document.body.classList.add('is-dragging'); },
                     onChange: function (evt) {
-                        // 移除所有的高亮，只高亮目前滑鼠/手指進入的目標區域
                         document.querySelectorAll('.sortable-list').forEach(el => el.classList.remove('is-dragover'));
                         if(evt.to) evt.to.classList.add('is-dragover');
                     },
@@ -319,18 +293,19 @@
                         document.body.classList.remove('is-dragging');
                         document.querySelectorAll('.sortable-list').forEach(el => el.classList.remove('is-dragover'));
                         
+                        // ✨ 啟動防彈機制，0.1秒內拒絕所有 Todo 點擊
+                        justDropped = true;
+                        setTimeout(() => justDropped = false, 100);
+                        
                         const itemEl = evt.item;
                         const id = itemEl.getAttribute('data-id');
                         const oldCol = evt.from.getAttribute('data-col');
                         const newCol = evt.to.getAttribute('data-col');
-                        
                         if(!id || !currentUser) return;
 
-                        // Fractional Indexing: 計算新順序 (取前後鄰居的中間值)
-                        let newOrder = Date.now(); // 預設值 (丟到空列表時)
+                        let newOrder = Date.now(); 
                         const prevEl = itemEl.previousElementSibling;
                         const nextEl = itemEl.nextElementSibling;
-                        
                         const isValid = (el) => el && el.hasAttribute('data-order');
                         const prevOrder = isValid(prevEl) ? parseFloat(prevEl.getAttribute('data-order')) : null;
                         const nextOrder = isValid(nextEl) ? parseFloat(nextEl.getAttribute('data-order')) : null;
@@ -338,53 +313,42 @@
                         if (prevOrder !== null && nextOrder !== null) {
                             newOrder = (prevOrder + nextOrder) / 2;
                         } else if (prevOrder !== null) {
-                            newOrder = prevOrder - 1000; // 放在最後面 (數字變小)
+                            newOrder = prevOrder - 1000;
                         } else if (nextOrder !== null) {
-                            newOrder = nextOrder + 1000; // 放在最前面 (數字變大)
+                            newOrder = nextOrder + 1000;
                         }
 
                         try {
                             const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id);
-                            
                             if (oldCol === newCol) {
-                                // 同區排序：只更新 Order 數字
-                                if (evt.oldIndex !== evt.newIndex) {
-                                    await updateDoc(docRef, { order: newOrder });
-                                }
+                                if (evt.oldIndex !== evt.newIndex) await updateDoc(docRef, { order: newOrder });
                             } else {
-                                // 跨區拖曳：取得舊資料 -> 更改順序與狀態 -> 寫入新區 -> 刪除舊區
                                 const oldSnap = await getDoc(docRef);
                                 if (oldSnap.exists()) {
                                     let data = oldSnap.data();
                                     data.order = newOrder;
-                                    if(newCol !== 'todos') delete data.completed; // 離開待辦區就清掉打勾狀態
-                                    
+                                    if(newCol !== 'todos') delete data.completed;
                                     await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, newCol, id), data);
                                     await deleteDoc(docRef);
                                 }
                             }
-                        } catch(err) { console.error("拖曳更新失敗", err); }
+                        } catch(err) { console.error(err); }
                     }
                 });
             });
         };
         initDragAndDrop();
 
-        // --- 隱藏與刪除已完成邏輯 ---
         document.getElementById('toggle-completed-btn').addEventListener('click', () => {
             isHideCompleted = !isHideCompleted;
             const icon = document.getElementById('toggle-completed-icon');
             const text = document.getElementById('toggle-completed-text');
             if (isHideCompleted) {
-                todosList.classList.add('hide-completed-mode');
-                icon.className = 'fas fa-eye text-indigo-500';
-                text.innerText = '顯示已完成';
-                text.classList.add('text-indigo-600', 'font-semibold');
+                document.getElementById('todos-list').classList.add('hide-completed-mode');
+                icon.className = 'fas fa-eye text-indigo-500'; text.innerText = '顯示已完成'; text.classList.add('text-indigo-600', 'font-semibold');
             } else {
-                todosList.classList.remove('hide-completed-mode');
-                icon.className = 'fas fa-eye-slash';
-                text.innerText = '隱藏已完成';
-                text.classList.remove('text-indigo-600', 'font-semibold');
+                document.getElementById('todos-list').classList.remove('hide-completed-mode');
+                icon.className = 'fas fa-eye-slash'; text.innerText = '隱藏已完成'; text.classList.remove('text-indigo-600', 'font-semibold');
             }
         });
 
@@ -400,97 +364,73 @@
             const btn = document.getElementById('confirm-delete-completed-btn');
             const originalHTML = btn.innerHTML; btn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>'; btn.disabled = true;
             try {
-                const deletePromises = completedTodos.map(item => deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'todos', item.id)));
-                await Promise.all(deletePromises);
+                await Promise.all(completedTodos.map(item => deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'todos', item.id))));
             } catch(err) { } finally { btn.innerHTML = originalHTML; btn.disabled = false; document.getElementById('confirm-delete-completed-modal').classList.add('hidden'); }
         });
 
-        // --- 認證 ---
-        const initAuth = async () => {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                try { await signInWithCustomToken(auth, __initial_auth_token); } catch (e) {}
-            }
-        };
+        const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) try { await signInWithCustomToken(auth, __initial_auth_token); } catch (e) {} };
         initAuth();
 
-        document.getElementById('login-btn').addEventListener('click', async () => {
-            try { await signInWithPopup(auth, provider); } catch (e) { alert("登入失敗：" + e.message); }
-        });
-
-        document.getElementById('logout-btn').addEventListener('click', async () => {
-            try { await signOut(auth); window.location.reload(); } catch (e) {}
-        });
+        document.getElementById('login-btn').addEventListener('click', async () => { try { await signInWithPopup(auth, provider); } catch (e) { alert("登入失敗：" + e.message); } });
+        document.getElementById('logout-btn').addEventListener('click', async () => { try { await signOut(auth); window.location.reload(); } catch (e) {} });
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 currentUser = user;
                 document.getElementById('auth-status').classList.replace('bg-amber-500', 'bg-emerald-500');
                 document.getElementById('auth-text').innerText = user.displayName ? `嗨，${user.displayName}` : "已登入";
-                document.getElementById('login-btn').classList.add('hidden');
-                document.getElementById('logout-btn').classList.remove('hidden');
+                document.getElementById('login-btn').classList.add('hidden'); document.getElementById('logout-btn').classList.remove('hidden');
                 setupRealtimeListeners(user.uid);
             } else {
                 currentUser = null;
                 document.getElementById('auth-status').classList.replace('bg-emerald-500', 'bg-amber-500');
                 document.getElementById('auth-text').innerText = "請先登入";
-                document.getElementById('login-btn').classList.remove('hidden');
-                document.getElementById('logout-btn').classList.add('hidden');
+                document.getElementById('login-btn').classList.remove('hidden'); document.getElementById('logout-btn').classList.add('hidden');
             }
         });
 
         function checkAutoSortCondition() {
             if (isSorting || currentInboxItems.length === 0) return; 
-            const apiKey = localStorage.getItem('geminiApiKey');
-            const autoSetting = localStorage.getItem('autoSortSetting') || 'off';
+            const apiKey = localStorage.getItem('geminiApiKey'); const autoSetting = localStorage.getItem('autoSortSetting') || 'off';
             if (!apiKey || autoSetting === 'off') return;
-
-            const now = Date.now();
-            const lastSortTime = parseInt(localStorage.getItem('lastAutoSortTime') || '0', 10);
+            const now = Date.now(); const lastSortTime = parseInt(localStorage.getItem('lastAutoSortTime') || '0', 10);
             if (autoSetting === 'always' || (autoSetting === 'daily' && now - lastSortTime > 86400000)) {
-                localStorage.setItem('lastAutoSortTime', now.toString());
-                performAISort();
+                localStorage.setItem('lastAutoSortTime', now.toString()); performAISort();
             }
         }
 
-        // --- 即時監聽 ---
         function setupRealtimeListeners(userId) {
             const getCol = (colName) => collection(db, 'artifacts', appId, 'users', userId, colName);
-            // 排序邏輯：優先比對 order (小數點索引)，若無則用 createdAt
-            const sortItems = (items) => items.sort((a, b) => (b.order || b.createdAt) - (a.order || a.createdAt));
+            const sortItems = (items) => items.sort((a, b) => getOrder(b) - getOrder(a));
 
             onSnapshot(getCol('inbox'), (snapshot) => {
                 currentInboxItems = []; snapshot.forEach(doc => currentInboxItems.push({ id: doc.id, ...doc.data() }));
-                sortItems(currentInboxItems); renderList(currentInboxItems, inboxList, 'inbox');
+                sortItems(currentInboxItems); renderList(currentInboxItems, document.getElementById('inbox-list'), 'inbox');
                 document.getElementById('inbox-count').innerText = currentInboxItems.length;
-                aiSortBtn.disabled = currentInboxItems.length === 0;
+                document.getElementById('ai-sort-btn').disabled = currentInboxItems.length === 0;
                 if (isInitialInboxLoad) { isInitialInboxLoad = false; setTimeout(checkAutoSortCondition, 800); }
             });
 
             onSnapshot(getCol('todos'), (snapshot) => {
                 const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
                 sortItems(items); currentTodoItems = items; 
-                
                 const deleteBtn = document.getElementById('delete-completed-btn');
-                if (items.some(item => item.completed)) {
-                    deleteBtn.classList.remove('opacity-50', 'cursor-not-allowed'); deleteBtn.classList.add('cursor-pointer');
-                } else {
-                    deleteBtn.classList.add('opacity-50', 'cursor-not-allowed'); deleteBtn.classList.remove('cursor-pointer');
-                }
-                renderTodos(items, todosList);
+                if (items.some(item => item.completed)) { deleteBtn.classList.remove('opacity-50', 'cursor-not-allowed'); deleteBtn.classList.add('cursor-pointer'); } 
+                else { deleteBtn.classList.add('opacity-50', 'cursor-not-allowed'); deleteBtn.classList.remove('cursor-pointer'); }
+                renderTodos(items, document.getElementById('todos-list'));
             });
 
-            onSnapshot(getCol('learning'), (snapshot) => renderCollection(snapshot, learningList, 'learning', 'fas fa-book text-purple-300'));
-            onSnapshot(getCol('ideas'), (snapshot) => renderCollection(snapshot, ideasList, 'ideas', 'fas fa-bolt text-amber-400'));
+            onSnapshot(getCol('learning'), (snapshot) => renderCollection(snapshot, document.getElementById('learning-list'), 'learning', 'fas fa-book text-purple-300'));
+            onSnapshot(getCol('ideas'), (snapshot) => renderCollection(snapshot, document.getElementById('ideas-list'), 'ideas', 'fas fa-bolt text-amber-400'));
             onSnapshot(getCol('bookmarks'), (snapshot) => {
                 const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
-                sortItems(items); renderBookmarks(items, bookmarksList);
+                sortItems(items); renderBookmarks(items, document.getElementById('bookmarks-list'));
             });
         }
 
         function renderCollection(snapshot, containerEl, collectionName, iconClass) {
             const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
-            items.sort((a, b) => (b.order || b.createdAt) - (a.order || a.createdAt));
-            renderList(items, containerEl, collectionName, iconClass);
+            items.sort((a, b) => getOrder(b) - getOrder(a)); renderList(items, containerEl, collectionName, iconClass);
         }
 
         function getActionButtonsHTML() {
@@ -526,7 +466,6 @@
 
         function escapeHtml(unsafe) { return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
 
-        // --- 渲染卡片時寫入 order 與 id 供 Sortable 讀取 ---
         function renderList(items, containerEl, collectionName, iconClass = 'fas fa-circle text-[8px] mt-1 text-indigo-400') {
             if (items.length === 0) {
                 containerEl.innerHTML = collectionName === 'inbox' ? `<li class="bg-white/80 p-4 rounded-xl border border-indigo-100 text-slate-500 text-sm text-center ignore-drag">空空如也，丟點東西給我吧！</li>` : `<li class="text-sm text-slate-400 italic ignore-drag">目前沒有項目</li>`;
@@ -536,16 +475,14 @@
             items.forEach(item => {
                 const li = document.createElement('li');
                 li.className = 'bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-start justify-between shadow-sm group hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing';
-                li.setAttribute('data-id', item.id);
-                li.setAttribute('data-order', item.order || item.createdAt);
+                li.setAttribute('data-id', item.id); li.setAttribute('data-order', getOrder(item));
                 li.innerHTML = `
                     <div class="flex items-start gap-2 flex-1 min-w-0">
                         <i class="${iconClass} shrink-0 mt-1.5 mr-1"></i>
                         <div class="leading-relaxed break-words break-all pr-2 line-clamp-3 text-left flex-1 whitespace-pre-wrap">${escapeHtml(item.text)}</div>
                     </div>
                     ${getActionButtonsHTML()}`;
-                attachItemListeners(li, item, collectionName);
-                containerEl.appendChild(li);
+                attachItemListeners(li, item, collectionName); containerEl.appendChild(li);
             });
         }
 
@@ -553,23 +490,36 @@
             if (items.length === 0) { containerEl.innerHTML = `<li class="text-sm text-slate-400 italic ignore-drag">目前沒有項目</li>`; return; }
             containerEl.innerHTML = '';
             items.forEach(item => {
-                const isCompleted = item.completed || false;
-                const textClass = isCompleted ? 'todo-checked' : '';
+                const isCompleted = item.completed || false; const textClass = isCompleted ? 'todo-checked' : '';
                 const li = document.createElement('li');
                 li.className = `bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-start justify-between shadow-sm group hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing ${isCompleted ? 'todo-item-completed' : ''}`;
-                li.setAttribute('data-id', item.id);
-                li.setAttribute('data-order', item.order || item.createdAt);
+                li.setAttribute('data-id', item.id); li.setAttribute('data-order', getOrder(item));
+                
+                // ✨ 將 label 換成 div，徹底阻斷原生點擊干擾
                 li.innerHTML = `
-                    <label class="flex items-start gap-3 flex-1 cursor-pointer min-w-0 pointer-events-auto">
-                        <input type="checkbox" ${isCompleted ? 'checked' : ''} class="w-4 h-4 mt-0.5 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0">
+                    <div class="todo-content flex items-start gap-3 flex-1 min-w-0 cursor-pointer">
+                        <input type="checkbox" ${isCompleted ? 'checked' : ''} class="todo-checkbox w-4 h-4 mt-0.5 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0">
                         <div class="leading-relaxed break-words break-all pr-2 flex-1 transition-all line-clamp-3 whitespace-pre-wrap ${textClass}">${escapeHtml(item.text)}</div>
-                    </label>
+                    </div>
                     ${getActionButtonsHTML()}`;
-                li.querySelector('input[type="checkbox"]').addEventListener('change', async (e) => {
+                
+                const todoContent = li.querySelector('.todo-content');
+                const checkbox = li.querySelector('.todo-checkbox');
+                
+                // ✨ 防彈點擊判斷
+                todoContent.addEventListener('click', async (e) => {
+                    if (justDropped) return; // 如果剛剛發生了拖曳，無效化這次點擊
+                    if (e.target !== checkbox) checkbox.checked = !checkbox.checked; // 點擊文字時，手動切換 checkbox
+                    if(currentUser) try { await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'todos', item.id), { completed: checkbox.checked }); } catch(err) {}
+                });
+                
+                // 防止點擊 Checkbox 時事件冒泡觸發父層
+                checkbox.addEventListener('click', (e) => e.stopPropagation());
+                checkbox.addEventListener('change', async (e) => {
                     if(currentUser) try { await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'todos', item.id), { completed: e.target.checked }); } catch(err) {}
                 });
-                attachItemListeners(li, item, 'todos');
-                containerEl.appendChild(li);
+
+                attachItemListeners(li, item, 'todos'); containerEl.appendChild(li);
             });
         }
 
@@ -579,15 +529,11 @@
             items.forEach(item => {
                 const li = document.createElement('li');
                 li.className = 'bg-white p-3 rounded-xl border border-slate-100 shadow-sm group hover:shadow-md transition-shadow flex flex-col gap-3 relative cursor-grab active:cursor-grabbing';
-                li.setAttribute('data-id', item.id);
-                li.setAttribute('data-order', item.order || item.createdAt);
-                const safeText = item.text || '';
-                const urlMatch = safeText.match(/(https?:\/\/[^\s]+)/);
-                let previewHTML = '';
+                li.setAttribute('data-id', item.id); li.setAttribute('data-order', getOrder(item));
+                const safeText = item.text || ''; const urlMatch = safeText.match(/(https?:\/\/[^\s]+)/); let previewHTML = '';
 
                 if (urlMatch) {
-                    const url = urlMatch[0];
-                    const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+                    const url = urlMatch[0]; const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
                     if (ytMatch) {
                         previewHTML = `<a href="${url}" target="_blank" class="block rounded-xl overflow-hidden border border-slate-200 hover:border-rose-300 transition-colors relative group/preview"><img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="w-full h-auto object-cover aspect-video"><div class="absolute inset-0 bg-black/20 flex items-center justify-center opacity-80 group-hover/preview:opacity-100 transition-opacity"><i class="fab fa-youtube text-red-500 text-5xl drop-shadow-md bg-white rounded-full"></i></div></a>`;
                     } else if (url.includes('github.com')) {
@@ -598,17 +544,14 @@
                     }
                 }
 
-                let textWithoutUrl = safeText;
-                if (urlMatch) textWithoutUrl = safeText.replace(urlMatch[0], '').trim();
+                let textWithoutUrl = safeText; if (urlMatch) textWithoutUrl = safeText.replace(urlMatch[0], '').trim();
                 let textHTML = textWithoutUrl ? `<div class="leading-relaxed break-words break-all text-slate-700 text-sm flex-1 line-clamp-3 whitespace-pre-wrap">${escapeHtml(textWithoutUrl)}</div>` : '';
 
                 li.innerHTML = `<div class="flex items-start justify-between gap-2 w-full min-w-0"><div class="flex items-start gap-2 flex-1 min-w-0"><i class="fas fa-star text-rose-300 shrink-0 mt-1"></i>${textHTML}</div>${getActionButtonsHTML()}</div>${previewHTML}`;
-                attachItemListeners(li, item, 'bookmarks');
-                containerEl.appendChild(li);
+                attachItemListeners(li, item, 'bookmarks'); containerEl.appendChild(li);
             });
         }
 
-        // --- Modals 與表單邏輯 ---
         document.getElementById('cancel-delete-btn').addEventListener('click', () => { confirmModal.classList.add('hidden'); pendingDeleteTarget = null; });
         document.getElementById('confirm-delete-btn').addEventListener('click', async () => {
             if (currentUser && pendingDeleteTarget) {
@@ -626,7 +569,7 @@
                     try {
                         const { id, ...dataToMove } = pendingMoveTarget.data;
                         if (targetCol !== 'todos' && dataToMove.completed !== undefined) delete dataToMove.completed;
-                        dataToMove.order = Date.now(); // 手動移動時放到最上方
+                        dataToMove.order = Date.now(); 
                         await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCol), dataToMove);
                         await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingMoveTarget.col, pendingMoveTarget.id));
                     } catch(err) {} finally { targetBtn.innerHTML = originalHTML; moveModal.classList.add('hidden'); pendingMoveTarget = null; }
@@ -637,7 +580,7 @@
         document.getElementById('cancel-edit-btn').addEventListener('click', () => { editModal.classList.add('hidden'); pendingEditTarget = null; });
         document.getElementById('confirm-edit-btn').addEventListener('click', async () => {
             if (currentUser && pendingEditTarget) {
-                const newText = editInput.value.trim(); if (!newText) return;
+                const newText = document.getElementById('edit-input').value.trim(); if (!newText) return;
                 const btn = document.getElementById('confirm-edit-btn'); const originalHTML = btn.innerHTML; btn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>'; btn.disabled = true;
                 try { await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingEditTarget.col, pendingEditTarget.id), { text: newText }); } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; editModal.classList.add('hidden'); pendingEditTarget = null; }
             }
@@ -647,19 +590,16 @@
         ideaInput.addEventListener('input', function() { this.style.height = '40px'; this.style.height = (this.scrollHeight) + 'px'; });
         ideaInput.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('add-form').dispatchEvent(new Event('submit')); } });
         document.getElementById('paste-btn').addEventListener('click', async () => {
-            try { const text = await navigator.clipboard.readText(); ideaInput.value += text; ideaInput.dispatchEvent(new Event('input')); ideaInput.focus(); } catch (err) { alert("無法自動讀取剪貼簿，請點擊輸入框並貼上。"); }
+            try { const text = await navigator.clipboard.readText(); ideaInput.value += text; ideaInput.dispatchEvent(new Event('input')); ideaInput.focus(); } catch (err) { alert("無法自動讀取剪貼簿，請手動貼上。"); }
         });
         document.getElementById('add-form').addEventListener('submit', async (e) => {
             e.preventDefault(); if (!currentUser) return;
             const text = ideaInput.value.trim(); if (!text) return;
-            const targetCollection = categorySelect.value; ideaInput.value = ''; ideaInput.style.height = '40px';
+            const targetCollection = document.getElementById('category-select').value; ideaInput.value = ''; ideaInput.style.height = '40px';
             const btn = document.getElementById('submit-btn'); btn.disabled = true; btn.innerHTML = '<div class="loader w-4 h-4 border-2"></div>';
             try { await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), { text: text, createdAt: Date.now(), order: Date.now() }); } catch (error) { ideaInput.value = text; } finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>'; ideaInput.focus(); }
         });
 
-        // ==========================================
-        // ✨ Gemini AI 魔法整理邏輯與設定
-        // ==========================================
         document.getElementById('settings-btn').addEventListener('click', () => {
             document.getElementById('api-key-input').value = localStorage.getItem('geminiApiKey') || '';
             document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off'; 
@@ -687,18 +627,18 @@
             document.getElementById('settings-modal').classList.add('hidden');
         });
 
-        aiSortBtn.addEventListener('click', async () => {
+        document.getElementById('ai-sort-btn').addEventListener('click', async () => {
             if (isSorting || currentInboxItems.length === 0 || !currentUser) return;
             const apiKey = localStorage.getItem('geminiApiKey'); const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
             if (!apiKey) { document.getElementById('settings-modal').classList.remove('hidden'); return; }
 
-            isSorting = true; aiSortBtn.disabled = true; const originalHTML = aiSortBtn.innerHTML; aiSortBtn.innerHTML = `<div class="loader w-4 h-4 border-2 border-t-white"></div> <span>AI 整理中...</span>`;
+            isSorting = true; const btn = document.getElementById('ai-sort-btn'); btn.disabled = true; const originalHTML = btn.innerHTML; btn.innerHTML = `<div class="loader w-4 h-4 border-2 border-t-white"></div> <span id="ai-sort-text">AI 背景整理中...</span>`;
             try {
                 const itemsToCategorize = [...currentInboxItems]; const texts = itemsToCategorize.map(item => item.text);
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: `請分類以下 JSON Array：1. todos (待辦) 2. learning (學習) 3. ideas (點子) 4. bookmarks (網址)。請保留原換行符號。\n\n${JSON.stringify(texts)}` }] }],
+                        contents: [{ parts: [{ text: `請分類以下 JSON Array：1. todos 2. learning 3. ideas 4. bookmarks。請保留原換行符號。\n\n${JSON.stringify(texts)}` }] }],
                         generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { todos: { type: "ARRAY", items: { type: "STRING" } }, learning: { type: "ARRAY", items: { type: "STRING" } }, ideas: { type: "ARRAY", items: { type: "STRING" } }, bookmarks: { type: "ARRAY", items: { type: "STRING" } } } } }
                     })
                 });
@@ -710,7 +650,7 @@
                 };
                 await Promise.all([ addItems(result.todos, 'todos'), addItems(result.learning, 'learning'), addItems(result.ideas, 'ideas'), addItems(result.bookmarks, 'bookmarks') ]);
                 for (const item of itemsToCategorize) await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', item.id));
-            } catch (error) { console.error(error); } finally { isSorting = false; aiSortBtn.disabled = false; aiSortBtn.innerHTML = originalHTML; }
+            } catch (error) { console.error(error); } finally { isSorting = false; btn.disabled = false; btn.innerHTML = originalHTML; }
         });
     </script>
 </body>
