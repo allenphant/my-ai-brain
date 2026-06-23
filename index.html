@@ -382,7 +382,8 @@
             if (!apiKey || autoSetting === 'off') return;
             const now = Date.now(); const lastSortTime = parseInt(localStorage.getItem('lastAutoSortTime') || '0', 10);
             if (autoSetting === 'always' || (autoSetting === 'daily' && now - lastSortTime > 86400000)) {
-                localStorage.setItem('lastAutoSortTime', now.toString()); performAISort();
+                localStorage.setItem('lastAutoSortTime', now.toString()); 
+                document.getElementById('ai-sort-btn').click(); // ✨ 修復：改為觸發按鈕點擊事件
             }
         }
 
