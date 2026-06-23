@@ -270,8 +270,13 @@
         let isInitialInboxLoad = true; 
         let justDropped = false;
 
-        // ✨ 圖片暫存變數 (File Object)
         let stagedImageFile = null;
+
+        // ✨ 補回遺失的 Modal 變數宣告
+        const confirmModal = document.getElementById('confirm-modal');
+        const moveModal = document.getElementById('move-modal');
+        const editModal = document.getElementById('edit-modal');
+        const editInput = document.getElementById('edit-input');
 
         const getOrder = (item) => item.order !== undefined ? item.order : item.createdAt;
 
@@ -449,7 +454,6 @@
 
         function escapeHtml(unsafe) { return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
 
-        // ✨ 渲染圖片
         function getImageHTML(imageUrl) {
             if (!imageUrl) return '';
             return `<div class="mt-2 w-full"><a href="${imageUrl}" target="_blank"><img src="${imageUrl}" class="w-full max-h-48 object-cover rounded-lg border border-slate-200 hover:opacity-90 transition-opacity pointer-events-auto"></a></div>`;
