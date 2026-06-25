@@ -84,7 +84,7 @@
                 </div>
                 
                 <form id="add-form" class="flex-1 flex gap-2 w-full items-end md:items-center relative">
-                    <textarea id="idea-input" placeholder="貼上文字或截圖... (Enter 送出)" class="w-full bg-slate-50 md:bg-transparent border border-slate-100 md:border-none rounded-xl md:rounded-none px-3 py-2 md:py-2 focus:outline-none text-slate-700 placeholder-slate-400 font-medium resize-none overflow-hidden custom-scrollbar min-h-[40px] max-h-[150px] flex-1 leading-relaxed" rows="1"></textarea>
+                    <textarea id="idea-input" placeholder="貼上文字或截圖... (電腦按 Enter 送出)" class="w-full bg-slate-50 md:bg-transparent border border-slate-100 md:border-none rounded-xl md:rounded-none px-3 py-2 md:py-2 focus:outline-none text-slate-700 placeholder-slate-400 font-medium resize-none overflow-hidden custom-scrollbar min-h-[40px] max-h-[150px] flex-1 leading-relaxed" rows="1"></textarea>
                     
                     <div class="flex items-center gap-1 shrink-0 pb-1 md:pb-0">
                         <input type="file" id="image-upload-input" accept="image/*" class="hidden">
@@ -597,7 +597,15 @@
         const removeImageBtn = document.getElementById('remove-image-btn');
 
         ideaInput.addEventListener('input', function() { this.style.height = '40px'; this.style.height = (this.scrollHeight) + 'px'; });
-        ideaInput.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('add-form').dispatchEvent(new Event('submit')); } });
+        
+        // ✨ 修改點：加入手機版判斷，手機端按下 Enter 僅換行不送出
+        ideaInput.addEventListener('keydown', function(e) { 
+            if (e.key === 'Enter' && !e.shiftKey) { 
+                if (window.innerWidth < 768) return; // 小螢幕 (手機) 允許預設的換行行為
+                e.preventDefault(); 
+                document.getElementById('add-form').dispatchEvent(new Event('submit')); 
+            } 
+        });
         
         document.getElementById('paste-btn').addEventListener('click', async () => {
             try { const text = await navigator.clipboard.readText(); ideaInput.value += text; ideaInput.dispatchEvent(new Event('input')); ideaInput.focus(); } catch (err) { alert("無法自動讀取剪貼簿，請手動貼上。"); }
