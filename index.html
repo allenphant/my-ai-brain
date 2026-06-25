@@ -84,7 +84,7 @@
                 </div>
                 
                 <form id="add-form" class="flex-1 flex gap-2 w-full items-end md:items-center relative">
-                    <textarea id="idea-input" placeholder="貼上文字或截圖... (電腦按 Enter 送出)" class="w-full bg-slate-50 md:bg-transparent border border-slate-100 md:border-none rounded-xl md:rounded-none px-3 py-2 md:py-2 focus:outline-none text-slate-700 placeholder-slate-400 font-medium resize-none overflow-hidden custom-scrollbar min-h-[40px] max-h-[150px] flex-1 leading-relaxed" rows="1"></textarea>
+                    <textarea id="idea-input" placeholder="貼上文字或截圖... (電腦 Enter 送出，Shift+Enter 換行)" class="w-full bg-slate-50 md:bg-transparent border border-slate-100 md:border-none rounded-xl md:rounded-none px-3 py-2 md:py-2 focus:outline-none text-slate-700 placeholder-slate-400 font-medium resize-none overflow-hidden custom-scrollbar min-h-[40px] max-h-[150px] flex-1 leading-relaxed" rows="1"></textarea>
                     
                     <div class="flex items-center gap-1 shrink-0 pb-1 md:pb-0">
                         <input type="file" id="image-upload-input" accept="image/*" class="hidden">
@@ -600,9 +600,12 @@
         
         ideaInput.addEventListener('keydown', function(e) { 
             if (e.key === 'Enter' && !e.shiftKey) { 
-                if (window.innerWidth < 768) return; // 手機版允許換行
+                // 改用觸控裝置偵測，避免電腦上的小視窗預覽時誤判為手機
+                const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+                if (isTouchDevice) return; // 觸控裝置 (手機/平板) 允許預設的換行行為
+                
                 e.preventDefault(); 
-                document.getElementById('add-form').dispatchEvent(new Event('submit')); 
+                document.getElementById('submit-btn').click(); // 模擬點擊送出按鈕
             } 
         });
         
