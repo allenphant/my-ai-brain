@@ -91,7 +91,6 @@
                         <button type="button" id="upload-image-btn" class="text-slate-400 hover:text-indigo-500 transition-colors p-2 rounded-lg hover:bg-slate-100" title="上傳圖片">
                             <i class="fas fa-image"></i>
                         </button>
-                        <!-- 移除了 hidden md:block，現在手機版也會顯示貼上按鈕了！ -->
                         <button type="button" id="paste-btn" class="text-slate-400 hover:text-indigo-500 transition-colors p-2 rounded-lg hover:bg-slate-100" title="貼上剪貼簿內容">
                             <i class="fas fa-clipboard"></i>
                         </button>
@@ -290,7 +289,8 @@
                     onStart: function () { document.body.classList.add('is-dragging'); },
                     onChange: function (evt) {
                         document.querySelectorAll('.sortable-list').forEach(el => el.classList.remove('is-dragover'));
-                        if(evt.to) evt.to.classList.add('is-dragover');
+                        // ✨ 修復：判斷目標區域是否為原區域，若是跨區才顯示「加入...」遮罩
+                        if(evt.to && evt.to !== evt.from) evt.to.classList.add('is-dragover');
                     },
                     onEnd: async function (evt) {
                         document.body.classList.remove('is-dragging');
@@ -598,10 +598,9 @@
 
         ideaInput.addEventListener('input', function() { this.style.height = '40px'; this.style.height = (this.scrollHeight) + 'px'; });
         
-        // ✨ 修改點：加入手機版判斷，手機端按下 Enter 僅換行不送出
         ideaInput.addEventListener('keydown', function(e) { 
             if (e.key === 'Enter' && !e.shiftKey) { 
-                if (window.innerWidth < 768) return; // 小螢幕 (手機) 允許預設的換行行為
+                if (window.innerWidth < 768) return; // 手機版允許換行
                 e.preventDefault(); 
                 document.getElementById('add-form').dispatchEvent(new Event('submit')); 
             } 
