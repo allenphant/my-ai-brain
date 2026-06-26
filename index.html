@@ -632,9 +632,20 @@
                 if (isInitialInboxLoad) { isInitialInboxLoad = false; setTimeout(checkAutoSortCondition, 800); }
             });
 
-            onSnapshot(getCol('categories'), (snapshot) => {
+            onSnapshot(getCol('categories'), async (snapshot) => {
                 currentCategories = [];
                 snapshot.forEach(doc => currentCategories.push({ id: doc.id, ...doc.data() }));
+                
+                if (currentCategories.length === 0 && !localStorage.getItem('hasMigratedDefaultCategories')) {
+                    localStorage.setItem('hasMigratedDefaultCategories', 'true');
+                    const catCol = getCol('categories');
+                    await setDoc(doc(catCol, 'todos'), { name: '待辦事項', icon: 'fas fa-check-square', type: 'todo', promptRule: '只要是需要執行、完成的任務、計畫、待辦事項就放這裡', order: 1000 });
+                    await setDoc(doc(catCol, 'learning'), { name: '學習筆記', icon: 'fas fa-book', type: 'text', promptRule: '學習過程的筆記、知識點、重點整理', order: 2000 });
+                    await setDoc(doc(catCol, 'ideas'), { name: '靈感與想法', icon: 'fas fa-lightbulb', type: 'text', promptRule: '突然想到的點子、創意、隨筆', order: 3000 });
+                    await setDoc(doc(catCol, 'bookmarks'), { name: '稍後閱讀', icon: 'fas fa-bookmark', type: 'bookmark', promptRule: '只要是網址或想稍後看的文章就放這裡', order: 4000 });
+                    return;
+                }
+
                 currentCategories.sort((a, b) => a.order - b.order);
                 
                 renderCategoryManagerList(currentCategories);
