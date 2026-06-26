@@ -371,28 +371,6 @@
         };
         initDragAndDrop();
 
-        document.getElementById('toggle-completed-btn').addEventListener('click', () => {
-            isHideCompleted = !isHideCompleted;
-            const icon = document.getElementById('toggle-completed-icon'); const text = document.getElementById('toggle-completed-text');
-            if (isHideCompleted) { document.getElementById('todos-list').classList.add('hide-completed-mode'); icon.className = 'fas fa-eye text-indigo-500'; text.innerText = '顯示已完成'; text.classList.add('text-indigo-600', 'font-semibold'); } 
-            else { document.getElementById('todos-list').classList.remove('hide-completed-mode'); icon.className = 'fas fa-eye-slash'; text.innerText = '隱藏已完成'; text.classList.remove('text-indigo-600', 'font-semibold'); }
-        });
-
-        document.getElementById('delete-completed-btn').addEventListener('click', () => {
-            if (!currentTodoItems.some(item => item.completed)) return;
-            document.getElementById('confirm-delete-completed-modal').classList.remove('hidden');
-        });
-        document.getElementById('cancel-delete-completed-btn').addEventListener('click', () => document.getElementById('confirm-delete-completed-modal').classList.add('hidden'));
-        document.getElementById('confirm-delete-completed-btn').addEventListener('click', async () => {
-            if (!currentUser) return;
-            const completedTodos = currentTodoItems.filter(item => item.completed);
-            if (completedTodos.length === 0) return;
-            const btn = document.getElementById('confirm-delete-completed-btn');
-            const originalHTML = btn.innerHTML; btn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>'; btn.disabled = true;
-            try { 
-                await Promise.all(completedTodos.map(item => deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'todos', item.id)))); 
-            } catch(err) { } finally { btn.innerHTML = originalHTML; btn.disabled = false; document.getElementById('confirm-delete-completed-modal').classList.add('hidden'); }
-        });
 
         const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) try { await signInWithCustomToken(auth, __initial_auth_token); } catch (e) {} };
         initAuth();
