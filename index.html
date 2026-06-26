@@ -156,7 +156,7 @@
                 <input type="text" id="cat-name-input" class="w-full px-3 py-2 border border-slate-300 rounded-lg mb-4" placeholder="例如：購物清單">
                 
                 <label class="block text-sm font-semibold text-slate-700 mb-1">選擇圖示</label>
-                <div id="cat-icon-picker" class="flex flex-wrap gap-2 mb-4">
+                <div id="cat-icon-picker" class="grid grid-cols-6 sm:grid-cols-8 gap-2 mb-4 max-h-44 overflow-y-auto custom-scrollbar p-2 border border-slate-200 rounded-lg bg-slate-50">
                     <!-- Icons will be populated via JS -->
                 </div>
                 <input type="hidden" id="cat-icon-input" value="fas fa-folder">
@@ -387,7 +387,13 @@
 
 
         const categoryModal = document.getElementById('category-manager-modal');
-        const catIcons = ['fas fa-folder', 'fas fa-star', 'fas fa-heart', 'fas fa-bolt', 'fas fa-shopping-cart', 'fas fa-book', 'fas fa-briefcase', 'fas fa-graduation-cap', 'fas fa-plane', 'fas fa-music', 'fas fa-video', 'fas fa-gamepad', 'fas fa-dumbbell', 'fas fa-utensils', 'fas fa-coffee'];
+        const catIcons = [
+            'fas fa-folder', 'fas fa-star', 'fas fa-heart', 'fas fa-bolt', 'fas fa-check-square', 'fas fa-lightbulb', 'fas fa-bookmark', 'fas fa-book',
+            'fas fa-briefcase', 'fas fa-graduation-cap', 'fas fa-laptop-code', 'fas fa-chart-line', 'fas fa-bullseye', 'fas fa-code', 'fas fa-server', 'fas fa-robot',
+            'fas fa-shopping-cart', 'fas fa-plane', 'fas fa-music', 'fas fa-video', 'fas fa-gamepad', 'fas fa-dumbbell', 'fas fa-utensils', 'fas fa-coffee',
+            'fas fa-pen', 'fas fa-sticky-note', 'fas fa-list', 'fas fa-tasks', 'fas fa-calendar-alt', 'fas fa-clock', 'fas fa-microphone', 'fas fa-camera',
+            'fas fa-piggy-bank', 'fas fa-car', 'fas fa-house', 'fas fa-gift', 'fas fa-paw', 'fas fa-seedling', 'fas fa-map-marker-alt', 'fas fa-fire'
+        ];
         
         document.getElementById('manage-categories-btn').addEventListener('click', () => {
             categoryModal.classList.remove('hidden');
@@ -403,7 +409,7 @@
             catIcons.forEach(icon => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = `w-10 h-10 rounded-xl border flex items-center justify-center text-lg transition-all ${document.getElementById('cat-icon-input').value === icon ? 'bg-indigo-100 border-indigo-500 text-indigo-600' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}`;
+                btn.className = `aspect-square w-full sm:max-w-[3rem] mx-auto rounded-xl border flex items-center justify-center text-xl transition-all ${document.getElementById('cat-icon-input').value === icon ? 'bg-indigo-100 border-indigo-500 text-indigo-600 shadow-sm scale-110 z-10' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:scale-105'}`;
                 btn.innerHTML = `<i class="${icon}"></i>`;
                 btn.onclick = () => {
                     document.getElementById('cat-icon-input').value = icon;
