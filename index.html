@@ -159,6 +159,7 @@
                 <div class="flex gap-2 mb-4">
                     <button type="button" class="cat-type-btn flex-1 py-2 rounded-lg border text-sm font-semibold text-indigo-600 border-indigo-500 bg-indigo-50 active-type" data-type="text">📝 純文字</button>
                     <button type="button" class="cat-type-btn flex-1 py-2 rounded-lg border text-sm font-semibold text-slate-600 border-slate-200" data-type="todo">✅ 待辦清單</button>
+                    <button type="button" class="cat-type-btn flex-1 py-2 rounded-lg border text-sm font-semibold text-slate-600 border-slate-200" data-type="bookmark">🔗 連結庫</button>
                 </div>
                 <input type="hidden" id="cat-type-input" value="text">
                 
@@ -311,9 +312,9 @@
                 items.sort((a, b) => getOrder(b) - getOrder(a));
                 
                 if (catType === 'todo') {
-                    // Update global currentTodoItems if needed, but since it's dynamic, maybe not.
-                    // For now, let's just render todos
                     renderTodos(items, listEl, catId);
+                } else if (catType === 'bookmark') {
+                    renderBookmarks(items, listEl, catId);
                 } else {
                     renderList(items, listEl, catId, `${catIcon} text-slate-400`);
                 }
@@ -785,7 +786,7 @@
             });
         }
 
-        function renderBookmarks(items, containerEl) {
+        function renderBookmarks(items, containerEl, collectionName) {
             if (items.length === 0) { containerEl.innerHTML = `<li class="text-sm text-slate-400 italic ignore-drag">目前沒有項目</li>`; return; }
             containerEl.innerHTML = '';
             items.forEach(item => {
@@ -810,7 +811,7 @@
                 let textHTML = textWithoutUrl ? `<div class="leading-relaxed break-words break-all text-slate-700 text-sm flex-1 line-clamp-3 whitespace-pre-wrap">${escapeHtml(textWithoutUrl)}</div>` : '';
 
                 li.innerHTML = `<div class="flex items-start justify-between gap-2 w-full min-w-0 flex-col"><div class="flex items-center gap-2 flex-1 w-full min-w-0"><i class="fas fa-star text-rose-300 shrink-0"></i>${textHTML}</div>${getImageHTML(item.imageUrl)}</div><div class="absolute right-3 top-3 bg-white/80 rounded-full backdrop-blur-sm pointer-events-auto">${getActionButtonsHTML()}</div>${previewHTML}`;
-                attachItemListeners(li, item, 'bookmarks'); containerEl.appendChild(li);
+                attachItemListeners(li, item, collectionName); containerEl.appendChild(li);
             });
         }
 
