@@ -841,7 +841,19 @@
                         ${getImageHTML(item.imageUrl)}
                     </div>
                     ${getActionButtonsHTML()}`;
-                attachItemListeners(li, item, collectionName); containerEl.appendChild(li);
+                attachItemListeners(li, item, collectionName);
+                
+                const contentDiv = li.querySelector('.flex-col');
+                if (contentDiv) {
+                    contentDiv.classList.add('cursor-pointer');
+                    contentDiv.addEventListener('click', (e) => {
+                        if (justDropped) return; 
+                        if (e.target.tagName.toLowerCase() === 'button' || e.target.closest('button')) return;
+                        openEditor(item.id, item.text, collectionName);
+                    });
+                }
+                
+                containerEl.appendChild(li);
             });
         }
 
@@ -870,8 +882,10 @@
                 todoContent.addEventListener('click', async (e) => {
                     if (justDropped) return; 
                     if (e.target.tagName.toLowerCase() === 'img') return;
-                    if (e.target !== checkbox) checkbox.checked = !checkbox.checked; 
-                    if(currentUser) try { await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, containerEl.getAttribute('data-col'), item.id), { completed: checkbox.checked }); } catch(err) {}
+                    
+                    if (e.target === checkbox) return; 
+                    
+                    openEditor(item.id, item.text, containerEl.getAttribute('data-col'));
                 });
                 
                 checkbox.addEventListener('click', (e) => e.stopPropagation());
@@ -1171,6 +1185,31 @@ ${JSON.stringify(inboxData, null, 2)}`;
         let activeEditorCollection = null;
 
         let editorInstance = null;
+
+        async function openEditor(itemId, itemText, collectionName) {
+            const modal = document.getElementById('editor-modal');
+            const backdrop = document.getElementById('editor-backdrop');
+            const container = document.getElementById('editor-container');
+            const titleInput = document.getElementById('editor-title');
+            
+            activeEditorCardId = itemId;
+            activeEditorCollection = collectionName;
+            
+            // Set UI
+            titleInput.value = itemText;
+            modal.classList.remove('hidden');
+            // Force reflow
+            void modal.offsetWidth;
+            backdrop.classList.add('opacity-100');
+            container.classList.add('scale-100', 'opacity-100');
+
+            // Initialize editor with empty data for now
+            initEditor({}, handleEditorChange);
+        }
+
+        function handleEditorChange() {
+            // Placeholder for auto-save
+        }
 
         function initEditor(initialData = {}, onChangeCallback = null) {
             if (editorInstance) {
