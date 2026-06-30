@@ -41,18 +41,20 @@
         .sortable-ghost { opacity: 0.3; }
         .sortable-drag { cursor: grabbing !important; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
         
-        body.is-dragging .sortable-list { position: relative; min-height: 80px; }
-        body.is-dragging .sortable-list::after {
+        body.is-dragging .sortable-list { min-height: 80px; }
+        
+        body.is-dragging .category-wrapper { position: relative; }
+        body.is-dragging .category-wrapper::after {
             content: '\f067  加入 ' attr(data-name);
             font-family: "Font Awesome 6 Free", "Noto Sans TC";
             font-weight: 900;
             position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-            font-size: 1.1rem; color: #6366f1; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(2px);
-            border: 2px dashed #6366f1; border-radius: 0.75rem; z-index: 50; opacity: 0; pointer-events: none; transition: all 0.2s ease;
+            font-size: 1.25rem; color: #6366f1; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(4px);
+            border: 3px dashed #6366f1; border-radius: 1rem; z-index: 50; opacity: 0; pointer-events: none; transition: all 0.2s ease;
         }
-        body.is-dragging .sortable-list.is-dragover::after { opacity: 1; }
+        body.is-dragging .category-wrapper.is-dragover::after { opacity: 1; }
         
-        body.side-layout-active #main-app-container {
+        body.side-layout-active.editor-open #main-app-container {
             width: 50vw;
             max-width: 50vw;
             margin-left: 0;
@@ -141,7 +143,7 @@
         </div>
 
         <!-- 收件匣整合區塊 -->
-        <div class="bg-gradient-to-br from-indigo-50/50 to-purple-50/50 rounded-2xl shadow-sm border border-indigo-100 p-4 md:p-5 mb-8 flex flex-col relative overflow-hidden">
+        <div class="category-wrapper bg-gradient-to-br from-indigo-50/50 to-purple-50/50 rounded-2xl shadow-sm border border-indigo-100 p-4 md:p-5 mb-8 flex flex-col relative overflow-hidden" data-name="收件匣">
 
             
             <!-- AI 魔法分類大按鈕 -->
@@ -390,7 +392,10 @@
                     onChange: function (evt) {
                         document.querySelectorAll('.is-dragover').forEach(el => el.classList.remove('is-dragover'));
                         // ✨ 修復：判斷目標區域是否為原區域，若是跨區才顯示「加入...」遮罩
-                        if(evt.to && evt.to !== evt.from) evt.to.classList.add('is-dragover');
+                        if(evt.to && evt.to !== evt.from) {
+                            const wrapper = evt.to.closest('.category-wrapper');
+                            if(wrapper) wrapper.classList.add('is-dragover');
+                        }
                     },
                     onEnd: async function (evt) {
                         document.body.classList.remove('is-dragging');
@@ -606,7 +611,8 @@
             grid.innerHTML = '';
             categories.forEach(cat => {
                 const wrapper = document.createElement('div');
-                wrapper.className = 'bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col h-full';
+                wrapper.className = 'category-wrapper bg-surface border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col h-full';
+                wrapper.setAttribute('data-name', cat.name);
                 
                 const header = document.createElement('h2');
                 header.className = 'text-lg font-bold text-slate-800 mb-4 flex items-center justify-between';
@@ -1227,6 +1233,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             history.replaceState(null, '', `?editor=${itemId}&col=${collectionName}`);
             // Force reflow
             void modal.offsetWidth;
+            document.body.classList.add('editor-open');
             backdrop.classList.add('opacity-100');
             container.classList.add('scale-100', 'opacity-100');
 
@@ -1245,7 +1252,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 console.error("Failed to load note details:", err);
             }
 
-            // Replace initEditor({}, handleEditorChange); with:
+            document.getElementById('editorjs-container').innerHTML = '';
             initEditor(noteData, handleEditorChange);
         }
 
@@ -1312,6 +1319,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             
             backdrop.classList.remove('opacity-100');
             container.classList.remove('scale-100', 'opacity-100');
+            document.body.classList.remove('editor-open');
             setTimeout(() => modal.classList.add('hidden'), 300);
             activeEditorCardId = null;
             activeEditorCollection = null;
