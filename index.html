@@ -1243,6 +1243,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
         let activeEditorCollection = null;
 
         let currentEditorLoadId = 0;
+        let editorInstance = null;
 
         async function openEditor(itemId, itemText, collectionName) {
             const loadId = ++currentEditorLoadId;
