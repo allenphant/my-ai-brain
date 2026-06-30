@@ -304,7 +304,7 @@
             </div>
             <!-- Body -->
             <div class="flex-1 overflow-y-auto custom-scrollbar p-8 md:px-16 md:py-12 flex flex-col">
-                <textarea id="editor-title" class="w-full text-3xl md:text-4xl font-bold text-slate-800 placeholder-slate-300 border-none outline-none resize-none overflow-hidden mb-8 bg-transparent" rows="1" placeholder="無標題"></textarea>
+                <textarea id="editor-title" class="w-full text-3xl md:text-4xl font-bold text-slate-800 placeholder-slate-300 border-none outline-none resize-none overflow-hidden mb-8 bg-transparent leading-normal py-1" rows="1" placeholder="無標題" oninput="this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px';"></textarea>
                 <div id="editorjs-container" class="flex-1"></div>
             </div>
         </div>
@@ -1238,6 +1238,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
             
             // Set UI
             titleInput.value = itemText;
+            // Force resize title
+            setTimeout(() => {
+                titleInput.style.height = 'auto';
+                titleInput.style.height = titleInput.scrollHeight + 'px';
+            }, 10);
             modal.classList.remove('hidden');
             history.replaceState(null, '', `?editor=${itemId}&col=${collectionName}`);
             // Force reflow
