@@ -14,6 +14,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/marker@latest"></script>
+    <script src="https://bernardo-castilho.github.io/DragDropTouch/DragDropTouch.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -53,13 +54,23 @@
             border: 3px dashed #6366f1; border-radius: 1rem; z-index: 50; opacity: 0; pointer-events: none; transition: all 0.2s ease;
         }
         body.is-dragging .category-wrapper.is-dragover::after { opacity: 1; }
-        
         body.side-layout-active.editor-open #main-app-container {
             width: 50vw;
             max-width: 50vw;
             margin-left: 0;
             padding-right: 2rem;
             transition: all 0.3s ease;
+        }
+        @media (max-width: 768px) {
+            body.side-layout-active.editor-open #main-app-container {
+                width: 100vw;
+                max-width: 100vw;
+                padding-right: 1rem;
+            }
+            body.side-layout-active #editor-container {
+                width: 100vw;
+            }
+            #editor-layout-btn { display: none !important; }
         }
         body.side-layout-active #editor-modal {
             pointer-events: none;
@@ -304,7 +315,7 @@
             </div>
             <!-- Body -->
             <div class="flex-1 overflow-y-auto custom-scrollbar p-8 md:px-16 md:py-12 flex flex-col">
-                <textarea id="editor-title" class="w-full text-3xl md:text-4xl font-bold text-slate-800 placeholder-slate-300 border-none outline-none resize-none overflow-hidden mb-8 bg-transparent leading-normal py-1" rows="1" placeholder="無標題" oninput="this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px';"></textarea>
+                <h1 id="editor-title" class="w-full text-3xl md:text-4xl font-bold text-slate-800 border-none outline-none mb-8 bg-transparent empty:before:content-[attr(placeholder)] empty:before:text-slate-300 cursor-text min-h-[1.2em] leading-normal py-1" contenteditable="true" placeholder="無標題" spellcheck="false"></h1>
                 <div id="editorjs-container" class="flex-1"></div>
             </div>
         </div>
@@ -373,6 +384,7 @@
         async function deleteCategoryFunc(id) {
             if (!currentUser) return;
             await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'categories', id));
+            showToast('已刪除分類');
         }
 
         function setupCategoryListener(catId, catType, catName, catIcon) {
@@ -395,7 +407,7 @@
         const initDragAndDrop = () => {
             document.querySelectorAll('.sortable-list').forEach(list => {
                 new Sortable(list, {
-                    group: 'shared', animation: 150, delay: 500, delayOnTouchOnly: true,
+                    group: 'shared', animation: 150, delay: 150, delayOnTouchOnly: true, fallbackTolerance: 3,
                     ghostClass: 'sortable-ghost', dragClass: 'sortable-drag', filter: '.ignore-drag',
                     onStart: function () { document.body.classList.add('is-dragging'); },
                     onChange: function (evt) {
@@ -437,6 +449,7 @@
                                     if(newCol !== 'todos') delete data.completed;
                                     await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, newCol, id), data);
                                     await deleteDoc(docRef);
+                                    showToast('已永久刪除');
                                 }
                             }
                         } catch(err) { console.error(err); }
@@ -554,7 +567,7 @@
             // We should ideally add SortableJS here to manage category order, but for simplicity we rely on manual list for now.
             // Let's initialize Sortable on the manager list
             new Sortable(listEl, {
-                animation: 150,
+                animation: 150, delay: 150, delayOnTouchOnly: true, fallbackTolerance: 3,
                 onEnd: async function(evt) {
                     const itemEl = evt.item;
                     const oldIndex = evt.oldIndex;
@@ -680,6 +693,7 @@
                             const itemsEl = list.querySelectorAll('.todo-item-completed');
                             for(const el of itemsEl) {
                                 await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, cat.id, el.getAttribute('data-id')));
+                                showToast('已移至垃圾桶');
                             }
                         });
                     }
@@ -973,6 +987,7 @@
                 const btn = document.getElementById('confirm-delete-btn'); const originalHTML = btn.innerHTML; btn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>'; btn.disabled = true;
                 try { 
                     await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingDeleteTarget.col, pendingDeleteTarget.id)); 
+                    showToast('已移至垃圾桶'); 
                 } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; confirmModal.classList.add('hidden'); pendingDeleteTarget = null; }
             }
         });
@@ -989,6 +1004,7 @@
                         dataToMove.order = Date.now(); 
                         await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCol), dataToMove);
                         await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingMoveTarget.col, pendingMoveTarget.id));
+                        showToast('卡片已移動');
                     } catch(err) {} finally { targetBtn.innerHTML = originalHTML; moveModal.classList.add('hidden'); pendingMoveTarget = null; }
                 }
             });
@@ -1214,6 +1230,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                     
                     await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCol), docData);
                     await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', item.id));
+                    showToast('已移至垃圾桶');
                 }
             } catch (error) { 
                 console.error(error); 
@@ -1225,24 +1242,27 @@ ${JSON.stringify(inboxData, null, 2)}`;
         let activeEditorCardId = null;
         let activeEditorCollection = null;
 
-        let editorInstance = null;
+        let currentEditorLoadId = 0;
 
         async function openEditor(itemId, itemText, collectionName) {
+            const loadId = ++currentEditorLoadId;
             const modal = document.getElementById('editor-modal');
             const backdrop = document.getElementById('editor-backdrop');
             const container = document.getElementById('editor-container');
             const titleInput = document.getElementById('editor-title');
             
+            // Force save if pending
+            if (editorSaveTimeout) {
+                clearTimeout(editorSaveTimeout);
+                editorSaveTimeout = null;
+                await saveEditorContent();
+            }
+            
             activeEditorCardId = itemId;
             activeEditorCollection = collectionName;
             
             // Set UI
-            titleInput.value = itemText;
-            // Force resize title
-            setTimeout(() => {
-                titleInput.style.height = 'auto';
-                titleInput.style.height = titleInput.scrollHeight + 'px';
-            }, 10);
+            titleInput.innerText = itemText;
             modal.classList.remove('hidden');
             history.replaceState(null, '', `?editor=${itemId}&col=${collectionName}`);
             // Force reflow
@@ -1265,7 +1285,8 @@ ${JSON.stringify(inboxData, null, 2)}`;
             } catch (err) {
                 console.error("Failed to load note details:", err);
             }
-
+            if (loadId !== currentEditorLoadId) return; // Abort if user clicked another card
+            
             document.getElementById('editorjs-container').innerHTML = '';
             initEditor(noteData, handleEditorChange);
         }
@@ -1327,6 +1348,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
         }
 
         function closeEditor() {
+            if (editorSaveTimeout) {
+                clearTimeout(editorSaveTimeout);
+                editorSaveTimeout = null;
+                saveEditorContent(); // Fire and forget
+            }
             const modal = document.getElementById('editor-modal');
             const backdrop = document.getElementById('editor-backdrop');
             const container = document.getElementById('editor-container');
@@ -1375,6 +1401,8 @@ ${JSON.stringify(inboxData, null, 2)}`;
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && activeEditorCardId) {
+                // Prevent closing if a sub-menu is open
+                if (document.querySelector('.ce-settings--opened, .ce-popover--opened, .ce-inline-toolbar--showed')) return;
                 closeEditor();
             }
         });
@@ -1383,7 +1411,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             clearTimeout(editorSaveTimeout);
             editorSaveTimeout = setTimeout(async () => {
                 if (!activeEditorCardId) return;
-                const newTitle = e.target.value.trim();
+                const newTitle = e.target.innerText.trim();
                 if (!newTitle) return; // Prevent empty title
                 
                 try {
@@ -1395,6 +1423,31 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 }
             }, 1000);
         });
+        window.addEventListener('beforeunload', (e) => {
+            if (editorSaveTimeout) {
+                e.preventDefault();
+                e.returnValue = ''; // Trigger browser warning
+            }
+        });
+
+        // Toast System
+        window.showToast = function(message, icon = 'fas fa-info-circle') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transform transition-all duration-300 translate-y-full opacity-0 text-sm font-medium';
+            toast.innerHTML = `<i class="${icon}"></i> <span>${message}</span>`;
+            container.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-full', 'opacity-0');
+            });
+            
+            setTimeout(() => {
+                toast.classList.add('translate-y-full', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        };
     </script>
+    <div id="toast-container" class="fixed bottom-4 left-4 z-[200] flex flex-col gap-2 pointer-events-none"></div>
 </body>
 </html>
