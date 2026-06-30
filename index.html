@@ -14,6 +14,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/marker@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/editorjs-undo@latest"></script>
     <script src="https://bernardo-castilho.github.io/DragDropTouch/DragDropTouch.js"></script>
     <script>
         tailwind.config = {
@@ -1355,6 +1356,9 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 placeholder: '在這裡開始輸入你的想法... (輸入 / 顯示選單)',
                 onChange: () => {
                     if (onChangeCallback) onChangeCallback();
+                },
+                onReady: () => {
+                    new Undo({ editor: editorInstance });
                 },
                 tools: {
                     header: { class: Header, inlineToolbar: true, config: { placeholder: '輸入標題', levels: [1, 2, 3], defaultLevel: 2 } },
