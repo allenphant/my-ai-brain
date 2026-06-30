@@ -61,7 +61,7 @@
             padding-right: 2rem;
             transition: all 0.3s ease;
         }
-        @media (max-width: 768px) {
+        @media (hover: none) and (pointer: coarse) {
             body.side-layout-active.editor-open #main-app-container {
                 width: 100vw;
                 max-width: 100vw;
@@ -1258,6 +1258,15 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 await saveEditorContent();
             }
             
+            if (editorInstance) {
+                try {
+                    editorInstance.destroy();
+                } catch (e) {
+                    console.log('Error destroying editor:', e);
+                }
+                editorInstance = null;
+            }
+            
             activeEditorCardId = itemId;
             activeEditorCollection = collectionName;
             
@@ -1274,13 +1283,13 @@ ${JSON.stringify(inboxData, null, 2)}`;
             document.getElementById('editorjs-container').innerHTML = '<div class="flex justify-center items-center h-full min-h-[50vh]"><div class="loader w-10 h-10 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin"></div></div>';
 
             // Fetch existing note from Firestore
-            let noteData = {};
+            let noteData = null;
             try {
                 // Ensure doc and getDoc are imported from firestore, they already should be in index.html
                 const noteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, collectionName, itemId, 'details', 'note');
                 const noteSnap = await getDoc(noteRef);
                 if (noteSnap.exists()) {
-                    noteData = noteSnap.data().data || {};
+                    noteData = noteSnap.data().data;
                 }
             } catch (err) {
                 console.error("Failed to load note details:", err);
@@ -1302,9 +1311,13 @@ ${JSON.stringify(inboxData, null, 2)}`;
 
         async function saveEditorContent() {
             if (!activeEditorCardId || !editorInstance) return;
+            const cardId = activeEditorCardId;
+            const collectionName = activeEditorCollection;
+            const currentEditor = editorInstance;
+            
             try {
-                const outputData = await editorInstance.save();
-                const noteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, activeEditorCollection, activeEditorCardId, 'details', 'note');
+                const outputData = await currentEditor.save();
+                const noteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, collectionName, cardId, 'details', 'note');
                 
                 // Use setDoc with merge:true in case details/note doesn't exist yet
                 await setDoc(noteRef, { 
@@ -1324,16 +1337,19 @@ ${JSON.stringify(inboxData, null, 2)}`;
             editorSaveTimeout = setTimeout(saveEditorContent, 1000);
         }
 
-        function initEditor(initialData = {}, onChangeCallback = null) {
+        function initEditor(initialData = null, onChangeCallback = null) {
             if (editorInstance) {
-                editorInstance.destroy();
+                try {
+                    editorInstance.destroy();
+                } catch (e) {
+                    console.log('Error destroying editor:', e);
+                }
                 editorInstance = null;
             }
             
-            editorInstance = new EditorJS({
+            const config = {
                 holder: 'editorjs-container',
                 placeholder: '在這裡開始輸入你的想法... (輸入 / 顯示選單)',
-                data: initialData,
                 onChange: () => {
                     if (onChangeCallback) onChangeCallback();
                 },
@@ -1344,7 +1360,13 @@ ${JSON.stringify(inboxData, null, 2)}`;
                     quote: { class: Quote, inlineToolbar: true },
                     Marker: { class: Marker, inlineToolbar: true }
                 }
-            });
+            };
+            
+            if (initialData && initialData.blocks && initialData.blocks.length > 0) {
+                config.data = initialData;
+            }
+            
+            editorInstance = new EditorJS(config);
         }
 
         function closeEditor() {
