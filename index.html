@@ -248,6 +248,30 @@
     </div>
     <div id="edit-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl flex flex-col"><h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><i class="fas fa-pen text-indigo-500"></i> 編輯碎片</h3><textarea id="edit-input" class="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm mb-4 h-32 resize-none custom-scrollbar"></textarea><div class="flex justify-end gap-3"><button id="cancel-edit-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100">取消</button><button id="confirm-edit-btn" class="px-4 py-2 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700">儲存</button></div></div></div>
 
+    <!-- Editor Modal -->
+    <div id="editor-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center pointer-events-none">
+        <!-- Backdrop -->
+        <div id="editor-backdrop" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm opacity-0 transition-opacity pointer-events-auto"></div>
+        <!-- Modal Content -->
+        <div id="editor-container" class="relative bg-white w-full max-w-4xl h-[90vh] md:h-[85vh] md:rounded-2xl shadow-2xl flex flex-col transform scale-95 opacity-0 transition-all pointer-events-auto overflow-hidden">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                <div class="flex items-center gap-3">
+                    <button id="editor-close-btn" class="text-slate-400 hover:text-slate-600 transition-colors w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50"><i class="fas fa-times text-lg"></i></button>
+                    <div id="editor-save-status" class="text-xs text-slate-400 font-medium opacity-0 transition-opacity"><i class="fas fa-check-circle text-emerald-500 mr-1"></i>已儲存</div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="editor-layout-btn" class="text-slate-400 hover:text-indigo-600 transition-colors w-8 h-8 flex items-center justify-center rounded-lg hover:bg-indigo-50" title="切換版面"><i class="fas fa-columns"></i></button>
+                </div>
+            </div>
+            <!-- Body -->
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-8 md:px-16 md:py-12 flex flex-col">
+                <textarea id="editor-title" class="w-full text-3xl md:text-4xl font-bold text-slate-800 placeholder-slate-300 border-none outline-none resize-none overflow-hidden mb-8 bg-transparent" rows="1" placeholder="無標題"></textarea>
+                <div id="editorjs-container" class="flex-1"></div>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -1154,29 +1178,5 @@ ${JSON.stringify(inboxData, null, 2)}`;
         document.getElementById('editor-close-btn').addEventListener('click', closeEditor);
         document.getElementById('editor-backdrop').addEventListener('click', closeEditor);
     </script>
-
-    <!-- Editor Modal -->
-    <div id="editor-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center pointer-events-none">
-        <!-- Backdrop -->
-        <div id="editor-backdrop" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm opacity-0 transition-opacity pointer-events-auto"></div>
-        <!-- Modal Content -->
-        <div id="editor-container" class="relative bg-white w-full max-w-4xl h-[90vh] md:h-[85vh] md:rounded-2xl shadow-2xl flex flex-col transform scale-95 opacity-0 transition-all pointer-events-auto overflow-hidden">
-            <!-- Header -->
-            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                <div class="flex items-center gap-3">
-                    <button id="editor-close-btn" class="text-slate-400 hover:text-slate-600 transition-colors w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50"><i class="fas fa-times text-lg"></i></button>
-                    <div id="editor-save-status" class="text-xs text-slate-400 font-medium opacity-0 transition-opacity"><i class="fas fa-check-circle text-emerald-500 mr-1"></i>已儲存</div>
-                </div>
-                <div class="flex items-center gap-2">
-                    <button id="editor-layout-btn" class="text-slate-400 hover:text-indigo-600 transition-colors w-8 h-8 flex items-center justify-center rounded-lg hover:bg-indigo-50" title="切換版面"><i class="fas fa-columns"></i></button>
-                </div>
-            </div>
-            <!-- Body -->
-            <div class="flex-1 overflow-y-auto custom-scrollbar p-8 md:px-16 md:py-12 flex flex-col">
-                <textarea id="editor-title" class="w-full text-3xl md:text-4xl font-bold text-slate-800 placeholder-slate-300 border-none outline-none resize-none overflow-hidden mb-8 bg-transparent" rows="1" placeholder="無標題"></textarea>
-                <div id="editorjs-container" class="flex-1"></div>
-            </div>
-        </div>
-    </div>
 </body>
 </html>
