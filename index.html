@@ -368,13 +368,13 @@
                     ghostClass: 'sortable-ghost', dragClass: 'sortable-drag', filter: '.ignore-drag',
                     onStart: function () { document.body.classList.add('is-dragging'); },
                     onChange: function (evt) {
-                        document.querySelectorAll('.sortable-list').forEach(el => el.classList.remove('is-dragover'));
+                        document.querySelectorAll('.is-dragover').forEach(el => el.classList.remove('is-dragover'));
                         // ✨ 修復：判斷目標區域是否為原區域，若是跨區才顯示「加入...」遮罩
                         if(evt.to && evt.to !== evt.from) evt.to.classList.add('is-dragover');
                     },
                     onEnd: async function (evt) {
                         document.body.classList.remove('is-dragging');
-                        document.querySelectorAll('.sortable-list').forEach(el => el.classList.remove('is-dragover'));
+                        document.querySelectorAll('.is-dragover').forEach(el => el.classList.remove('is-dragover'));
                         
                         justDropped = true; setTimeout(() => justDropped = false, 100);
                         
@@ -724,6 +724,17 @@
                 document.getElementById('auth-text').innerText = user.displayName ? `嗨，${user.displayName}` : "已登入";
                 document.getElementById('login-btn').classList.add('hidden'); document.getElementById('logout-btn').classList.remove('hidden');
                 setupRealtimeListeners(user.uid);
+                
+                const urlParams = new URLSearchParams(window.location.search);
+                const editorId = urlParams.get('editor');
+                const editorCol = urlParams.get('col');
+                if (editorId && editorCol) {
+                    getDoc(doc(db, 'artifacts', appId, 'users', user.uid, editorCol, editorId))
+                        .then(docSnap => {
+                            if (docSnap.exists()) openEditor(editorId, docSnap.data().text || '無標題', editorCol);
+                            else history.replaceState(null, '', window.location.pathname);
+                        }).catch(err => console.error(err));
+                }
             } else {
                 currentUser = null;
                 document.getElementById('auth-status').classList.replace('bg-emerald-500', 'bg-amber-500');
@@ -1198,6 +1209,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             // Set UI
             titleInput.value = itemText;
             modal.classList.remove('hidden');
+            history.replaceState(null, '', `?editor=${itemId}&col=${collectionName}`);
             // Force reflow
             void modal.offsetWidth;
             backdrop.classList.add('opacity-100');
@@ -1286,6 +1298,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             setTimeout(() => modal.classList.add('hidden'), 300);
             activeEditorCardId = null;
             activeEditorCollection = null;
+            history.replaceState(null, '', window.location.pathname);
             
             if (editorInstance) {
                 editorInstance.destroy();
@@ -1295,6 +1308,29 @@ ${JSON.stringify(inboxData, null, 2)}`;
 
         document.getElementById('editor-close-btn').addEventListener('click', closeEditor);
         document.getElementById('editor-backdrop').addEventListener('click', closeEditor);
+
+        let isSideLayout = localStorage.getItem('editorLayout') === 'side';
+        function updateEditorLayout() {
+            const modal = document.getElementById('editor-modal');
+            const container = document.getElementById('editor-container');
+            if (isSideLayout) {
+                modal.classList.remove('justify-center', 'items-center');
+                modal.classList.add('justify-end');
+                container.classList.remove('max-w-4xl', 'md:rounded-2xl', 'md:h-[85vh]');
+                container.classList.add('max-w-2xl', 'rounded-none', 'h-full');
+            } else {
+                modal.classList.add('justify-center', 'items-center');
+                modal.classList.remove('justify-end');
+                container.classList.add('max-w-4xl', 'md:rounded-2xl', 'md:h-[85vh]');
+                container.classList.remove('max-w-2xl', 'rounded-none', 'h-full');
+            }
+        }
+        document.getElementById('editor-layout-btn').addEventListener('click', () => {
+            isSideLayout = !isSideLayout;
+            localStorage.setItem('editorLayout', isSideLayout ? 'side' : 'center');
+            updateEditorLayout();
+        });
+        updateEditorLayout();
 
         document.getElementById('editor-title').addEventListener('input', (e) => {
             clearTimeout(editorSaveTimeout);
