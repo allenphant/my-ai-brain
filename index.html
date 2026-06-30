@@ -1203,12 +1203,54 @@ ${JSON.stringify(inboxData, null, 2)}`;
             backdrop.classList.add('opacity-100');
             container.classList.add('scale-100', 'opacity-100');
 
-            // Initialize editor with empty data for now
-            initEditor({}, handleEditorChange);
+            // Fetch existing note from Firestore
+            let noteData = {};
+            try {
+                // Ensure doc and getDoc are imported from firestore, they already should be in index.html
+                const noteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, collectionName, itemId, 'details', 'note');
+                const noteSnap = await getDoc(noteRef);
+                if (noteSnap.exists()) {
+                    noteData = noteSnap.data().data || {};
+                }
+            } catch (err) {
+                console.error("Failed to load note details:", err);
+            }
+
+            // Replace initEditor({}, handleEditorChange); with:
+            initEditor(noteData, handleEditorChange);
+        }
+
+        let editorSaveTimeout = null;
+        
+        function showSaveStatus(text, iconClass) {
+            const status = document.getElementById('editor-save-status');
+            status.innerHTML = `<i class="${iconClass} mr-1"></i>${text}`;
+            status.classList.remove('opacity-0');
+            setTimeout(() => status.classList.add('opacity-0'), 2000);
+        }
+
+        async function saveEditorContent() {
+            if (!activeEditorCardId || !editorInstance) return;
+            try {
+                const outputData = await editorInstance.save();
+                const noteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, activeEditorCollection, activeEditorCardId, 'details', 'note');
+                
+                // Use setDoc with merge:true in case details/note doesn't exist yet
+                await setDoc(noteRef, { 
+                    data: outputData,
+                    updatedAt: Date.now()
+                }, { merge: true });
+                
+                showSaveStatus('已儲存', 'fas fa-check-circle text-emerald-500');
+            } catch (err) {
+                console.error("Save failed:", err);
+                showSaveStatus('儲存失敗', 'fas fa-exclamation-circle text-red-500');
+            }
         }
 
         function handleEditorChange() {
-            // Placeholder for auto-save
+            clearTimeout(editorSaveTimeout);
+            editorSaveTimeout = setTimeout(saveEditorContent, 1000);
         }
 
         function initEditor(initialData = {}, onChangeCallback = null) {
@@ -1253,6 +1295,23 @@ ${JSON.stringify(inboxData, null, 2)}`;
 
         document.getElementById('editor-close-btn').addEventListener('click', closeEditor);
         document.getElementById('editor-backdrop').addEventListener('click', closeEditor);
+
+        document.getElementById('editor-title').addEventListener('input', (e) => {
+            clearTimeout(editorSaveTimeout);
+            editorSaveTimeout = setTimeout(async () => {
+                if (!activeEditorCardId) return;
+                const newTitle = e.target.value.trim();
+                if (!newTitle) return; // Prevent empty title
+                
+                try {
+                    const cardRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, activeEditorCollection, activeEditorCardId);
+                    await updateDoc(cardRef, { text: newTitle });
+                    saveEditorContent(); // Also save body
+                } catch(err) {
+                    console.error("Failed to update title:", err);
+                }
+            }, 1000);
+        });
     </script>
 </body>
 </html>
