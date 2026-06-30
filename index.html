@@ -7,6 +7,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <!-- Editor.js Core and Plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/header@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/list@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/marker@latest"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -1163,6 +1170,31 @@ ${JSON.stringify(inboxData, null, 2)}`;
         let activeEditorCardId = null;
         let activeEditorCollection = null;
 
+        let editorInstance = null;
+
+        function initEditor(initialData = {}, onChangeCallback = null) {
+            if (editorInstance) {
+                editorInstance.destroy();
+                editorInstance = null;
+            }
+            
+            editorInstance = new EditorJS({
+                holder: 'editorjs-container',
+                placeholder: '在這裡開始輸入你的想法... (輸入 / 顯示選單)',
+                data: initialData,
+                onChange: () => {
+                    if (onChangeCallback) onChangeCallback();
+                },
+                tools: {
+                    header: { class: Header, inlineToolbar: true, config: { placeholder: '輸入標題', levels: [1, 2, 3], defaultLevel: 2 } },
+                    list: { class: List, inlineToolbar: true },
+                    checklist: { class: Checklist, inlineToolbar: true },
+                    quote: { class: Quote, inlineToolbar: true },
+                    Marker: { class: Marker, inlineToolbar: true }
+                }
+            });
+        }
+
         function closeEditor() {
             const modal = document.getElementById('editor-modal');
             const backdrop = document.getElementById('editor-backdrop');
@@ -1173,6 +1205,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
             setTimeout(() => modal.classList.add('hidden'), 300);
             activeEditorCardId = null;
             activeEditorCollection = null;
+            
+            if (editorInstance) {
+                editorInstance.destroy();
+                editorInstance = null;
+            }
         }
 
         document.getElementById('editor-close-btn').addEventListener('click', closeEditor);
