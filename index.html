@@ -1054,7 +1054,7 @@
 
         function getActionButtonsHTML() {
             return `
-                <div class="flex items-center gap-0.5 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
+                <div class="flex items-center gap-0.5 shrink-0 z-10">
                     <button class="copy-btn text-slate-400 hover:text-indigo-600 hover:bg-slate-100 transition-all cursor-pointer p-1.5 bg-transparent rounded-full" title="複製"><i class="fas fa-copy"></i></button>
                     <button class="edit-btn text-slate-400 hover:text-indigo-600 hover:bg-slate-100 transition-all cursor-pointer p-1.5 bg-transparent rounded-full" title="編輯"><i class="fas fa-pen"></i></button>
                     <button class="move-btn text-slate-400 hover:text-indigo-600 hover:bg-slate-100 transition-all cursor-pointer p-1.5 bg-transparent rounded-full" title="移動分類"><i class="fas fa-folder-open"></i></button>
@@ -1141,7 +1141,7 @@
                     </div>
                     ${getImageHTML(item.imageUrl)}
                     ${previewHTML}
-                    <div class="absolute right-2 top-2 bg-white/95 backdrop-blur-md shadow-sm border border-slate-200/60 rounded-full pointer-events-auto p-0.5">
+                    <div class="absolute right-2 top-2 bg-white/95 backdrop-blur-md shadow-sm border border-slate-200/60 rounded-full pointer-events-auto p-0.5 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
                         ${getActionButtonsHTML()}
                     </div>`;
                 attachItemListeners(li, item, collectionName);
@@ -1178,7 +1178,7 @@
                     </div>
                     ${getImageHTML(item.imageUrl)}
                     ${previewHTML}
-                    <div class="absolute right-2 top-2 bg-white/95 backdrop-blur-md shadow-sm border border-slate-200/60 rounded-full pointer-events-auto p-0.5">
+                    <div class="absolute right-2 top-2 bg-white/95 backdrop-blur-md shadow-sm border border-slate-200/60 rounded-full pointer-events-auto p-0.5 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
                         ${getActionButtonsHTML()}
                     </div>`;
                 
@@ -1221,7 +1221,7 @@
                     </div>
                     ${getImageHTML(item.imageUrl)}
                     ${previewHTML}
-                    <div class="absolute right-2 top-2 bg-white/95 backdrop-blur-md shadow-sm border border-slate-200/60 rounded-full pointer-events-auto p-0.5">
+                    <div class="absolute right-2 top-2 bg-white/95 backdrop-blur-md shadow-sm border border-slate-200/60 rounded-full pointer-events-auto p-0.5 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
                         ${getActionButtonsHTML()}
                     </div>`;
                 attachItemListeners(li, item, collectionName); containerEl.appendChild(li);
