@@ -642,10 +642,16 @@
                 const header = document.createElement('h2');
                 header.className = 'text-lg font-bold text-slate-800 mb-4 flex items-center justify-between';
                 
-                let titleHtml = `<div class="flex items-center"><i class="${cat.icon} text-indigo-500 mr-2 text-xl"></i>${escapeHtml(cat.name)}</div>`;
+                let rightControls = `
+                    <button class="add-item-btn-dynamic text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 border border-slate-200 w-7 h-7 rounded-md transition-colors flex flex-shrink-0 items-center justify-center focus:outline-none shadow-sm" data-col="${cat.id}" data-name="${escapeHtml(cat.name)}" title="在此分類新增">
+                        <i class="fas fa-plus text-xs"></i>
+                    </button>
+                `;
+
                 if (cat.type === 'todo') {
                     titleHtml += `
                     <div class="flex items-center gap-2">
+                        ${rightControls}
                         <button class="toggle-completed-btn-dynamic text-xs font-normal text-slate-500 hover:text-indigo-600 bg-slate-50 border border-slate-200 hover:bg-indigo-50 px-2 py-1 rounded-md transition-colors flex items-center gap-1 focus:outline-none shadow-sm" data-col="${cat.id}">
                             <i class="fas fa-eye-slash toggle-icon"></i> <span class="hidden sm:inline toggle-text">隱藏已完成</span>
                         </button>
@@ -653,6 +659,8 @@
                             <i class="fas fa-trash-alt"></i> <span class="hidden sm:inline">清空已完成</span>
                         </button>
                     </div>`;
+                } else {
+                    titleHtml += `<div class="flex items-center gap-2">${rightControls}</div>`;
                 }
                 header.innerHTML = titleHtml;
                 wrapper.appendChild(header);
@@ -700,6 +708,22 @@
                             }
                         });
                     }
+                }
+                
+                const addBtn = wrapper.querySelector('.add-item-btn-dynamic');
+                if (addBtn) {
+                    addBtn.addEventListener('click', () => {
+                        const colId = addBtn.getAttribute('data-col');
+                        const colName = addBtn.getAttribute('data-name');
+                        const catBtn = document.getElementById('custom-category-btn');
+                        document.getElementById('category-select').value = colId;
+                        document.getElementById('custom-category-text').textContent = colName + ' ';
+                        
+                        // Scroll to top and focus
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                        const inputArea = document.getElementById('idea-input');
+                        setTimeout(() => inputArea.focus(), 300);
+                    });
                 }
             });
             
@@ -882,7 +906,30 @@
 
         function getImageHTML(imageUrl) {
             if (!imageUrl) return '';
-            return `<div class="mt-2 w-full"><a href="${imageUrl}" target="_blank"><img src="${imageUrl}" class="w-full max-h-48 object-cover rounded-lg border border-slate-200 hover:opacity-90 transition-opacity pointer-events-auto"></a></div>`;
+            return `<div class="mt-2 w-full"><a href="${imageUrl}" target="_blank" class="pointer-events-auto"><img src="${imageUrl}" class="w-full max-h-48 object-cover rounded-lg border border-slate-200 hover:opacity-90 transition-opacity pointer-events-auto"></a></div>`;
+        }
+
+        function getLinkPreviewData(text) {
+            const safeText = text || ''; 
+            const urlMatch = safeText.match(/(https?:\/\/[^\s]+)/); 
+            let previewHTML = '';
+            let textWithoutUrl = safeText;
+
+            if (urlMatch) {
+                const url = urlMatch[0]; 
+                const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+                if (ytMatch) {
+                    previewHTML = `<a href="${url}" target="_blank" class="block w-full mt-2 rounded-xl overflow-hidden border border-slate-200 hover:border-rose-300 transition-colors relative group/preview pointer-events-auto"><img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="w-full h-auto object-cover aspect-video"><div class="absolute inset-0 bg-black/20 flex items-center justify-center opacity-80 group-hover/preview:opacity-100 transition-opacity"><i class="fab fa-youtube text-red-500 text-5xl drop-shadow-md bg-white rounded-full"></i></div></a>`;
+                } else if (url.includes('github.com')) {
+                    const repoParts = url.replace('https://github.com/', '').split('/');
+                    const repoPath = repoParts.slice(0, 2).join('/');
+                    previewHTML = `<a href="${url}" target="_blank" class="flex items-center gap-3 p-3 w-full mt-2 rounded-xl border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-slate-700 pointer-events-auto"><i class="fab fa-github text-2xl shrink-0"></i><div class="flex flex-col overflow-hidden w-full"><span class="text-xs text-slate-400">GitHub Repository</span><span class="text-sm font-bold truncate">${repoPath || 'GitHub Link'}</span></div></a>`;
+                } else {
+                    previewHTML = `<a href="${url}" target="_blank" class="flex items-center gap-3 p-3 w-full mt-2 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-slate-700 pointer-events-auto"><div class="w-8 h-8 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center shrink-0"><i class="fas fa-link"></i></div><div class="flex flex-col overflow-hidden w-full"><span class="text-sm font-semibold truncate text-blue-600">${url}</span><span class="text-xs text-slate-400 truncate">外部網站</span></div></a>`;
+                }
+                textWithoutUrl = safeText.replace(urlMatch[0], '').trim();
+            }
+            return { previewHTML, textWithoutUrl };
         }
 
         function renderList(items, containerEl, collectionName, iconClass = 'fas fa-circle text-[8px] text-indigo-400') {
@@ -892,18 +939,24 @@
             }
             containerEl.innerHTML = '';
             items.forEach(item => {
+                const { previewHTML, textWithoutUrl } = getLinkPreviewData(item.text);
                 const li = document.createElement('li');
-                li.className = 'bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-start justify-between shadow-sm group hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing';
+                li.className = 'bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex flex-col gap-2 relative shadow-sm group hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing w-full';
                 li.setAttribute('data-id', item.id); li.setAttribute('data-order', getOrder(item));
                 li.innerHTML = `
-                    <div class="flex items-start gap-2 flex-1 min-w-0 flex-col">
-                        <div class="flex items-start gap-2 w-full mt-0.5">
-                            <i class="${iconClass} shrink-0 mr-1 mt-1"></i>
-                            <div class="leading-relaxed break-words break-all pr-2 line-clamp-3 text-left flex-1 whitespace-pre-wrap">${escapeHtml(item.text)}</div>
+                    <div class="flex items-start justify-between w-full min-w-0">
+                        <div class="flex items-start gap-2 flex-1 min-w-0 flex-col">
+                            <div class="flex items-start gap-2 w-full mt-0.5">
+                                <i class="${iconClass} shrink-0 mr-1 mt-1"></i>
+                                <div class="leading-relaxed break-words break-all pr-8 line-clamp-3 text-left flex-1 whitespace-pre-wrap">${escapeHtml(textWithoutUrl || item.text)}</div>
+                            </div>
                         </div>
-                        ${getImageHTML(item.imageUrl)}
                     </div>
-                    ${getActionButtonsHTML()}`;
+                    ${getImageHTML(item.imageUrl)}
+                    ${previewHTML}
+                    <div class="absolute right-3 top-3 bg-white/80 rounded-full backdrop-blur-sm pointer-events-auto">
+                        ${getActionButtonsHTML()}
+                    </div>`;
                 attachItemListeners(li, item, collectionName);
                 
                 li.classList.add('cursor-pointer');
@@ -921,20 +974,26 @@
             if (items.length === 0) { containerEl.innerHTML = `<li class="text-sm text-slate-400 italic ignore-drag">目前沒有項目</li>`; return; }
             containerEl.innerHTML = '';
             items.forEach(item => {
+                const { previewHTML, textWithoutUrl } = getLinkPreviewData(item.text);
                 const isCompleted = item.completed || false; const textClass = isCompleted ? 'todo-checked' : '';
                 const li = document.createElement('li');
-                li.className = `bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex items-start justify-between shadow-sm group hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing ${isCompleted ? 'todo-item-completed' : ''}`;
+                li.className = `bg-white p-3 rounded-xl border border-slate-100 text-slate-700 text-sm flex flex-col gap-2 relative shadow-sm group hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing ${isCompleted ? 'todo-item-completed' : ''} w-full`;
                 li.setAttribute('data-id', item.id); li.setAttribute('data-order', getOrder(item));
                 
                 li.innerHTML = `
-                    <div class="todo-content flex items-start gap-3 flex-1 min-w-0 cursor-pointer flex-col">
-                        <div class="flex items-start gap-3 w-full mt-0.5">
-                            <input type="checkbox" ${isCompleted ? 'checked' : ''} class="todo-checkbox w-4 h-4 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0 pointer-events-auto mt-[0.3rem]">
-                            <div class="leading-relaxed break-words break-all pr-2 flex-1 transition-all line-clamp-3 whitespace-pre-wrap ${textClass}">${escapeHtml(item.text)}</div>
+                    <div class="flex items-start justify-between w-full min-w-0">
+                        <div class="todo-content flex items-start gap-3 flex-1 min-w-0 cursor-pointer flex-col">
+                            <div class="flex items-start gap-3 w-full mt-0.5">
+                                <input type="checkbox" ${isCompleted ? 'checked' : ''} class="todo-checkbox w-4 h-4 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0 pointer-events-auto mt-[0.3rem]">
+                                <div class="leading-relaxed break-words break-all pr-8 flex-1 transition-all line-clamp-3 whitespace-pre-wrap ${textClass}">${escapeHtml(textWithoutUrl || item.text)}</div>
+                            </div>
                         </div>
-                        ${getImageHTML(item.imageUrl)}
                     </div>
-                    ${getActionButtonsHTML()}`;
+                    ${getImageHTML(item.imageUrl)}
+                    ${previewHTML}
+                    <div class="absolute right-3 top-3 bg-white/80 rounded-full backdrop-blur-sm pointer-events-auto">
+                        ${getActionButtonsHTML()}
+                    </div>`;
                 
                 const checkbox = li.querySelector('.todo-checkbox');
                 
@@ -959,27 +1018,25 @@
             if (items.length === 0) { containerEl.innerHTML = `<li class="text-sm text-slate-400 italic ignore-drag">目前沒有項目</li>`; return; }
             containerEl.innerHTML = '';
             items.forEach(item => {
+                const { previewHTML, textWithoutUrl } = getLinkPreviewData(item.text);
                 const li = document.createElement('li');
-                li.className = 'bg-white p-3 rounded-xl border border-slate-100 shadow-sm group hover:shadow-md transition-shadow flex flex-col gap-3 relative cursor-grab active:cursor-grabbing';
+                li.className = 'bg-white p-3 rounded-xl border border-slate-100 shadow-sm group hover:shadow-md transition-shadow flex flex-col gap-2 relative cursor-grab active:cursor-grabbing w-full';
                 li.setAttribute('data-id', item.id); li.setAttribute('data-order', getOrder(item));
-                const safeText = item.text || ''; const urlMatch = safeText.match(/(https?:\/\/[^\s]+)/); let previewHTML = '';
+                
+                let textHTML = textWithoutUrl ? `<div class="leading-relaxed break-words break-all text-slate-700 text-sm flex-1 line-clamp-3 pr-8 whitespace-pre-wrap">${escapeHtml(textWithoutUrl)}</div>` : '';
 
-                if (urlMatch) {
-                    const url = urlMatch[0]; const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-                    if (ytMatch) {
-                        previewHTML = `<a href="${url}" target="_blank" class="block rounded-xl overflow-hidden border border-slate-200 hover:border-rose-300 transition-colors relative group/preview pointer-events-auto"><img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="w-full h-auto object-cover aspect-video"><div class="absolute inset-0 bg-black/20 flex items-center justify-center opacity-80 group-hover/preview:opacity-100 transition-opacity"><i class="fab fa-youtube text-red-500 text-5xl drop-shadow-md bg-white rounded-full"></i></div></a>`;
-                    } else if (url.includes('github.com')) {
-                        const repoPath = url.replace('https://github.com/', '').split('/').slice(0, 2).join('/');
-                        previewHTML = `<a href="${url}" target="_blank" class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-slate-700 pointer-events-auto"><i class="fab fa-github text-2xl"></i><div class="flex flex-col overflow-hidden"><span class="text-xs text-slate-400">GitHub Repository</span><span class="text-sm font-bold truncate">${repoPath || 'GitHub Link'}</span></div></a>`;
-                    } else {
-                        previewHTML = `<a href="${url}" target="_blank" class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-slate-700 pointer-events-auto"><div class="w-10 h-10 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center shrink-0"><i class="fas fa-link"></i></div><div class="flex flex-col overflow-hidden w-full"><span class="text-sm font-semibold truncate text-blue-600">${url}</span><span class="text-xs text-slate-400 truncate">外部網站</span></div></a>`;
-                    }
-                }
-
-                let textWithoutUrl = safeText; if (urlMatch) textWithoutUrl = safeText.replace(urlMatch[0], '').trim();
-                let textHTML = textWithoutUrl ? `<div class="leading-relaxed break-words break-all text-slate-700 text-sm flex-1 line-clamp-3 whitespace-pre-wrap">${escapeHtml(textWithoutUrl)}</div>` : '';
-
-                li.innerHTML = `<div class="flex items-start justify-between gap-2 w-full min-w-0 flex-col"><div class="flex items-center gap-2 flex-1 w-full min-w-0"><i class="fas fa-star text-rose-300 shrink-0"></i>${textHTML}</div>${getImageHTML(item.imageUrl)}</div><div class="absolute right-3 top-3 bg-white/80 rounded-full backdrop-blur-sm pointer-events-auto">${getActionButtonsHTML()}</div>${previewHTML}`;
+                li.innerHTML = `
+                    <div class="flex items-start justify-between gap-2 w-full min-w-0 flex-col">
+                        <div class="flex items-start gap-2 flex-1 w-full min-w-0">
+                            <i class="fas fa-star text-rose-300 shrink-0 mt-1"></i>
+                            ${textHTML}
+                        </div>
+                    </div>
+                    ${getImageHTML(item.imageUrl)}
+                    ${previewHTML}
+                    <div class="absolute right-3 top-3 bg-white/80 rounded-full backdrop-blur-sm pointer-events-auto">
+                        ${getActionButtonsHTML()}
+                    </div>`;
                 attachItemListeners(li, item, collectionName); containerEl.appendChild(li);
             });
         }
