@@ -668,6 +668,62 @@
             });
         }
 
+        // ✨ Sidebar Index
+        function renderSidebar(categories) {
+            const nav = document.getElementById('sidebar-nav');
+            if (!nav) return;
+            nav.innerHTML = '';
+
+            // Static: Inbox
+            nav.appendChild(createSidebarLink('inbox', 'fas fa-inbox', '收件匣'));
+
+            // Divider
+            if (categories.length > 0) {
+                const divider = document.createElement('div');
+                divider.className = 'my-2 border-t border-slate-100';
+                nav.appendChild(divider);
+            }
+
+            // Dynamic categories
+            categories.forEach(cat => {
+                nav.appendChild(createSidebarLink(cat.id, cat.icon, cat.name));
+            });
+        }
+
+        function createSidebarLink(targetId, iconClass, labelText) {
+            const btn = document.createElement('button');
+            btn.className = 'sidebar-link';
+            btn.setAttribute('data-target', targetId);
+            btn.innerHTML = `
+                <i class="${iconClass} sidebar-link-icon"></i>
+                <span class="sidebar-link-text">${escapeHtml(labelText)}</span>
+            `;
+            btn.addEventListener('click', () => {
+                const targetEl = targetId === 'inbox'
+                    ? document.querySelector('[data-col="inbox"]')?.closest('.category-wrapper')
+                    : document.getElementById(`list-${targetId}`)?.closest('.category-wrapper');
+                if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                closeSidebar();
+            });
+            return btn;
+        }
+
+        function openSidebar() {
+            document.getElementById('sidebar').classList.add('is-open');
+            document.getElementById('sidebar-backdrop').classList.remove('hidden');
+        }
+
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.remove('is-open');
+            document.getElementById('sidebar-backdrop').classList.add('hidden');
+        }
+
+        document.getElementById('sidebar-toggle-btn')?.addEventListener('click', openSidebar);
+        document.getElementById('sidebar-close-btn')?.addEventListener('click', closeSidebar);
+        document.getElementById('sidebar-backdrop')?.addEventListener('click', closeSidebar);
+
         function populateCategoryForm(cat) {
             document.getElementById('category-form-title').innerText = '編輯分類';
             document.getElementById('cat-id-input').value = cat.id;
@@ -943,6 +999,7 @@
                 renderCategoryManagerList(currentCategories);
                 renderMainGrid(currentCategories);
                 updateCategorySelectOptions(currentCategories);
+                renderSidebar(currentCategories);
             });
         }
 
