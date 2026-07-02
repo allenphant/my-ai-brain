@@ -41,7 +41,7 @@
         .hide-completed-mode .todo-item-completed { display: none !important; }
 
         .sortable-ghost { opacity: 0.3; }
-        .sortable-drag { cursor: grabbing !important; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); pointer-events: none !important; }
+        .sortable-drag, .sortable-fallback { cursor: grabbing !important; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); pointer-events: none !important; }
         
         body.is-dragging { user-select: none; -webkit-user-select: none; }
         body.is-dragging .sortable-list { min-height: 80px; }
@@ -461,6 +461,62 @@
         let isInitialInboxLoad = true; 
         let justDropped = false;
 
+        // --- History Manager for Undo/Redo ---
+        class HistoryManager {
+            constructor() {
+                this.undoStack = [];
+                this.redoStack = [];
+            }
+            push(action) {
+                this.undoStack.push(action);
+                this.redoStack = [];
+                if (this.undoStack.length > 50) this.undoStack.shift();
+            }
+            async undo() {
+                if (this.undoStack.length === 0) {
+                    showToast('沒有可還原的操作', 'fas fa-info-circle');
+                    return;
+                }
+                const action = this.undoStack.pop();
+                try {
+                    await action.undo();
+                    this.redoStack.push(action);
+                } catch (e) {
+                    console.error("Undo failed:", e);
+                    showToast('還原操作失敗', 'fas fa-exclamation-triangle');
+                }
+            }
+            async redo() {
+                if (this.redoStack.length === 0) {
+                    showToast('沒有可重做的操作', 'fas fa-info-circle');
+                    return;
+                }
+                const action = this.redoStack.pop();
+                try {
+                    await action.redo();
+                    this.undoStack.push(action);
+                } catch (e) {
+                    console.error("Redo failed:", e);
+                    showToast('重做操作失敗', 'fas fa-exclamation-triangle');
+                }
+            }
+        }
+        const historyManager = new HistoryManager();
+
+        async function copyCardDetails(oldCol, newCol, oldId, newId) {
+            try {
+                const oldNoteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, oldId, 'details', 'note');
+                const oldNoteSnap = await getDoc(oldNoteRef);
+                if (oldNoteSnap.exists()) {
+                    const newNoteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, newCol, newId, 'details', 'note');
+                    await setDoc(newNoteRef, oldNoteSnap.data());
+                    await deleteDoc(oldNoteRef);
+                }
+            } catch (e) {
+                console.error("Failed to copy card details:", e);
+            }
+        }
+
         let stagedImageFile = null;
 
         const confirmModal = document.getElementById('confirm-modal');
@@ -533,11 +589,7 @@
                         if (evt.originalEvent) {
                             const touch = evt.originalEvent.touches ? (evt.originalEvent.touches[0] || evt.originalEvent.changedTouches[0]) : evt.originalEvent;
                             if (touch) {
-                                let dragEl = document.querySelector('.sortable-drag');
-                                if (dragEl) dragEl.style.display = 'none';
                                 const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
-                                if (dragEl) dragEl.style.display = '';
-                                
                                 const sidebarLink = targetEl ? targetEl.closest('.sidebar-link') : null;
                                 if (sidebarLink) {
                                     const targetCol = sidebarLink.getAttribute('data-target');
@@ -574,10 +626,31 @@
                                 const oldSnap = await getDoc(docRef);
                                 if (oldSnap.exists()) {
                                     let data = oldSnap.data(); data.order = newOrder;
-                                    if(newCol !== 'todos') delete data.completed;
+                                    const targetCat = currentCategories.find(c => c.id === newCol);
+                                    const isTodoCol = newCol === 'todos' || (targetCat && targetCat.type === 'todo');
+                                    if(!isTodoCol) delete data.completed;
+                                    
+                                    const oldData = oldSnap.data();
+                                    const oldOrder = oldData.order || Date.now();
+                                    historyManager.push({
+                                        undo: async () => {
+                                            await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id), oldData);
+                                            await copyCardDetails(newCol, oldCol, id, id);
+                                            await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, newCol, id));
+                                            showToast('已還原移動');
+                                        },
+                                        redo: async () => {
+                                            await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, newCol, id), data);
+                                            await copyCardDetails(oldCol, newCol, id, id);
+                                            await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id));
+                                            showToast('已重做移動');
+                                        }
+                                    });
+
                                     await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, newCol, id), data);
+                                    await copyCardDetails(oldCol, newCol, id, id);
                                     await deleteDoc(docRef);
-                                    showToast('已永久刪除');
+                                    showToast('已移動分類');
                                 }
                             }
                         } catch(err) { console.error(err); }
@@ -1267,7 +1340,24 @@
             if (currentUser && pendingDeleteTarget) {
                 const btn = document.getElementById('confirm-delete-btn'); const originalHTML = btn.innerHTML; btn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>'; btn.disabled = true;
                 try { 
-                    await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingDeleteTarget.col, pendingDeleteTarget.id)); 
+                    const col = pendingDeleteTarget.col;
+                    const id = pendingDeleteTarget.id;
+                    const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        historyManager.push({
+                            undo: async () => {
+                                await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), data);
+                                showToast('已還原刪除');
+                            },
+                            redo: async () => {
+                                await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id));
+                                showToast('已重做刪除');
+                            }
+                        });
+                    }
+                    await deleteDoc(docRef); 
                     showToast('已移至垃圾桶'); 
                 } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; confirmModal.classList.add('hidden'); pendingDeleteTarget = null; }
             }
@@ -1281,12 +1371,35 @@
                     const originalHTML = targetBtn.innerHTML; targetBtn.innerHTML = '<div class="loader w-5 h-5 mx-auto border-t-slate-500"></div>';
                     try {
                         const { id, ...dataToMove } = pendingMoveTarget.data;
-                        if (targetCol !== 'todos' && dataToMove.completed !== undefined) delete dataToMove.completed;
-                        dataToMove.order = Date.now(); 
-                        await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCol), dataToMove);
-                        await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingMoveTarget.col, pendingMoveTarget.id));
+                        const oldCol = pendingMoveTarget.col;
+                        const targetCat = currentCategories.find(c => c.id === targetCol);
+                        const isTodoCol = targetCol === 'todos' || (targetCat && targetCat.type === 'todo');
+                        if (!isTodoCol && dataToMove.completed !== undefined) delete dataToMove.completed;
+                        const oldOrder = dataToMove.order || Date.now();
+                        const newOrder = Date.now();
+                        dataToMove.order = newOrder; 
+                        
+                        historyManager.push({
+                            undo: async () => {
+                                const oldData = { ...dataToMove, order: oldOrder };
+                                await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id), oldData);
+                                await copyCardDetails(targetCol, oldCol, id, id);
+                                await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCol, id));
+                                showToast('已還原移動');
+                            },
+                            redo: async () => {
+                                await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCol, id), dataToMove);
+                                await copyCardDetails(oldCol, targetCol, id, id);
+                                await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id));
+                                showToast('已重做移動');
+                            }
+                        });
+
+                        await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCol, id), dataToMove);
+                        await copyCardDetails(oldCol, targetCol, id, id);
+                        await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id));
                         showToast('卡片已移動');
-                    } catch(err) {} finally { targetBtn.innerHTML = originalHTML; moveModal.classList.add('hidden'); pendingMoveTarget = null; }
+                    } catch(err) { console.error(err); } finally { targetBtn.innerHTML = originalHTML; moveModal.classList.add('hidden'); pendingMoveTarget = null; }
                 }
             });
         });
@@ -1296,7 +1409,26 @@
             if (currentUser && pendingEditTarget) {
                 const newText = document.getElementById('edit-input').value.trim(); if (!newText) return;
                 const btn = document.getElementById('confirm-edit-btn'); const originalHTML = btn.innerHTML; btn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>'; btn.disabled = true;
-                try { await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, pendingEditTarget.col, pendingEditTarget.id), { text: newText }); } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; editModal.classList.add('hidden'); pendingEditTarget = null; }
+                try { 
+                    const col = pendingEditTarget.col;
+                    const id = pendingEditTarget.id;
+                    const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        const oldText = docSnap.data().text;
+                        historyManager.push({
+                            undo: async () => {
+                                await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), { text: oldText });
+                                showToast('已還原編輯');
+                            },
+                            redo: async () => {
+                                await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), { text: newText });
+                                showToast('已重做編輯');
+                            }
+                        });
+                    }
+                    await updateDoc(docRef, { text: newText }); 
+                } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; editModal.classList.add('hidden'); pendingEditTarget = null; }
             }
         });
 
@@ -1405,7 +1537,18 @@
 
                 if (uploadedImageUrl) newDocData.imageUrl = uploadedImageUrl;
 
-                await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), newDocData);
+                const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), newDocData);
+                const newId = docRef.id;
+                historyManager.push({
+                    undo: async () => {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection, newId));
+                        showToast('已還原新增');
+                    },
+                    redo: async () => {
+                        await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection, newId), newDocData);
+                        showToast('已重做新增');
+                    }
+                });
                 
                 ideaInput.value = ''; ideaInput.style.height = '40px';
                 removeImageBtn.click(); 
@@ -1498,6 +1641,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 if(responseData.error) throw new Error(responseData.error.message);
                 
                 const resultMap = JSON.parse(responseData.candidates[0].content.parts[0].text);
+                const historyMappings = [];
                 
                 for (const mapping of resultMap) {
                     const item = itemsToCategorize.find(i => i.id === mapping.itemId);
@@ -1509,10 +1653,40 @@ ${JSON.stringify(inboxData, null, 2)}`;
                     let docData = { text: item.text, createdAt: item.createdAt || Date.now(), order: Date.now() };
                     if (item.imageUrl) docData.imageUrl = item.imageUrl;
                     
-                    await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCol), docData);
+                    historyMappings.push({
+                        itemId: item.id,
+                        newCol: targetCol,
+                        data: item
+                    });
+                    
+                    await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCol, item.id), docData);
+                    await copyCardDetails('inbox', targetCol, item.id, item.id);
                     await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', item.id));
-                    showToast('已移至垃圾桶');
                 }
+                
+                if (historyMappings.length > 0) {
+                    historyManager.push({
+                        undo: async () => {
+                            for (const m of historyMappings) {
+                                await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', m.itemId), m.data);
+                                await copyCardDetails(m.newCol, 'inbox', m.itemId, m.itemId);
+                                await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, m.newCol, m.itemId));
+                            }
+                            showToast('已還原 AI 整理');
+                        },
+                        redo: async () => {
+                            for (const m of historyMappings) {
+                                let docData = { text: m.data.text, createdAt: m.data.createdAt || Date.now(), order: Date.now() };
+                                if (m.data.imageUrl) docData.imageUrl = m.data.imageUrl;
+                                await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, m.newCol, m.itemId), docData);
+                                await copyCardDetails('inbox', m.newCol, m.itemId, m.itemId);
+                                await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', m.itemId));
+                            }
+                            showToast('已重做 AI 整理');
+                        }
+                    });
+                }
+                showToast(`AI 整理完成，已分類 ${resultMap.length} 個項目`);
             } catch (error) { 
                 console.error(error); 
                 alert("AI 整理失敗：" + error.message);
@@ -1754,6 +1928,30 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 setTimeout(() => toast.remove(), 300);
             }, 3000);
         };
+
+        // --- Keyboard Shortcuts for Undo/Redo ---
+        document.addEventListener('keydown', (e) => {
+            const activeEl = document.activeElement;
+            if (activeEl && (
+                activeEl.tagName === 'INPUT' || 
+                activeEl.tagName === 'TEXTAREA' || 
+                activeEl.contentEditable === 'true' ||
+                activeEl.closest('.codex-editor')
+            )) {
+                return; // Let standard text inputs handle their own native undo/redo
+            }
+
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                historyManager.undo();
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+                e.preventDefault();
+                historyManager.redo();
+            } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                historyManager.redo();
+            }
+        });
     </script>
     <!-- Mobile Sidebar Backdrop -->
     <div id="sidebar-backdrop" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[90]"></div>
