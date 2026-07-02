@@ -724,6 +724,33 @@
             document.getElementById('sidebar-backdrop')?.classList.add('hidden');
         }
 
+        let sidebarObserver = null;
+
+        function initSidebarObserver() {
+            if (sidebarObserver) sidebarObserver.disconnect();
+
+            const wrappers = document.querySelectorAll('.category-wrapper');
+            if (wrappers.length === 0) return;
+
+            sidebarObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (!entry.isIntersecting) return;
+                    const listEl = entry.target.querySelector('[data-col]');
+                    const colId = listEl ? listEl.getAttribute('data-col') : null;
+                    if (!colId) return;
+
+                    document.querySelectorAll('.sidebar-link').forEach(link => {
+                        link.classList.toggle('is-active', link.getAttribute('data-target') === colId);
+                    });
+                });
+            }, {
+                rootMargin: '-10% 0px -60% 0px',
+                threshold: 0
+            });
+
+            wrappers.forEach(wrapper => sidebarObserver.observe(wrapper));
+        }
+
         document.getElementById('sidebar-toggle-btn')?.addEventListener('click', openSidebar);
         document.getElementById('sidebar-close-btn')?.addEventListener('click', closeSidebar);
         document.getElementById('sidebar-backdrop')?.addEventListener('click', closeSidebar);
@@ -982,6 +1009,7 @@
                 document.getElementById('inbox-count').innerText = currentInboxItems.length;
                 document.getElementById('ai-sort-btn').disabled = currentInboxItems.length === 0;
                 if (isInitialInboxLoad) { isInitialInboxLoad = false; setTimeout(checkAutoSortCondition, 800); }
+                setTimeout(initSidebarObserver, 100);
             });
 
             onSnapshot(getCol('categories'), async (snapshot) => {
@@ -1004,6 +1032,7 @@
                 renderMainGrid(currentCategories);
                 updateCategorySelectOptions(currentCategories);
                 renderSidebar(currentCategories);
+                setTimeout(initSidebarObserver, 100);
             });
         }
 
