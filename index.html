@@ -694,10 +694,14 @@
             const btn = document.createElement('button');
             btn.className = 'sidebar-link';
             btn.setAttribute('data-target', targetId);
-            btn.innerHTML = `
-                <i class="${iconClass} sidebar-link-icon"></i>
-                <span class="sidebar-link-text">${escapeHtml(labelText)}</span>
-            `;
+            const icon = document.createElement('i');
+            iconClass.split(' ').filter(Boolean).forEach(cls => icon.classList.add(cls));
+            icon.classList.add('sidebar-link-icon');
+            const span = document.createElement('span');
+            span.className = 'sidebar-link-text';
+            span.textContent = labelText;
+            btn.appendChild(icon);
+            btn.appendChild(span);
             btn.addEventListener('click', () => {
                 const targetEl = targetId === 'inbox'
                     ? document.querySelector('[data-col="inbox"]')?.closest('.category-wrapper')
@@ -711,13 +715,13 @@
         }
 
         function openSidebar() {
-            document.getElementById('sidebar').classList.add('is-open');
-            document.getElementById('sidebar-backdrop').classList.remove('hidden');
+            document.getElementById('sidebar')?.classList.add('is-open');
+            document.getElementById('sidebar-backdrop')?.classList.remove('hidden');
         }
 
         function closeSidebar() {
-            document.getElementById('sidebar').classList.remove('is-open');
-            document.getElementById('sidebar-backdrop').classList.add('hidden');
+            document.getElementById('sidebar')?.classList.remove('is-open');
+            document.getElementById('sidebar-backdrop')?.classList.add('hidden');
         }
 
         document.getElementById('sidebar-toggle-btn')?.addEventListener('click', openSidebar);
