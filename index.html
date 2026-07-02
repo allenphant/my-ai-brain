@@ -115,6 +115,45 @@
                 box-shadow: 4px 0 20px rgba(0,0,0,0.15);
             }
         }
+
+        /* Sidebar Nav Link Styles */
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 0.625rem;
+            padding: 0.5rem 0.625rem;
+            border-radius: 0.625rem;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: #64748b;
+            cursor: pointer;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+            transition: background-color 0.15s, color 0.15s;
+        }
+        .sidebar-link:hover {
+            background-color: #f1f5f9;
+            color: #334155;
+        }
+        .sidebar-link.is-active {
+            background-color: #eef2ff;
+            color: #4f46e5;
+            font-weight: 600;
+        }
+        .sidebar-link .sidebar-link-icon {
+            width: 1.125rem;
+            text-align: center;
+            font-size: 0.875rem;
+            flex-shrink: 0;
+        }
+        .sidebar-link .sidebar-link-text {
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
     </style>
 </head>
 <body class="bg-background text-slate-800 font-sans min-h-screen p-4 md:p-8 relative">
