@@ -517,6 +517,22 @@
             }
         }
 
+        function getCollectionName(colId) {
+            if (colId === 'inbox') return '收件匣';
+            if (colId === 'todos') return '待辦事項';
+            if (colId === 'learning') return '學習筆記';
+            if (colId === 'ideas') return '靈感與想法';
+            if (colId === 'bookmarks') return '稍後閱讀';
+            const cat = currentCategories.find(c => c.id === colId);
+            return cat ? cat.name : '未知分類';
+        }
+
+        function getShortText(text, maxLen = 10) {
+            const cleanText = (text || '').trim();
+            if (!cleanText) return '空內容';
+            return cleanText.length > maxLen ? cleanText.substring(0, maxLen) + '...' : cleanText;
+        }
+
         let stagedImageFile = null;
 
         const confirmModal = document.getElementById('confirm-modal');
@@ -569,10 +585,16 @@
                     onStart: function () { document.body.classList.add('is-dragging'); },
                     onChange: function (evt) {
                         document.querySelectorAll('.is-dragover').forEach(el => el.classList.remove('is-dragover'));
-                        // ✨ 修復：判斷目標區域是否為原區域，若是跨區才顯示「加入...」遮罩
                         if(evt.to && evt.to !== evt.from) {
                             const wrapper = evt.to.closest('.category-wrapper');
                             if(wrapper) wrapper.classList.add('is-dragover');
+                        }
+                    },
+                    onLeave: function (evt) {
+                        const listEl = evt.el || evt.from;
+                        if (listEl) {
+                            const wrapper = listEl.closest('.category-wrapper');
+                            if (wrapper) wrapper.classList.remove('is-dragover');
                         }
                     },
                     onEnd: async function (evt) {
@@ -632,25 +654,29 @@
                                     
                                     const oldData = oldSnap.data();
                                     const oldOrder = oldData.order || Date.now();
+                                    const shortText = getShortText(data.text);
+                                    const oldName = getCollectionName(oldCol);
+                                    const newName = getCollectionName(newCol);
+                                    
                                     historyManager.push({
                                         undo: async () => {
                                             await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id), oldData);
                                             await copyCardDetails(newCol, oldCol, id, id);
                                             await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, newCol, id));
-                                            showToast('已還原移動');
+                                            showToast(`已還原：將「${shortText}」放回 [${oldName}]`, 'fas fa-undo');
                                         },
                                         redo: async () => {
                                             await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, newCol, id), data);
                                             await copyCardDetails(oldCol, newCol, id, id);
                                             await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id));
-                                            showToast('已重做移動');
+                                            showToast(`已重做：將「${shortText}」移至 [${newName}]`, 'fas fa-redo');
                                         }
                                     });
 
                                     await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, newCol, id), data);
                                     await copyCardDetails(oldCol, newCol, id, id);
                                     await deleteDoc(docRef);
-                                    showToast('已移動分類');
+                                    showToast(`已將「${shortText}」移至 [${newName}]`, 'fas fa-exchange-alt');
                                 }
                             }
                         } catch(err) { console.error(err); }
@@ -1346,19 +1372,21 @@
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
                         const data = docSnap.data();
+                        const shortText = getShortText(data.text);
+                        const colName = getCollectionName(col);
                         historyManager.push({
                             undo: async () => {
                                 await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), data);
-                                showToast('已還原刪除');
+                                showToast(`已還原：將「${shortText}」放回 [${colName}]`, 'fas fa-undo');
                             },
                             redo: async () => {
                                 await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id));
-                                showToast('已重做刪除');
+                                showToast(`已重做：將「${shortText}」移至垃圾桶`, 'fas fa-redo');
                             }
                         });
+                        await deleteDoc(docRef); 
+                        showToast(`已將「${shortText}」移至垃圾桶`, 'fas fa-trash-alt'); 
                     }
-                    await deleteDoc(docRef); 
-                    showToast('已移至垃圾桶'); 
                 } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; confirmModal.classList.add('hidden'); pendingDeleteTarget = null; }
             }
         });
@@ -1379,26 +1407,30 @@
                         const newOrder = Date.now();
                         dataToMove.order = newOrder; 
                         
+                        const shortText = getShortText(dataToMove.text);
+                        const oldName = getCollectionName(oldCol);
+                        const newName = getCollectionName(targetCol);
+                        
                         historyManager.push({
                             undo: async () => {
                                 const oldData = { ...dataToMove, order: oldOrder };
                                 await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id), oldData);
                                 await copyCardDetails(targetCol, oldCol, id, id);
                                 await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCol, id));
-                                showToast('已還原移動');
+                                showToast(`已還原：將「${shortText}」放回 [${oldName}]`, 'fas fa-undo');
                             },
                             redo: async () => {
                                 await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCol, id), dataToMove);
                                 await copyCardDetails(oldCol, targetCol, id, id);
                                 await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id));
-                                showToast('已重做移動');
+                                showToast(`已重做：將「${shortText}」移至 [${newName}]`, 'fas fa-redo');
                             }
                         });
 
                         await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCol, id), dataToMove);
                         await copyCardDetails(oldCol, targetCol, id, id);
                         await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id));
-                        showToast('卡片已移動');
+                        showToast(`已將「${shortText}」移至 [${newName}]`, 'fas fa-exchange-alt');
                     } catch(err) { console.error(err); } finally { targetBtn.innerHTML = originalHTML; moveModal.classList.add('hidden'); pendingMoveTarget = null; }
                 }
             });
@@ -1416,18 +1448,21 @@
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
                         const oldText = docSnap.data().text;
+                        const shortOldText = getShortText(oldText);
+                        const shortNewText = getShortText(newText);
                         historyManager.push({
                             undo: async () => {
                                 await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), { text: oldText });
-                                showToast('已還原編輯');
+                                showToast(`已還原編輯：內容改回「${shortOldText}」`, 'fas fa-undo');
                             },
                             redo: async () => {
                                 await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), { text: newText });
-                                showToast('已重做編輯');
+                                showToast(`已重做編輯：內容改為「${shortNewText}」`, 'fas fa-redo');
                             }
                         });
+                        await updateDoc(docRef, { text: newText }); 
+                        showToast(`已將內容修改為「${shortNewText}」`, 'fas fa-edit');
                     }
-                    await updateDoc(docRef, { text: newText }); 
                 } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; editModal.classList.add('hidden'); pendingEditTarget = null; }
             }
         });
@@ -1539,16 +1574,19 @@
 
                 const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), newDocData);
                 const newId = docRef.id;
+                const shortText = getShortText(newDocData.text);
+                const colName = getCollectionName(targetCollection);
                 historyManager.push({
                     undo: async () => {
                         await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection, newId));
-                        showToast('已還原新增');
+                        showToast(`已還原：移除新增的卡片「${shortText}」`, 'fas fa-undo');
                     },
                     redo: async () => {
                         await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection, newId), newDocData);
-                        showToast('已重做新增');
+                        showToast(`已重做：將卡片「${shortText}」新增至 [${colName}]`, 'fas fa-redo');
                     }
                 });
+                showToast(`已新增卡片「${shortText}」至 [${colName}]`, 'fas fa-plus');
                 
                 ideaInput.value = ''; ideaInput.style.height = '40px';
                 removeImageBtn.click(); 
@@ -1672,7 +1710,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                                 await copyCardDetails(m.newCol, 'inbox', m.itemId, m.itemId);
                                 await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, m.newCol, m.itemId));
                             }
-                            showToast('已還原 AI 整理');
+                            showToast(`已還原 AI 整理，共 ${historyMappings.length} 個項目已放回 [收件匣]`, 'fas fa-undo');
                         },
                         redo: async () => {
                             for (const m of historyMappings) {
@@ -1682,11 +1720,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
                                 await copyCardDetails('inbox', m.newCol, m.itemId, m.itemId);
                                 await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', m.itemId));
                             }
-                            showToast('已重做 AI 整理');
+                            showToast(`已重做 AI 整理，共 ${historyMappings.length} 個項目已重新分類`, 'fas fa-redo');
                         }
                     });
                 }
-                showToast(`AI 整理完成，已分類 ${resultMap.length} 個項目`);
+                showToast(`AI 整理完成，已分類 ${resultMap.length} 個項目`, 'fas fa-magic');
             } catch (error) { 
                 console.error(error); 
                 alert("AI 整理失敗：" + error.message);
