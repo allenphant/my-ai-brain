@@ -1707,9 +1707,14 @@ ${text}
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: promptText }] }],
-                    tools: [{ googleSearch: {} }] // Enable Google Search Grounding!
+                    tools: [{ google_search: {} }] // Enable Google Search Grounding!
                 })
             });
+            
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error?.message || `HTTP error! status: ${response.status}`);
+            }
             
             const data = await response.json();
             if (data.error) {
