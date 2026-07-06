@@ -567,6 +567,11 @@
                 const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
                 items.sort((a, b) => getOrder(b) - getOrder(a));
                 
+                const countEl = document.getElementById(`count-${catId}`);
+                if (countEl) {
+                    countEl.innerText = items.length;
+                }
+                
                 if (catType === 'todo') {
                     renderTodos(items, listEl, catId);
                 } else if (catType === 'bookmark') {
@@ -975,7 +980,7 @@
                     controlsHtml = `<div class="flex items-center gap-2">${addBtnHtml}</div>`;
                 }
                 
-                let titleHtml = `<div class="flex items-center"><i class="${cat.icon || 'fas fa-folder'} text-indigo-500 mr-2 text-xl"></i>${escapeHtml(cat.name || '')}</div>` + controlsHtml;
+                let titleHtml = `<div class="flex items-center"><i class="${cat.icon || 'fas fa-folder'} text-indigo-500 mr-2 text-xl"></i>${escapeHtml(cat.name || '')} <span id="count-${cat.id}" class="bg-indigo-100 text-indigo-800 text-xs px-2 py-0.5 rounded-full font-bold ml-2">0</span></div>` + controlsHtml;
                 header.innerHTML = titleHtml;
                 wrapper.appendChild(header);
                 
@@ -1016,10 +1021,40 @@
                         delBtn.addEventListener('click', async () => {
                             if(!confirm('清空所有已完成的項目？')) return;
                             const itemsEl = list.querySelectorAll('.todo-item-completed');
-                            for(const el of itemsEl) {
-                                await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, cat.id, el.getAttribute('data-id')));
-                                showToast('已移至垃圾桶');
+                            const count = itemsEl.length;
+                            if (count === 0) {
+                                showToast('沒有已完成的項目可以刪除', 'fas fa-info-circle');
+                                return;
                             }
+                            
+                            const itemsToDelete = [];
+                            for(const el of itemsEl) {
+                                const itemId = el.getAttribute('data-id');
+                                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, cat.id, itemId);
+                                const docSnap = await getDoc(docRef);
+                                if (docSnap.exists()) {
+                                    itemsToDelete.push({ id: itemId, data: docSnap.data() });
+                                }
+                                await deleteDoc(docRef);
+                            }
+                            
+                            if (itemsToDelete.length > 0) {
+                                historyManager.push({
+                                    undo: async () => {
+                                        for (const item of itemsToDelete) {
+                                            await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, cat.id, item.id), item.data);
+                                        }
+                                        showToast(`已還原：放回 ${itemsToDelete.length} 個已完成項目`, 'fas fa-undo');
+                                    },
+                                    redo: async () => {
+                                        for (const item of itemsToDelete) {
+                                            await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, cat.id, item.id));
+                                        }
+                                        showToast(`已重做：刪除 ${itemsToDelete.length} 個已完成項目`, 'fas fa-redo');
+                                    }
+                                });
+                            }
+                            showToast(`已清空已完成項目，共刪除 ${count} 項`, 'fas fa-trash-alt');
                         });
                     }
                 }
