@@ -1721,8 +1721,21 @@ ${text}
                 throw new Error(data.error.message);
             }
             
-            const polishedText = data.candidates[0].content.parts[0].text.trim();
-            return polishedText;
+            const candidate = data.candidates?.[0];
+            if (!candidate) {
+                throw new Error("模型未回傳結果");
+            }
+            
+            if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+                throw new Error(`生成中斷，原因: ${candidate.finishReason}`);
+            }
+            
+            const partText = candidate.content?.parts?.[0]?.text;
+            if (!partText) {
+                throw new Error("回傳結果無內容");
+            }
+            
+            return partText.trim();
         }
 
         document.getElementById('add-form').addEventListener('submit', async (e) => {
@@ -1749,7 +1762,7 @@ ${text}
                     }
                 } catch (err) {
                     console.error("AI 網頁研讀潤飾失敗，使用原始文字輸入：", err);
-                    showToast("AI 網頁研讀失敗，已改用原始文字新增卡片。", "fas fa-exclamation-triangle");
+                    showToast(`AI 網頁研讀失敗（${err.message}），已使用原始文字。`, "fas fa-exclamation-triangle");
                 }
             }
 
