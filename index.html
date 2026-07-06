@@ -2132,14 +2132,25 @@ ${JSON.stringify(inboxData, null, 2)}`;
 
         // --- Keyboard Shortcuts for Undo/Redo ---
         document.addEventListener('keydown', (e) => {
+            const isEditorOpen = !document.getElementById('editor-modal')?.classList.contains('hidden') || document.body.classList.contains('editor-open');
+            const isEditModalOpen = !document.getElementById('edit-modal')?.classList.contains('hidden');
+            const isSettingsModalOpen = !document.getElementById('settings-modal')?.classList.contains('hidden');
+            const isCategoryModalOpen = !document.getElementById('category-manager-modal')?.classList.contains('hidden');
+
+            if (isEditorOpen || isEditModalOpen || isSettingsModalOpen || isCategoryModalOpen) {
+                return; 
+            }
+
             const activeEl = document.activeElement;
             if (activeEl && (
                 activeEl.tagName === 'INPUT' || 
                 activeEl.tagName === 'TEXTAREA' || 
                 activeEl.contentEditable === 'true' ||
-                activeEl.closest('.codex-editor')
+                activeEl.contentEditable === true ||
+                activeEl.closest('.codex-editor') ||
+                activeEl.closest('[contenteditable]')
             )) {
-                return; // Let standard text inputs handle their own native undo/redo
+                return; 
             }
 
             if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
@@ -2162,6 +2173,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             });
         }
     </script>
+
     <!-- Mobile Sidebar Backdrop -->
     <div id="sidebar-backdrop" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[90]"></div>
     <div id="toast-container" class="fixed bottom-4 left-4 z-[200] flex flex-col gap-2 pointer-events-none"></div>
