@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的筆記區</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="apple-touch-icon" href="https://img.icons8.com/fluency/192/brain.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
@@ -1154,6 +1157,63 @@
             }
         }
 
+        async function handleIncomingShare() {
+            const params = new URLSearchParams(window.location.search);
+            const title = params.get('title');
+            const text = params.get('text');
+            const url = params.get('url');
+            
+            if (title || text || url) {
+                let sharedContent = '';
+                if (title) sharedContent += `${title}\n`;
+                if (text) sharedContent += `${text}\n`;
+                if (url) sharedContent += url;
+                sharedContent = sharedContent.trim();
+                
+                if (sharedContent) {
+                    if (currentUser) {
+                        try {
+                            const newDocData = { 
+                                text: sharedContent, 
+                                createdAt: Date.now(), 
+                                order: Date.now() 
+                            };
+                            await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox'), newDocData);
+                            showToast(`已從外部分享並自動匯入收件匣：「${getShortText(sharedContent)}」`, 'fas fa-share-alt');
+                        } catch (err) {
+                            console.error("分享匯入失敗", err);
+                            localStorage.setItem('pendingShare', sharedContent);
+                        }
+                    } else {
+                        localStorage.setItem('pendingShare', sharedContent);
+                        showToast('已偵測到分享內容，登入後將自動匯入收件匣！', 'fas fa-info-circle');
+                    }
+                }
+                
+                const cleanUrl = window.location.origin + window.location.pathname;
+                window.history.replaceState({}, document.title, cleanUrl);
+            }
+        }
+
+        async function processPendingShare() {
+            const pendingShare = localStorage.getItem('pendingShare');
+            if (pendingShare && currentUser) {
+                localStorage.removeItem('pendingShare');
+                try {
+                    const newDocData = { 
+                        text: pendingShare, 
+                        createdAt: Date.now(), 
+                        order: Date.now() 
+                    };
+                    await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox'), newDocData);
+                    showToast(`已自動匯入先前分享的內容：「${getShortText(pendingShare)}」`, 'fas fa-share-alt');
+                } catch (err) {
+                    console.error("處理暫存分享失敗", err);
+                    localStorage.setItem('pendingShare', pendingShare);
+                }
+            }
+        }
+
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 currentUser = user;
@@ -1172,11 +1232,15 @@
                             else history.replaceState(null, '', window.location.pathname);
                         }).catch(err => console.error(err));
                 }
+                
+                handleIncomingShare();
+                processPendingShare();
             } else {
                 currentUser = null;
                 document.getElementById('auth-status').classList.replace('bg-emerald-500', 'bg-amber-500');
                 document.getElementById('auth-text').innerText = "請先登入";
                 document.getElementById('login-btn').classList.remove('hidden'); document.getElementById('logout-btn').classList.add('hidden');
+                handleIncomingShare();
             }
         });
 
@@ -2097,6 +2161,14 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 historyManager.redo();
             }
         });
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('Service Worker registered', reg))
+                    .catch(err => console.log('Service Worker registration failed', err));
+            });
+        }
     </script>
     <!-- Mobile Sidebar Backdrop -->
     <div id="sidebar-backdrop" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[90]"></div>
