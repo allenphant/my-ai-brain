@@ -6,7 +6,7 @@
     <title>我的筆記區</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#4f46e5">
-    <link rel="apple-touch-icon" href="https://img.icons8.com/fluency/192/brain.png">
+    <link rel="apple-touch-icon" href="brain-icon.jpg">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
@@ -709,9 +709,12 @@
         const catIcons = [
             'fas fa-folder', 'fas fa-star', 'fas fa-heart', 'fas fa-bolt', 'fas fa-check-square', 'fas fa-lightbulb', 'fas fa-bookmark', 'fas fa-book',
             'fas fa-briefcase', 'fas fa-graduation-cap', 'fas fa-laptop-code', 'fas fa-chart-line', 'fas fa-bullseye', 'fas fa-code', 'fas fa-server', 'fas fa-robot',
-            'fas fa-shopping-cart', 'fas fa-plane', 'fas fa-music', 'fas fa-video', 'fas fa-gamepad', 'fas fa-dumbbell', 'fas fa-utensils', 'fas fa-coffee',
-            'fas fa-pen', 'fas fa-sticky-note', 'fas fa-list', 'fas fa-tasks', 'fas fa-calendar-alt', 'fas fa-clock', 'fas fa-microphone', 'fas fa-camera',
-            'fas fa-piggy-bank', 'fas fa-car', 'fas fa-house', 'fas fa-gift', 'fas fa-paw', 'fas fa-seedling', 'fas fa-map-marker-alt', 'fas fa-fire'
+            'fas fa-shopping-cart', 'fas fa-shirt', 'fas fa-glasses', 'fas fa-shopping-bag', 'fas fa-tag', 'fas fa-wallet', 'fas fa-dollar-sign',
+            'fas fa-plane', 'fas fa-music', 'fas fa-video', 'fas fa-gamepad', 'fas fa-dumbbell', 'fas fa-utensils', 'fas fa-coffee',
+            'fas fa-pen', 'fas fa-sticky-note', 'fas fa-list', 'fas fa-focus-open', 'fas fa-tasks', 'fas fa-calendar-alt', 'fas fa-clock', 'fas fa-microphone', 'fas fa-camera',
+            'fas fa-piggy-bank', 'fas fa-car', 'fas fa-house', 'fas fa-gift', 'fas fa-paw', 'fas fa-seedling', 'fas fa-map-marker-alt', 'fas fa-fire',
+            'fas fa-headphones', 'fas fa-tv', 'fas fa-film', 'fas fa-heartbeat', 'fas fa-pills', 'fas fa-apple-alt', 'fas fa-key', 'fas fa-database',
+            'fas fa-mobile-alt', 'fas fa-wifi', 'fas fa-tools', 'fas fa-user', 'fas fa-users', 'fas fa-comments', 'fas fa-sun', 'fas fa-moon', 'fas fa-cloud'
         ];
         
         document.getElementById('manage-categories-btn').addEventListener('click', () => {
@@ -1171,22 +1174,15 @@
                 sharedContent = sharedContent.trim();
                 
                 if (sharedContent) {
-                    if (currentUser) {
-                        try {
-                            const newDocData = { 
-                                text: sharedContent, 
-                                createdAt: Date.now(), 
-                                order: Date.now() 
-                            };
-                            await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox'), newDocData);
-                            showToast(`已從外部分享並自動匯入收件匣：「${getShortText(sharedContent)}」`, 'fas fa-share-alt');
-                        } catch (err) {
-                            console.error("分享匯入失敗", err);
-                            localStorage.setItem('pendingShare', sharedContent);
-                        }
+                    const inputArea = document.getElementById('idea-input');
+                    if (inputArea) {
+                        inputArea.value = sharedContent;
+                        inputArea.style.height = 'auto';
+                        inputArea.style.height = inputArea.scrollHeight + 'px';
+                        inputArea.focus();
+                        showToast('已匯入分享內容到輸入框，可編輯後送出！', 'fas fa-share-alt');
                     } else {
                         localStorage.setItem('pendingShare', sharedContent);
-                        showToast('已偵測到分享內容，登入後將自動匯入收件匣！', 'fas fa-info-circle');
                     }
                 }
                 
@@ -1197,19 +1193,15 @@
 
         async function processPendingShare() {
             const pendingShare = localStorage.getItem('pendingShare');
-            if (pendingShare && currentUser) {
+            if (pendingShare) {
                 localStorage.removeItem('pendingShare');
-                try {
-                    const newDocData = { 
-                        text: pendingShare, 
-                        createdAt: Date.now(), 
-                        order: Date.now() 
-                    };
-                    await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox'), newDocData);
-                    showToast(`已自動匯入先前分享的內容：「${getShortText(pendingShare)}」`, 'fas fa-share-alt');
-                } catch (err) {
-                    console.error("處理暫存分享失敗", err);
-                    localStorage.setItem('pendingShare', pendingShare);
+                const inputArea = document.getElementById('idea-input');
+                if (inputArea) {
+                    inputArea.value = pendingShare;
+                    inputArea.style.height = 'auto';
+                    inputArea.style.height = inputArea.scrollHeight + 'px';
+                    inputArea.focus();
+                    showToast('已自動載入先前分享的內容！', 'fas fa-share-alt');
                 }
             }
         }
