@@ -2087,22 +2087,6 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 if (document.querySelector('.ce-settings--opened, .ce-popover--opened, .ce-inline-toolbar--showed')) return;
                 closeEditor();
             }
-            
-            // Support Ctrl+A / Cmd+A to select all blocks in EditorJS
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-                const activeEl = document.activeElement;
-                if (activeEl && activeEl.closest('#editorjs-container')) {
-                    const editorContainer = document.getElementById('editorjs-container');
-                    if (editorContainer) {
-                        e.preventDefault();
-                        const range = document.createRange();
-                        range.selectNodeContents(editorContainer);
-                        const selection = window.getSelection();
-                        selection.removeAllRanges();
-                        selection.addRange(range);
-                    }
-                }
-            }
         });
 
         document.getElementById('editor-title').addEventListener('input', (e) => {
@@ -2152,6 +2136,43 @@ ${JSON.stringify(inboxData, null, 2)}`;
             const isEditModalOpen = !document.getElementById('edit-modal')?.classList.contains('hidden');
             const isSettingsModalOpen = !document.getElementById('settings-modal')?.classList.contains('hidden');
             const isCategoryModalOpen = !document.getElementById('category-manager-modal')?.classList.contains('hidden');
+
+            // Handle Ctrl+A / Cmd+A when any editing modal is open
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+                if (isEditorOpen || isEditModalOpen || isSettingsModalOpen || isCategoryModalOpen) {
+                    const activeEl = document.activeElement;
+                    
+                    // 1. If inside EditorJS container, do custom select-all
+                    if (isEditorOpen && activeEl && activeEl.closest('#editorjs-container')) {
+                        const editorContainer = document.getElementById('editorjs-container');
+                        if (editorContainer) {
+                            e.preventDefault();
+                            const range = document.createRange();
+                            range.selectNodeContents(editorContainer);
+                            const selection = window.getSelection();
+                            selection.removeAllRanges();
+                            selection.addRange(range);
+                        }
+                        return;
+                    }
+                    
+                    // 2. If focusing on other editable elements, let native Ctrl+A run
+                    const isEditable = activeEl && (
+                        activeEl.tagName === 'INPUT' || 
+                        activeEl.tagName === 'TEXTAREA' || 
+                        activeEl.contentEditable === 'true' ||
+                        activeEl.contentEditable === true ||
+                        activeEl.closest('[contenteditable]')
+                    );
+                    if (isEditable) {
+                        return; 
+                    }
+                    
+                    // 3. Otherwise, block Ctrl+A completely to prevent selecting background text
+                    e.preventDefault();
+                    return;
+                }
+            }
 
             if (isEditorOpen || isEditModalOpen || isSettingsModalOpen || isCategoryModalOpen) {
                 return; 
