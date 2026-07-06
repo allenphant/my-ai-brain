@@ -2087,6 +2087,22 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 if (document.querySelector('.ce-settings--opened, .ce-popover--opened, .ce-inline-toolbar--showed')) return;
                 closeEditor();
             }
+            
+            // Support Ctrl+A / Cmd+A to select all blocks in EditorJS
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+                const activeEl = document.activeElement;
+                if (activeEl && activeEl.closest('#editorjs-container')) {
+                    const editorContainer = document.getElementById('editorjs-container');
+                    if (editorContainer) {
+                        e.preventDefault();
+                        const range = document.createRange();
+                        range.selectNodeContents(editorContainer);
+                        const selection = window.getSelection();
+                        selection.removeAllRanges();
+                        selection.addRange(range);
+                    }
+                }
+            }
         });
 
         document.getElementById('editor-title').addEventListener('input', (e) => {
