@@ -401,6 +401,20 @@
         </div>
     </div>
     <div id="edit-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl flex flex-col"><h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><i class="fas fa-pen text-indigo-500"></i> 編輯碎片</h3><textarea id="edit-input" class="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm mb-4 h-32 resize-none custom-scrollbar"></textarea><div class="flex justify-end gap-3"><button id="cancel-edit-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100">取消</button><button id="confirm-edit-btn" class="px-4 py-2 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700">儲存</button></div></div></div>
+    
+    <!-- Add Card Popup Modal -->
+    <div id="add-card-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl flex flex-col">
+            <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <i class="fas fa-plus text-indigo-500"></i> 新增卡片至 <span id="add-card-modal-cat-name" class="text-indigo-600 font-bold"></span>
+            </h3>
+            <textarea id="add-card-input" class="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm mb-4 h-32 resize-none custom-scrollbar" placeholder="輸入卡片內容..."></textarea>
+            <div class="flex justify-end gap-3">
+                <button id="cancel-add-card-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100">取消</button>
+                <button id="confirm-add-card-btn" class="px-4 py-2 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700">新增</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Editor Modal -->
     <div id="editor-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center pointer-events-none">
@@ -1082,14 +1096,7 @@
                     addBtn.addEventListener('click', () => {
                         const colId = addBtn.getAttribute('data-col');
                         const colName = addBtn.getAttribute('data-name');
-                        const catBtn = document.getElementById('custom-category-btn');
-                        document.getElementById('category-select').value = colId;
-                        document.getElementById('custom-category-text').textContent = colName + ' ';
-                        
-                        // Scroll to top and focus
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                        const inputArea = document.getElementById('idea-input');
-                        setTimeout(() => inputArea.focus(), 300);
+                        openAddCardModal(colId, colName);
                     });
                 }
             });
@@ -1589,6 +1596,103 @@
             if (e.target === moveModal) {
                 moveModal.classList.add('hidden');
                 pendingMoveTarget = null;
+            }
+        });
+
+        let activeAddCardColId = null;
+        const addCardModal = document.getElementById('add-card-modal');
+        const addCardInput = document.getElementById('add-card-input');
+
+        window.openAddCardModal = function(colId, colName) {
+            activeAddCardColId = colId;
+            document.getElementById('add-card-modal-cat-name').textContent = colName;
+            addCardInput.value = '';
+            addCardModal.classList.remove('hidden');
+            setTimeout(() => addCardInput.focus(), 100);
+        };
+
+        window.closeAddCardModal = function() {
+            addCardModal.classList.add('hidden');
+            activeAddCardColId = null;
+            addCardInput.value = '';
+        };
+
+        document.getElementById('cancel-add-card-btn').addEventListener('click', closeAddCardModal);
+        
+        addCardModal.addEventListener('click', (e) => {
+            if (e.target === addCardModal) {
+                closeAddCardModal();
+            }
+        });
+
+        addCardInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+                if (isTouchDevice) return; 
+                e.preventDefault();
+                document.getElementById('confirm-add-card-btn').click();
+            }
+        });
+
+        document.getElementById('confirm-add-card-btn').addEventListener('click', async () => {
+            if (!currentUser || !activeAddCardColId) return;
+            let text = addCardInput.value.trim();
+            if (!text) return;
+
+            const targetCollection = activeAddCardColId;
+            const btn = document.getElementById('confirm-add-card-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>';
+
+            const apiKey = localStorage.getItem('geminiApiKey');
+            const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const hasUrl = urlRegex.test(text);
+
+            if (hasUrl && apiKey) {
+                showToast("AI 正在使用 Google 搜尋研讀網頁並進行潤飾...", "fas fa-robot");
+                try {
+                    const polished = await polishContentWithWebSearch(text, apiKey, targetModel);
+                    if (polished) {
+                        text = polished;
+                    }
+                } catch (err) {
+                    console.error("AI 網頁研讀潤飾失敗，使用原始文字輸入：", err);
+                    showToast(`AI 網頁研讀失敗（${err.message}），已使用原始文字。`, "fas fa-exclamation-triangle");
+                }
+            }
+
+            try {
+                const newDocData = { 
+                    text: text, 
+                    createdAt: Date.now(), 
+                    order: Date.now() 
+                };
+
+                const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), newDocData);
+                const newId = docRef.id;
+                const shortText = getShortText(newDocData.text);
+                const colName = getCollectionName(targetCollection);
+                
+                historyManager.push({
+                    undo: async () => {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection, newId));
+                        showToast(`已還原：移除新增的卡片「${shortText}」`, 'fas fa-undo');
+                    },
+                    redo: async () => {
+                        await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection, newId), newDocData);
+                        showToast(`已重做：將卡片「${shortText}」新增至 [${colName}]`, 'fas fa-redo');
+                    }
+                });
+                
+                showToast(`已新增卡片「${shortText}」至 [${colName}]`, 'fas fa-plus');
+                closeAddCardModal();
+            } catch (error) {
+                console.error("新增卡片失敗", error);
+                alert("新增卡片失敗：" + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '新增';
             }
         });
 
@@ -2201,10 +2305,17 @@ ${JSON.stringify(inboxData, null, 2)}`;
             const isEditModalOpen = !document.getElementById('edit-modal')?.classList.contains('hidden');
             const isSettingsModalOpen = !document.getElementById('settings-modal')?.classList.contains('hidden');
             const isCategoryModalOpen = !document.getElementById('category-manager-modal')?.classList.contains('hidden');
+            const isAddCardModalOpen = !document.getElementById('add-card-modal')?.classList.contains('hidden');
+
+            // Handle Escape key to close the Add Card Modal
+            if (e.key === 'Escape' && isAddCardModalOpen) {
+                closeAddCardModal();
+                return;
+            }
 
             // Handle Ctrl+A / Cmd+A when any editing modal is open
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-                if (isEditorOpen || isEditModalOpen || isSettingsModalOpen || isCategoryModalOpen) {
+                if (isEditorOpen || isEditModalOpen || isSettingsModalOpen || isCategoryModalOpen || isAddCardModalOpen) {
                     const activeEl = document.activeElement;
                     
                     // 1. If inside EditorJS container, do custom select-all
@@ -2239,7 +2350,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 }
             }
 
-            if (isEditorOpen || isEditModalOpen || isSettingsModalOpen || isCategoryModalOpen) {
+            if (isEditorOpen || isEditModalOpen || isSettingsModalOpen || isCategoryModalOpen || isAddCardModalOpen) {
                 return; 
             }
 
