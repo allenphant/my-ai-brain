@@ -1279,9 +1279,12 @@
         const imagePreviewContainer = document.getElementById('image-preview-container');
         const imagePreviewImg = document.getElementById('image-preview-img');
         const removeImageBtn = document.getElementById('remove-image-btn');
+        const aiWebStatusEl = document.getElementById('ai-web-status');
+        const aiSortStatusEl = document.getElementById('ai-sort-status');
         const WEB_POLISH_COOLDOWN_MS = 60 * 1000;
         const WEB_POLISH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
         const WEB_POLISH_CACHE_PREFIX = 'webPolishCache:';
+        const AI_SORT_COOLDOWN_MS = 5 * 60 * 1000;
 
         function extractUrls(text) {
             return [...new Set((text.match(/https?:\/\/[^\s]+/g) || []).map(url => url.trim()))];
@@ -1345,6 +1348,49 @@
             return `${Math.ceil(ms / 1000)} 秒`;
         }
 
+        function formatStatusTime(timestamp) {
+            if (!timestamp) return '尚無紀錄';
+            try {
+                return new Date(timestamp).toLocaleString('zh-TW', {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (error) {
+                return '尚無紀錄';
+            }
+        }
+
+        function saveAiStatus(type, status, detail) {
+            localStorage.setItem(`aiStatus:${type}`, JSON.stringify({
+                status,
+                detail,
+                timestamp: Date.now()
+            }));
+        }
+
+        function readAiStatus(type) {
+            const raw = localStorage.getItem(`aiStatus:${type}`);
+            if (!raw) return null;
+            try {
+                return JSON.parse(raw);
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function updateAiStatusPanel() {
+            const webStatus = readAiStatus('web');
+            const sortStatus = readAiStatus('sort');
+            aiWebStatusEl.textContent = webStatus
+                ? `網址研讀狀態：${webStatus.status}，${webStatus.detail}（${formatStatusTime(webStatus.timestamp)}）`
+                : '網址研讀狀態：尚無紀錄';
+            aiSortStatusEl.textContent = sortStatus
+                ? `AI 整理狀態：${sortStatus.status}，${sortStatus.detail}（${formatStatusTime(sortStatus.timestamp)}）`
+                : 'AI 整理狀態：尚無紀錄';
+        }
+
         function setButtonLoading(button, loadingHTML, idleHTML) {
             const originalHTML = idleHTML || button.innerHTML;
             button.disabled = true;
@@ -1380,12 +1426,16 @@
 
             const cached = getCachedWebPolish(normalizedText);
             if (cached) {
+                saveAiStatus('web', '使用快取', '相同內容直接套用快取結果');
+                updateAiStatusPanel();
                 showToast('已套用先前的 AI 研讀結果。', 'fas fa-clock-rotate-left');
                 return cached;
             }
 
             const cooldownRemaining = getWebPolishCooldownRemaining();
             if (cooldownRemaining > 0) {
+                saveAiStatus('web', '冷卻中', `剩餘 ${formatCooldown(cooldownRemaining)}`);
+                updateAiStatusPanel();
                 showToast(`AI 研讀冷卻中，請 ${formatCooldown(cooldownRemaining)} 後再試。`, 'fas fa-hourglass-half');
                 return null;
             }
@@ -1398,6 +1448,8 @@
                 const polished = await polishContentWithWebSearch(normalizedText, apiKey, targetModel);
                 if (!polished) throw new Error('AI 沒有回傳內容');
                 cacheWebPolishResult(normalizedText, polished);
+                saveAiStatus('web', '成功', '已完成網址研讀並寫入快取');
+                updateAiStatusPanel();
                 showToast('AI 研讀完成，已套用潤飾內容。', 'fas fa-wand-magic-sparkles');
                 return polished;
             } catch (error) {
@@ -1405,10 +1457,13 @@
                 const rawMessage = error?.message || '未知錯誤';
                 const lowerMessage = rawMessage.toLowerCase();
                 if (lowerMessage.includes('429') || lowerMessage.includes('quota') || lowerMessage.includes('too many requests')) {
+                    saveAiStatus('web', '配額不足', 'Gemini 回傳 429 / quota exceeded');
                     showToast('Gemini 配額暫時不足，已保留原始文字，請稍後再試。', 'fas fa-gauge-high');
                 } else {
+                    saveAiStatus('web', '失敗', rawMessage);
                     showToast(`AI 網頁研讀失敗：${rawMessage}`, 'fas fa-exclamation-triangle');
                 }
+                updateAiStatusPanel();
                 return null;
             } finally {
                 restoreButton();
@@ -1456,6 +1511,7 @@
         });
 
         updateWebPolishButtonsState();
+        updateAiStatusPanel();
 
         ideaInput.addEventListener('paste', (e) => {
             const items = (e.clipboardData || e.originalEvent.clipboardData).items;
@@ -1617,6 +1673,7 @@ ${text}
             document.getElementById('api-key-input').value = localStorage.getItem('geminiApiKey') || '';
             document.getElementById('imgbb-key-input').value = localStorage.getItem('imgbbApiKey') || '';
             document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off'; 
+            updateAiStatusPanel();
             document.getElementById('settings-modal').classList.remove('hidden');
         });
         document.getElementById('settings-modal').addEventListener('click', (e) => {
@@ -1653,8 +1710,17 @@ ${text}
             if (isSorting || currentInboxItems.length === 0 || !currentUser) return;
             const apiKey = localStorage.getItem('geminiApiKey'); const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
             if (!apiKey) { document.getElementById('settings-modal').classList.remove('hidden'); return; }
+            const lastManualSortTime = parseInt(localStorage.getItem('lastManualSortTime') || '0', 10);
+            const sortCooldownRemaining = Math.max(0, AI_SORT_COOLDOWN_MS - (Date.now() - lastManualSortTime));
+            if (sortCooldownRemaining > 0) {
+                saveAiStatus('sort', '冷卻中', `剩餘 ${formatCooldown(sortCooldownRemaining)}`);
+                updateAiStatusPanel();
+                showToast(`AI 整理冷卻中，請 ${formatCooldown(sortCooldownRemaining)} 後再試。`, 'fas fa-hourglass-half');
+                return;
+            }
 
             isSorting = true; const btn = document.getElementById('ai-sort-btn'); btn.disabled = true; const originalHTML = btn.innerHTML; btn.innerHTML = `<div class="loader w-4 h-4 border-2 border-t-white"></div> <span id="ai-sort-text">AI 背景整理中...</span>`;
+            localStorage.setItem('lastManualSortTime', Date.now().toString());
             try {
                 const itemsToCategorize = [...currentInboxItems]; 
                 
@@ -1742,9 +1808,20 @@ ${JSON.stringify(inboxData, null, 2)}`;
                         }
                     });
                 }
+                saveAiStatus('sort', '成功', `已整理 ${resultMap.length} 個項目`);
+                updateAiStatusPanel();
                 showToast(`AI 整理完成，已分類 ${resultMap.length} 個項目`, 'fas fa-magic');
             } catch (error) { 
                 console.error(error); 
+                const rawMessage = error?.message || '未知錯誤';
+                const lowerMessage = rawMessage.toLowerCase();
+                if (lowerMessage.includes('429') || lowerMessage.includes('quota') || lowerMessage.includes('too many requests')) {
+                    saveAiStatus('sort', '配額不足', 'Gemini 回傳 429 / quota exceeded');
+                    showToast('AI 整理遇到配額限制，請稍後再試。', 'fas fa-gauge-high');
+                } else {
+                    saveAiStatus('sort', '失敗', rawMessage);
+                }
+                updateAiStatusPanel();
                 alert("AI 整理失敗：" + error.message);
             } finally { 
                 isSorting = false; btn.disabled = false; btn.innerHTML = originalHTML; 
