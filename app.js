@@ -741,6 +741,7 @@
                         inputArea.value = sharedContent;
                         inputArea.style.height = 'auto';
                         inputArea.style.height = inputArea.scrollHeight + 'px';
+                        updateWebPolishButtonsState();
                         inputArea.focus();
                         showToast('已匯入分享內容到輸入框，可編輯後送出！', 'fas fa-share-alt');
                     } else {
@@ -762,6 +763,7 @@
                     inputArea.value = pendingShare;
                     inputArea.style.height = 'auto';
                     inputArea.style.height = inputArea.scrollHeight + 'px';
+                    updateWebPolishButtonsState();
                     inputArea.focus();
                     showToast('已自動載入先前分享的內容！', 'fas fa-share-alt');
                 }
@@ -1157,12 +1159,14 @@
         let activeAddCardColId = null;
         const addCardModal = document.getElementById('add-card-modal');
         const addCardInput = document.getElementById('add-card-input');
+        const polishAddCardBtn = document.getElementById('polish-add-card-btn');
 
         window.openAddCardModal = function(colId, colName) {
             activeAddCardColId = colId;
             document.getElementById('add-card-modal-cat-name').textContent = colName;
             addCardInput.value = '';
             addCardModal.classList.remove('hidden');
+            updateWebPolishButtonsState();
             setTimeout(() => addCardInput.focus(), 100);
         };
 
@@ -1170,6 +1174,7 @@
             addCardModal.classList.add('hidden');
             activeAddCardColId = null;
             addCardInput.value = '';
+            updateWebPolishButtonsState();
         };
 
         document.getElementById('cancel-add-card-btn').addEventListener('click', closeAddCardModal);
@@ -1198,24 +1203,6 @@
             const btn = document.getElementById('confirm-add-card-btn');
             btn.disabled = true;
             btn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>';
-
-            const apiKey = localStorage.getItem('geminiApiKey');
-            const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
-            const urlRegex = /(https?:\/\/[^\s]+)/g;
-            const hasUrl = urlRegex.test(text);
-
-            if (hasUrl && apiKey) {
-                showToast("AI 正在使用 Google 搜尋研讀網頁並進行潤飾...", "fas fa-robot");
-                try {
-                    const polished = await polishContentWithWebSearch(text, apiKey, targetModel);
-                    if (polished) {
-                        text = polished;
-                    }
-                } catch (err) {
-                    console.error("AI 網頁研讀潤飾失敗，使用原始文字輸入：", err);
-                    showToast(`AI 網頁研讀失敗（${err.message}），已使用原始文字。`, "fas fa-exclamation-triangle");
-                }
-            }
 
             try {
                 const newDocData = { 
@@ -1248,6 +1235,7 @@
             } finally {
                 btn.disabled = false;
                 btn.innerText = '新增';
+                updateWebPolishButtonsState();
             }
         });
 
@@ -1286,12 +1274,155 @@
         // ✨ ImgBB API 圖片上傳與表單提交流程
         // ==========================================
         const ideaInput = document.getElementById('idea-input');
+        const polishLinkBtn = document.getElementById('polish-link-btn');
         const imageUploadInput = document.getElementById('image-upload-input');
         const imagePreviewContainer = document.getElementById('image-preview-container');
         const imagePreviewImg = document.getElementById('image-preview-img');
         const removeImageBtn = document.getElementById('remove-image-btn');
+        const WEB_POLISH_COOLDOWN_MS = 60 * 1000;
+        const WEB_POLISH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+        const WEB_POLISH_CACHE_PREFIX = 'webPolishCache:';
 
-        ideaInput.addEventListener('input', function() { this.style.height = '40px'; this.style.height = (this.scrollHeight) + 'px'; });
+        function extractUrls(text) {
+            return [...new Set((text.match(/https?:\/\/[^\s]+/g) || []).map(url => url.trim()))];
+        }
+
+        function canUseWebPolish(text) {
+            const normalizedText = (text || '').trim();
+            const urls = extractUrls(normalizedText);
+            if (urls.length !== 1) {
+                return { ok: false, reason: urls.length === 0 ? 'no_url' : 'multiple_urls' };
+            }
+            if (normalizedText.length > 1200) {
+                return { ok: false, reason: 'too_long' };
+            }
+            return { ok: true, reason: 'ok' };
+        }
+
+        function hashString(value) {
+            let hash = 2166136261;
+            for (let i = 0; i < value.length; i++) {
+                hash ^= value.charCodeAt(i);
+                hash = Math.imul(hash, 16777619);
+            }
+            return (hash >>> 0).toString(36);
+        }
+
+        function getWebPolishCacheKey(text) {
+            return `${WEB_POLISH_CACHE_PREFIX}${hashString((text || '').trim().replace(/\s+/g, ' '))}`;
+        }
+
+        function getCachedWebPolish(text) {
+            const raw = localStorage.getItem(getWebPolishCacheKey(text));
+            if (!raw) return null;
+            try {
+                const parsed = JSON.parse(raw);
+                if (!parsed?.value || !parsed?.savedAt) return null;
+                if (Date.now() - parsed.savedAt > WEB_POLISH_CACHE_TTL_MS) {
+                    localStorage.removeItem(getWebPolishCacheKey(text));
+                    return null;
+                }
+                return parsed.value;
+            } catch (error) {
+                localStorage.removeItem(getWebPolishCacheKey(text));
+                return null;
+            }
+        }
+
+        function cacheWebPolishResult(text, value) {
+            localStorage.setItem(getWebPolishCacheKey(text), JSON.stringify({
+                value,
+                savedAt: Date.now()
+            }));
+        }
+
+        function getWebPolishCooldownRemaining() {
+            const lastRun = parseInt(localStorage.getItem('lastWebPolishTime') || '0', 10);
+            return Math.max(0, WEB_POLISH_COOLDOWN_MS - (Date.now() - lastRun));
+        }
+
+        function formatCooldown(ms) {
+            return `${Math.ceil(ms / 1000)} 秒`;
+        }
+
+        function setButtonLoading(button, loadingHTML, idleHTML) {
+            const originalHTML = idleHTML || button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = loadingHTML;
+            return () => {
+                button.disabled = false;
+                button.innerHTML = originalHTML;
+            };
+        }
+
+        function updateWebPolishButtonsState() {
+            polishLinkBtn.disabled = !canUseWebPolish(ideaInput.value).ok;
+            polishAddCardBtn.disabled = !canUseWebPolish(addCardInput.value).ok;
+        }
+
+        async function runManualWebPolish(text, button) {
+            const normalizedText = (text || '').trim();
+            const eligibility = canUseWebPolish(normalizedText);
+            if (!eligibility.ok) {
+                if (eligibility.reason === 'no_url') showToast('沒有偵測到網址，無法執行 AI 研讀。', 'fas fa-link');
+                else if (eligibility.reason === 'multiple_urls') showToast('一次只支援研讀 1 個網址，請先精簡輸入。', 'fas fa-link');
+                else if (eligibility.reason === 'too_long') showToast('這段內容太長，請先縮短後再執行 AI 研讀。', 'fas fa-align-left');
+                return null;
+            }
+
+            const apiKey = localStorage.getItem('geminiApiKey');
+            const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
+            if (!apiKey) {
+                document.getElementById('settings-modal').classList.remove('hidden');
+                showToast('請先設定 Gemini API Key，才能使用 AI 研讀。', 'fas fa-key');
+                return null;
+            }
+
+            const cached = getCachedWebPolish(normalizedText);
+            if (cached) {
+                showToast('已套用先前的 AI 研讀結果。', 'fas fa-clock-rotate-left');
+                return cached;
+            }
+
+            const cooldownRemaining = getWebPolishCooldownRemaining();
+            if (cooldownRemaining > 0) {
+                showToast(`AI 研讀冷卻中，請 ${formatCooldown(cooldownRemaining)} 後再試。`, 'fas fa-hourglass-half');
+                return null;
+            }
+
+            const restoreButton = setButtonLoading(button, '<div class="loader w-4 h-4 border-2 border-t-transparent mx-auto"></div>');
+            localStorage.setItem('lastWebPolishTime', Date.now().toString());
+            showToast('AI 正在使用 Google 搜尋研讀網址並潤飾...', 'fas fa-robot');
+
+            try {
+                const polished = await polishContentWithWebSearch(normalizedText, apiKey, targetModel);
+                if (!polished) throw new Error('AI 沒有回傳內容');
+                cacheWebPolishResult(normalizedText, polished);
+                showToast('AI 研讀完成，已套用潤飾內容。', 'fas fa-wand-magic-sparkles');
+                return polished;
+            } catch (error) {
+                console.error('AI 網頁研讀潤飾失敗：', error);
+                const rawMessage = error?.message || '未知錯誤';
+                const lowerMessage = rawMessage.toLowerCase();
+                if (lowerMessage.includes('429') || lowerMessage.includes('quota') || lowerMessage.includes('too many requests')) {
+                    showToast('Gemini 配額暫時不足，已保留原始文字，請稍後再試。', 'fas fa-gauge-high');
+                } else {
+                    showToast(`AI 網頁研讀失敗：${rawMessage}`, 'fas fa-exclamation-triangle');
+                }
+                return null;
+            } finally {
+                restoreButton();
+                updateWebPolishButtonsState();
+            }
+        }
+
+        ideaInput.addEventListener('input', function() {
+            this.style.height = '40px';
+            this.style.height = (this.scrollHeight) + 'px';
+            updateWebPolishButtonsState();
+        });
+
+        addCardInput.addEventListener('input', updateWebPolishButtonsState);
         
         ideaInput.addEventListener('keydown', function(e) { 
             if (e.key === 'Enter' && !e.shiftKey) { 
@@ -1307,6 +1438,24 @@
         document.getElementById('paste-btn').addEventListener('click', async () => {
             try { const text = await navigator.clipboard.readText(); ideaInput.value += text; ideaInput.dispatchEvent(new Event('input')); ideaInput.focus(); } catch (err) { alert("無法自動讀取剪貼簿，請手動貼上。"); }
         });
+
+        polishLinkBtn.addEventListener('click', async () => {
+            const polished = await runManualWebPolish(ideaInput.value, polishLinkBtn);
+            if (!polished) return;
+            ideaInput.value = polished;
+            ideaInput.dispatchEvent(new Event('input'));
+            ideaInput.focus();
+        });
+
+        polishAddCardBtn.addEventListener('click', async () => {
+            const polished = await runManualWebPolish(addCardInput.value, polishAddCardBtn);
+            if (!polished) return;
+            addCardInput.value = polished;
+            addCardInput.dispatchEvent(new Event('input'));
+            addCardInput.focus();
+        });
+
+        updateWebPolishButtonsState();
 
         ideaInput.addEventListener('paste', (e) => {
             const items = (e.clipboardData || e.originalEvent.clipboardData).items;
@@ -1407,24 +1556,6 @@ ${text}
             const btn = document.getElementById('submit-btn'); 
             btn.disabled = true; btn.innerHTML = '<div class="loader w-4 h-4 border-2"></div>';
 
-            const apiKey = localStorage.getItem('geminiApiKey');
-            const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
-            const urlRegex = /(https?:\/\/[^\s]+)/g;
-            const hasUrl = urlRegex.test(text);
-
-            if (hasUrl && apiKey) {
-                showToast("AI 正在使用 Google 搜尋研讀網頁並進行潤飾...", "fas fa-robot");
-                try {
-                    const polished = await polishContentWithWebSearch(text, apiKey, targetModel);
-                    if (polished) {
-                        text = polished;
-                    }
-                } catch (err) {
-                    console.error("AI 網頁研讀潤飾失敗，使用原始文字輸入：", err);
-                    showToast(`AI 網頁研讀失敗（${err.message}），已使用原始文字。`, "fas fa-exclamation-triangle");
-                }
-            }
-
             let uploadedImageUrl = null;
 
             try {
@@ -1474,7 +1605,7 @@ ${text}
             } catch (error) { 
                 console.error("送出失敗", error); alert("送出失敗：" + error.message);
             } finally { 
-                btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>'; ideaInput.focus(); 
+                btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>'; updateWebPolishButtonsState(); ideaInput.focus(); 
             }
         });
 

@@ -253,6 +253,9 @@
                         <button type="button" id="paste-btn" class="text-slate-400 hover:text-indigo-500 transition-colors p-2 rounded-lg hover:bg-slate-100" title="貼上剪貼簿內容">
                             <i class="fas fa-clipboard"></i>
                         </button>
+                        <button type="button" id="polish-link-btn" class="text-slate-400 hover:text-indigo-500 transition-colors p-2 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed" title="AI 研讀網址並潤飾">
+                            <i class="fas fa-wand-magic-sparkles"></i>
+                        </button>
                         <button type="submit" id="submit-btn" class="bg-indigo-600 text-white w-10 h-10 rounded-xl hover:bg-indigo-700 transition-all shadow-md flex items-center justify-center shrink-0 disabled:opacity-50">
                             <i class="fas fa-paper-plane text-xs"></i>
                         </button>
@@ -410,6 +413,7 @@
             </h3>
             <textarea id="add-card-input" class="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm mb-4 h-32 resize-none custom-scrollbar" placeholder="輸入卡片內容..."></textarea>
             <div class="flex justify-end gap-3">
+                <button id="polish-add-card-btn" class="px-4 py-2 rounded-lg font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed" type="button">AI 研讀</button>
                 <button id="cancel-add-card-btn" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100">取消</button>
                 <button id="confirm-add-card-btn" class="px-4 py-2 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700">新增</button>
             </div>
