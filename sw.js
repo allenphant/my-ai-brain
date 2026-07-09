@@ -1,8 +1,9 @@
-const CACHE_NAME = 'ai-brain-v2';
+const CACHE_NAME = 'ai-brain-v3';
 const ASSETS = [
   './',
   './index.html',
-  './manifest.json'
+  './manifest.json',
+  './brain-icon.jpg'
 ];
 
 self.addEventListener('install', event => {
