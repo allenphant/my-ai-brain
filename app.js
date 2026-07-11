@@ -898,7 +898,7 @@
 
         function getLinkPreviewData(text) {
             const safeText = text || ''; 
-            const urlMatch = safeText.match(/(https?:\/\/[^\s]+)/); 
+            const urlMatch = safeText.match(/(https?:\/\/[^\s　-〿぀-ヿ㐀-鿿＀-￯]+)/);
             let previewHTML = '';
             let textWithoutUrl = safeText;
 
@@ -1289,7 +1289,7 @@
         const AI_SORT_COOLDOWN_MS = 5 * 60 * 1000;
 
         function extractUrls(text) {
-            return [...new Set((text.match(/https?:\/\/[^\s]+/g) || []).map(url => url.trim()))];
+            return [...new Set((text.match(/https?:\/\/[^\s　-〿぀-ヿ㐀-鿿＀-￯]+/g) || []).map(url => url.trim()))];
         }
 
         function canUseWebPolish(text) {
