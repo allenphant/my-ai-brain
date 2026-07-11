@@ -599,7 +599,8 @@ git commit -m "feat(editor): add code/delimiter/inline-code tools, zh-TW i18n, m
 
 - [ ] **Step 1: Unit tests green**
 
-Run: `node --test tests/`
+Run: `node --test "tests/**/*.test.mjs"`
+(Note: the bare directory form `node --test tests/` misresolves as a module path on Windows — use the glob form above.)
 Expected: all pass.
 
 - [ ] **Step 2: Manual checklist in the Browser pane (localhost server)**
