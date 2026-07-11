@@ -108,6 +108,12 @@
             padding-right: 0 !important;
         }
 
+        /* EditorJS 標題字級：Tailwind preflight 會把 h1-h6 重設成與內文相同 (16px/400)，
+           需在編輯器範圍內明確指定，否則 # / ## / ### 轉出來的標題看起來跟內文一樣 */
+        #editorjs-container h1 { font-size: 1.875rem; font-weight: 700; line-height: 1.3; }
+        #editorjs-container h2 { font-size: 1.5rem; font-weight: 700; line-height: 1.35; }
+        #editorjs-container h3 { font-size: 1.25rem; font-weight: 600; line-height: 1.4; }
+
         /* Mobile Sidebar Drawer */
         @media (max-width: 767px) {
             #sidebar {

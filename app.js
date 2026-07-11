@@ -2068,7 +2068,9 @@ ${JSON.stringify(inboxData, null, 2)}`;
                     if (onChangeCallback) onChangeCallback();
                 },
                 onReady: () => {
-                    new Undo({ editor: editorInstance });
+                    // debounceTimer 預設 200ms:每次觸發都會全文序列化以記錄復原點,打字時吃主執行緒。
+                    // 拉長到 500ms 減少序列化頻率(復原顆粒度稍粗,換取打字順暢)。
+                    new Undo({ editor: editorInstance, config: { debounceTimer: 500 } });
                 },
                 tools: {
                     header: { class: Header, inlineToolbar: true, config: { placeholder: '輸入標題', levels: [1, 2, 3], defaultLevel: 2 } },

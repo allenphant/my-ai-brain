@@ -33,7 +33,11 @@ export function attachMdShortcuts(getEditor, containerEl) {
             if (idx < 0) return;
             block = editor.blocks.getBlockByIndex(idx);
             if (!block || block.name !== 'paragraph') return;
-            rule = matchMdRule(block.holder ? block.holder.innerText : '', trigger);
+            // textContent 不觸發版面重排(innerText 會),打字熱路徑上便宜很多;
+            // 對「整行只有語法 token」的比對兩者結果相同。
+            const rawText = block.holder ? block.holder.textContent : '';
+            if (rawText.length > 8) return; // 最長 token 只有 3 字,超長必不匹配,提前退出
+            rule = matchMdRule(rawText, trigger);
         } catch (err) {
             console.warn('[md-shortcuts] match skipped:', err);
             return;
