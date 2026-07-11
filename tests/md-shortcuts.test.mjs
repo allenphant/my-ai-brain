@@ -11,10 +11,14 @@ test('## + space -> header level 2', () => {
 test('- and * + space -> unordered list', () => {
     assert.equal(matchMdRule('-', 'space').data.style, 'unordered');
     assert.equal(matchMdRule('*', 'space').data.style, 'unordered');
+    const items = matchMdRule('-', 'space').data.items;
+    assert.ok(Array.isArray(items) && items.length === 1 && typeof items[0].content === 'string');
 });
 
 test('1. + space -> ordered list', () => {
     assert.equal(matchMdRule('1.', 'space').data.style, 'ordered');
+    const items = matchMdRule('1.', 'space').data.items;
+    assert.ok(Array.isArray(items) && items.length === 1 && typeof items[0].content === 'string');
 });
 
 test('[] + space -> checklist with one empty item', () => {
