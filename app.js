@@ -1944,6 +1944,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
 
         let currentEditorLoadId = 0;
         let editorInstance = null;
+        let mdShortcutsCleanup = null;
 
         async function openEditor(itemId, itemText, collectionName) {
             const loadId = ++currentEditorLoadId;
@@ -2050,6 +2051,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
         }
 
         function initEditor(initialData = null, onChangeCallback = null) {
+            if (mdShortcutsCleanup) { mdShortcutsCleanup(); mdShortcutsCleanup = null; }
             if (editorInstance) {
                 try {
                     editorInstance.destroy();
@@ -2058,7 +2060,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 }
                 editorInstance = null;
             }
-            
+
             const config = {
                 holder: 'editorjs-container',
                 placeholder: '在這裡開始輸入你的想法... (輸入 / 顯示選單)',
@@ -2073,7 +2075,37 @@ ${JSON.stringify(inboxData, null, 2)}`;
                     list: { class: EditorjsList, inlineToolbar: true },
                     checklist: { class: Checklist, inlineToolbar: true },
                     quote: { class: Quote, inlineToolbar: true },
-                    Marker: { class: Marker, inlineToolbar: true }
+                    Marker: { class: Marker, inlineToolbar: true },
+                    inlineCode: { class: InlineCode },
+                    code: { class: CodeTool, config: { placeholder: '輸入程式碼' } },
+                    delimiter: { class: Delimiter }
+                },
+                i18n: {
+                    messages: {
+                        ui: {
+                            'blockTunes': { 'toggler': { 'Click to tune': '點擊調整', 'or drag to move': '或拖曳移動' } },
+                            'inlineToolbar': { 'converter': { 'Convert to': '轉換為' } },
+                            'toolbar': { 'toolbox': { 'Add': '新增區塊' } },
+                            'popover': { 'Filter': '搜尋', 'Nothing found': '找不到項目', 'Convert to': '轉換為' }
+                        },
+                        toolNames: {
+                            'Text': '文字', 'Heading': '標題', 'List': '清單',
+                            'Unordered List': '項目清單', 'Ordered List': '數字清單',
+                            'Checklist': '待辦清單', 'Quote': '引用', 'Code': '程式碼',
+                            'Delimiter': '分隔線', 'Marker': '螢光筆', 'InlineCode': '行內程式碼',
+                            'Bold': '粗體', 'Italic': '斜體', 'Link': '連結'
+                        },
+                        tools: {
+                            'list': { 'Unordered': '項目符號', 'Ordered': '數字編號' },
+                            'quote': { 'Enter a quote': '輸入引用內容', "Quote's author": '輸入來源' },
+                            'header': { 'Heading 1': '標題 1', 'Heading 2': '標題 2', 'Heading 3': '標題 3' }
+                        },
+                        blockTunes: {
+                            'delete': { 'Delete': '刪除', 'Click to delete': '點擊確認刪除' },
+                            'moveUp': { 'Move up': '上移' },
+                            'moveDown': { 'Move down': '下移' }
+                        }
+                    }
                 }
             };
             
@@ -2082,6 +2114,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             }
             
             editorInstance = new EditorJS(config);
+            mdShortcutsCleanup = attachMdShortcuts(() => editorInstance, document.getElementById('editorjs-container'));
         }
 
         function closeEditor() {
@@ -2103,6 +2136,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             activeEditorCollection = null;
             history.replaceState(null, '', window.location.pathname);
             
+            if (mdShortcutsCleanup) { mdShortcutsCleanup(); mdShortcutsCleanup = null; }
             if (editorInstance) {
                 editorInstance.destroy();
                 editorInstance = null;
