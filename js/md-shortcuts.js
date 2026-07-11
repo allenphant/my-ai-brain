@@ -12,28 +12,38 @@ export const MD_RULES = [
 ];
 
 export function matchMdRule(blockText, trigger) {
-    const text = (blockText || '').replace(/ /g, ' ').trim();
+    const text = (blockText || '').replace(/ /g, ' ').trim();
     return MD_RULES.find(r => r.trigger === trigger && r.match === text) || null;
 }
 
 export function attachMdShortcuts(getEditor, containerEl) {
-    const onKeydown = async (e) => {
+    const onKeydown = (e) => {
         if (e.isComposing) return;
         const trigger = (e.key === ' ' || e.code === 'Space') ? 'space'
             : (e.key === 'Enter' ? 'enter' : null);
         if (!trigger) return;
         const editor = getEditor();
         if (!editor) return;
+
+        // Phase 1: read + match without suppressing the key. Any throw here
+        // falls through to native behavior (the key was never prevented).
+        let idx, block, rule;
         try {
-            const idx = editor.blocks.getCurrentBlockIndex();
+            idx = editor.blocks.getCurrentBlockIndex();
             if (idx < 0) return;
-            const block = editor.blocks.getBlockByIndex(idx);
+            block = editor.blocks.getBlockByIndex(idx);
             if (!block || block.name !== 'paragraph') return;
-            const rule = matchMdRule(block.holder ? block.holder.innerText : '', trigger);
-            if (!rule) return;
-            e.preventDefault();
-            e.stopPropagation();
-            // insert-with-replace avoids per-tool conversionConfig requirements
+            rule = matchMdRule(block.holder ? block.holder.innerText : '', trigger);
+        } catch (err) {
+            console.warn('[md-shortcuts] match skipped:', err);
+            return;
+        }
+        if (!rule) return;
+
+        // Phase 2: committed to conversion. Suppress the trigger key, then mutate.
+        e.preventDefault();
+        e.stopPropagation();
+        try {
             editor.blocks.insert(rule.tool, rule.data, undefined, idx, true, true);
             if (rule.tool === 'delimiter') {
                 editor.blocks.insert('paragraph', {}, undefined, idx + 1, true);
@@ -42,8 +52,7 @@ export function attachMdShortcuts(getEditor, containerEl) {
                 editor.caret.setToBlock(idx, 'start');
             }
         } catch (err) {
-            // degrade: let the key behave natively, never swallow input
-            console.warn('[md-shortcuts] conversion skipped:', err);
+            console.warn('[md-shortcuts] conversion failed:', err);
         }
     };
     containerEl.addEventListener('keydown', onKeydown, true);
