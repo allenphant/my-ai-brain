@@ -806,7 +806,9 @@
             if (!apiKey || autoSetting === 'off') return;
             const now = Date.now(); const lastSortTime = parseInt(localStorage.getItem('lastAutoSortTime') || '0', 10);
             if (autoSetting === 'always' || (autoSetting === 'daily' && now - lastSortTime > 86400000)) {
-                localStorage.setItem('lastAutoSortTime', now.toString()); document.getElementById('ai-sort-btn').click();
+                runAiSort().then(success => {
+                    if (success) localStorage.setItem('lastAutoSortTime', now.toString());
+                });
             }
         }
 
@@ -1706,17 +1708,17 @@ ${text}
             document.getElementById('settings-modal').classList.add('hidden');
         });
 
-        document.getElementById('ai-sort-btn').addEventListener('click', async () => {
-            if (isSorting || currentInboxItems.length === 0 || !currentUser) return;
+        async function runAiSort() {
+            if (isSorting || currentInboxItems.length === 0 || !currentUser) return false;
             const apiKey = localStorage.getItem('geminiApiKey'); const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
-            if (!apiKey) { document.getElementById('settings-modal').classList.remove('hidden'); return; }
+            if (!apiKey) { document.getElementById('settings-modal').classList.remove('hidden'); return false; }
             const lastManualSortTime = parseInt(localStorage.getItem('lastManualSortTime') || '0', 10);
             const sortCooldownRemaining = Math.max(0, AI_SORT_COOLDOWN_MS - (Date.now() - lastManualSortTime));
             if (sortCooldownRemaining > 0) {
                 saveAiStatus('sort', '冷卻中', `剩餘 ${formatCooldown(sortCooldownRemaining)}`);
                 updateAiStatusPanel();
                 showToast(`AI 整理冷卻中，請 ${formatCooldown(sortCooldownRemaining)} 後再試。`, 'fas fa-hourglass-half');
-                return;
+                return false;
             }
 
             isSorting = true; const btn = document.getElementById('ai-sort-btn'); btn.disabled = true; const originalHTML = btn.innerHTML; btn.innerHTML = `<div class="loader w-4 h-4 border-2 border-t-white"></div> <span id="ai-sort-text">AI 背景整理中...</span>`;
@@ -1759,10 +1761,23 @@ ${JSON.stringify(inboxData, null, 2)}`;
                     })
                 });
                 
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData.error?.message || `HTTP error! status: ${response.status}`);
+                }
+
                 const responseData = await response.json();
-                if(responseData.error) throw new Error(responseData.error.message);
-                
-                const resultMap = JSON.parse(responseData.candidates[0].content.parts[0].text);
+                if (responseData.error) throw new Error(responseData.error.message);
+
+                const candidate = responseData.candidates?.[0];
+                if (!candidate) throw new Error("模型未回傳結果");
+                if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+                    throw new Error(`生成中斷，原因: ${candidate.finishReason}`);
+                }
+                const partText = candidate.content?.parts?.[0]?.text;
+                if (!partText) throw new Error("回傳結果無內容");
+
+                const resultMap = JSON.parse(partText);
                 const historyMappings = [];
                 
                 for (const mapping of resultMap) {
@@ -1811,8 +1826,9 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 saveAiStatus('sort', '成功', `已整理 ${resultMap.length} 個項目`);
                 updateAiStatusPanel();
                 showToast(`AI 整理完成，已分類 ${resultMap.length} 個項目`, 'fas fa-magic');
-            } catch (error) { 
-                console.error(error); 
+                return true;
+            } catch (error) {
+                console.error(error);
                 const rawMessage = error?.message || '未知錯誤';
                 const lowerMessage = rawMessage.toLowerCase();
                 if (lowerMessage.includes('429') || lowerMessage.includes('quota') || lowerMessage.includes('too many requests')) {
@@ -1823,10 +1839,13 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 }
                 updateAiStatusPanel();
                 alert("AI 整理失敗：" + error.message);
-            } finally { 
-                isSorting = false; btn.disabled = false; btn.innerHTML = originalHTML; 
+                return false;
+            } finally {
+                isSorting = false; btn.disabled = false; btn.innerHTML = originalHTML;
             }
-        });
+        }
+
+        document.getElementById('ai-sort-btn').addEventListener('click', runAiSort);
         let activeEditorCardId = null;
         let activeEditorCollection = null;
 
