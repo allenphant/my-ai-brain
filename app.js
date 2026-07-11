@@ -1,6 +1,8 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { createLayerStack, attachKeyboardManager } from './js/keyboard-layers.js';
+        import { attachMdShortcuts } from './js/md-shortcuts.js';
 
         // --- Firebase 初始化 ---
         let firebaseConfig;
@@ -78,6 +80,23 @@
         }
         const historyManager = new HistoryManager();
 
+        const keyLayers = createLayerStack();
+        attachKeyboardManager(keyLayers);
+
+        keyLayers.push({
+            name: 'base',
+            keys: {
+                'mod+z': (e, ctx) => { if (!ctx.editableFocus) { e.preventDefault(); historyManager.undo(); } },
+                'mod+y': (e, ctx) => { if (!ctx.editableFocus) { e.preventDefault(); historyManager.redo(); } },
+                'mod+shift+z': (e, ctx) => { if (!ctx.editableFocus) { e.preventDefault(); historyManager.redo(); } }
+            }
+        });
+
+        const modalKeys = (closeFn) => ({
+            'Escape': (e) => { e.preventDefault(); closeFn(); },
+            'mod+a': (e, ctx) => { if (!ctx.editableFocus) e.preventDefault(); }
+        });
+
         async function copyCardDetails(oldCol, newCol, oldId, newId) {
             try {
                 const oldNoteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, oldId, 'details', 'note');
@@ -114,6 +133,16 @@
         const moveModal = document.getElementById('move-modal');
         const editModal = document.getElementById('edit-modal');
         const editInput = document.getElementById('edit-input');
+
+        function openEditCardModal() {
+            editModal.classList.remove('hidden');
+            keyLayers.push({ name: 'edit', keys: modalKeys(closeEditCardModal) });
+        }
+        function closeEditCardModal() {
+            editModal.classList.add('hidden');
+            pendingEditTarget = null;
+            keyLayers.pop('edit');
+        }
 
         const getOrder = (item) => item.order !== undefined ? item.order : item.createdAt;
 
@@ -286,19 +315,25 @@
             'fas fa-mobile-alt', 'fas fa-wifi', 'fas fa-tools', 'fas fa-user', 'fas fa-users', 'fas fa-comments', 'fas fa-sun', 'fas fa-moon', 'fas fa-cloud'
         ];
         
+        function closeCategoryModal() {
+            categoryModal.classList.add('hidden');
+            keyLayers.pop('category');
+        }
+
         document.getElementById('manage-categories-btn').addEventListener('click', () => {
             closeSidebar();
             categoryModal.classList.remove('hidden');
+            keyLayers.push({ name: 'category', keys: modalKeys(closeCategoryModal) });
             resetCategoryForm();
         });
-        document.getElementById('close-category-modal-btn').addEventListener('click', () => categoryModal.classList.add('hidden'));
+        document.getElementById('close-category-modal-btn').addEventListener('click', () => closeCategoryModal());
         document.getElementById('cat-cancel-btn').addEventListener('click', () => {
             resetCategoryForm();
-            categoryModal.classList.add('hidden');
+            closeCategoryModal();
         });
         categoryModal.addEventListener('click', (e) => {
             if (e.target === categoryModal) {
-                categoryModal.classList.add('hidden');
+                closeCategoryModal();
             }
         });
         document.getElementById('add-category-btn').addEventListener('click', resetCategoryForm);
@@ -893,7 +928,7 @@
                 showMoveModal(item, collectionName);
             });
             li.querySelector('.edit-btn')?.addEventListener('click', () => {
-                pendingEditTarget = { id: item.id, col: collectionName }; editInput.value = item.text; editModal.classList.remove('hidden');
+                pendingEditTarget = { id: item.id, col: collectionName }; editInput.value = item.text; openEditCardModal();
             });
         }
 
@@ -1192,12 +1227,14 @@
             document.getElementById('add-card-modal-cat-name').textContent = colName;
             addCardInput.value = '';
             addCardModal.classList.remove('hidden');
+            keyLayers.push({ name: 'add-card', keys: modalKeys(window.closeAddCardModal) });
             updateWebPolishButtonsState();
             setTimeout(() => addCardInput.focus(), 100);
         };
 
         window.closeAddCardModal = function() {
             addCardModal.classList.add('hidden');
+            keyLayers.pop('add-card');
             activeAddCardColId = null;
             addCardInput.value = '';
             updateWebPolishButtonsState();
@@ -1265,7 +1302,7 @@
             }
         });
 
-        document.getElementById('cancel-edit-btn').addEventListener('click', () => { editModal.classList.add('hidden'); pendingEditTarget = null; });
+        document.getElementById('cancel-edit-btn').addEventListener('click', () => { closeEditCardModal(); });
         document.getElementById('confirm-edit-btn').addEventListener('click', async () => {
             if (currentUser && pendingEditTarget) {
                 const newText = document.getElementById('edit-input').value.trim(); if (!newText) return;
@@ -1292,7 +1329,7 @@
                         await updateDoc(docRef, { text: newText }); 
                         showToast(`已將內容修改為「${shortNewText}」`, 'fas fa-edit');
                     }
-                } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; editModal.classList.add('hidden'); pendingEditTarget = null; }
+                } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; closeEditCardModal(); }
             }
         });
 
@@ -1714,6 +1751,11 @@ ${text}
         // ==========================================
         // ✨ 設定邏輯與 AI 分類
         // ==========================================
+        function closeSettingsModal() {
+            document.getElementById('settings-modal').classList.add('hidden');
+            keyLayers.pop('settings');
+        }
+
         document.getElementById('settings-btn').addEventListener('click', () => {
             closeSidebar();
             document.getElementById('api-key-input').value = localStorage.getItem('geminiApiKey') || '';
@@ -1722,14 +1764,15 @@ ${text}
             document.getElementById('auto-newline-toggle').checked = localStorage.getItem('autoNewlineAfterUrl') !== 'off';
             updateAiStatusPanel();
             document.getElementById('settings-modal').classList.remove('hidden');
+            keyLayers.push({ name: 'settings', keys: modalKeys(closeSettingsModal) });
         });
         document.getElementById('settings-modal').addEventListener('click', (e) => {
             const settingsModal = document.getElementById('settings-modal');
             if (e.target === settingsModal) {
-                settingsModal.classList.add('hidden');
+                closeSettingsModal();
             }
         });
-        document.getElementById('close-modal-btn').addEventListener('click', () => document.getElementById('settings-modal').classList.add('hidden'));
+        document.getElementById('close-modal-btn').addEventListener('click', () => closeSettingsModal());
         
         document.getElementById('verify-key-btn').addEventListener('click', async () => {
             const key = document.getElementById('api-key-input').value.trim(); if(!key) return;
@@ -1751,7 +1794,7 @@ ${text}
             if(imgbbKey) { localStorage.setItem('imgbbApiKey', imgbbKey); }
             localStorage.setItem('autoSortSetting', document.getElementById('auto-sort-select').value);
             localStorage.setItem('autoNewlineAfterUrl', document.getElementById('auto-newline-toggle').checked ? 'on' : 'off');
-            document.getElementById('settings-modal').classList.add('hidden');
+            closeSettingsModal();
         });
 
         async function runAiSort() {
@@ -1927,6 +1970,17 @@ ${JSON.stringify(inboxData, null, 2)}`;
             // Set UI
             titleInput.innerText = itemText;
             modal.classList.remove('hidden');
+            keyLayers.push({
+                name: 'editor',
+                keys: {
+                    'Escape': (e) => {
+                        if (document.querySelector('.ce-settings--opened, .ce-popover--opened, .ce-inline-toolbar--showed')) return;
+                        e.preventDefault();
+                        closeEditor();
+                    }
+                    // no 'mod+a' entry: passthrough -> EditorJS native two-stage select (spec §3)
+                }
+            });
             history.replaceState(null, '', `?editor=${itemId}&col=${collectionName}`);
             // Force reflow
             void modal.offsetWidth;
@@ -2039,6 +2093,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             backdrop.classList.remove('opacity-100');
             container.classList.remove('scale-100', 'opacity-100');
             document.body.classList.remove('editor-open');
+            keyLayers.pop('editor');
             setTimeout(() => modal.classList.add('hidden'), 300);
             activeEditorCardId = null;
             activeEditorCollection = null;
@@ -2077,14 +2132,6 @@ ${JSON.stringify(inboxData, null, 2)}`;
             updateEditorLayout();
         });
         updateEditorLayout();
-
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && activeEditorCardId) {
-                // Prevent closing if a sub-menu is open
-                if (document.querySelector('.ce-settings--opened, .ce-popover--opened, .ce-inline-toolbar--showed')) return;
-                closeEditor();
-            }
-        });
 
         document.getElementById('editor-title').addEventListener('input', (e) => {
             clearTimeout(editorSaveTimeout);
@@ -2126,85 +2173,6 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 setTimeout(() => toast.remove(), 300);
             }, 3000);
         };
-
-        // --- Keyboard Shortcuts for Undo/Redo ---
-        document.addEventListener('keydown', (e) => {
-            const isEditorOpen = !document.getElementById('editor-modal')?.classList.contains('hidden') || document.body.classList.contains('editor-open');
-            const isEditModalOpen = !document.getElementById('edit-modal')?.classList.contains('hidden');
-            const isSettingsModalOpen = !document.getElementById('settings-modal')?.classList.contains('hidden');
-            const isCategoryModalOpen = !document.getElementById('category-manager-modal')?.classList.contains('hidden');
-            const isAddCardModalOpen = !document.getElementById('add-card-modal')?.classList.contains('hidden');
-
-            // Handle Escape key to close the Add Card Modal
-            if (e.key === 'Escape' && isAddCardModalOpen) {
-                closeAddCardModal();
-                return;
-            }
-
-            // Handle Ctrl+A / Cmd+A when any editing modal is open
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-                if (isEditorOpen || isEditModalOpen || isSettingsModalOpen || isCategoryModalOpen || isAddCardModalOpen) {
-                    const activeEl = document.activeElement;
-                    
-                    // 1. If inside EditorJS container, do custom select-all
-                    if (isEditorOpen && activeEl && activeEl.closest('#editorjs-container')) {
-                        const editorContainer = document.getElementById('editorjs-container');
-                        if (editorContainer) {
-                            e.preventDefault();
-                            const range = document.createRange();
-                            range.selectNodeContents(editorContainer);
-                            const selection = window.getSelection();
-                            selection.removeAllRanges();
-                            selection.addRange(range);
-                        }
-                        return;
-                    }
-                    
-                    // 2. If focusing on other editable elements, let native Ctrl+A run
-                    const isEditable = activeEl && (
-                        activeEl.tagName === 'INPUT' || 
-                        activeEl.tagName === 'TEXTAREA' || 
-                        activeEl.contentEditable === 'true' ||
-                        activeEl.contentEditable === true ||
-                        activeEl.closest('[contenteditable]')
-                    );
-                    if (isEditable) {
-                        return; 
-                    }
-                    
-                    // 3. Otherwise, block Ctrl+A completely to prevent selecting background text
-                    e.preventDefault();
-                    return;
-                }
-            }
-
-            if (isEditorOpen || isEditModalOpen || isSettingsModalOpen || isCategoryModalOpen || isAddCardModalOpen) {
-                return; 
-            }
-
-            const activeEl = document.activeElement;
-            if (activeEl && (
-                activeEl.tagName === 'INPUT' || 
-                activeEl.tagName === 'TEXTAREA' || 
-                activeEl.contentEditable === 'true' ||
-                activeEl.contentEditable === true ||
-                activeEl.closest('.codex-editor') ||
-                activeEl.closest('[contenteditable]')
-            )) {
-                return; 
-            }
-
-            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
-                e.preventDefault();
-                historyManager.undo();
-            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-                e.preventDefault();
-                historyManager.redo();
-            } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
-                e.preventDefault();
-                historyManager.redo();
-            }
-        });
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
