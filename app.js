@@ -1482,7 +1482,7 @@
             const apiKey = localStorage.getItem('geminiApiKey');
             const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
             if (!apiKey) {
-                document.getElementById('settings-modal').classList.remove('hidden');
+                openSettingsModal();
                 showToast('請先設定 Gemini API Key，才能使用 AI 研讀。', 'fas fa-key');
                 return null;
             }
@@ -1618,7 +1618,7 @@
             const imgbbKey = localStorage.getItem('imgbbApiKey');
             if (!imgbbKey) {
                 alert("請先點擊右上角「⚙️ 系統設定」，填寫免費的 ImgBB API Key 才能解鎖圖片上傳功能！");
-                document.getElementById('settings-modal').classList.remove('hidden');
+                openSettingsModal();
                 return;
             }
             
@@ -1756,6 +1756,11 @@ ${text}
             keyLayers.pop('settings');
         }
 
+        function openSettingsModal() {
+            document.getElementById('settings-modal').classList.remove('hidden');
+            keyLayers.push({ name: 'settings', keys: modalKeys(closeSettingsModal) });
+        }
+
         document.getElementById('settings-btn').addEventListener('click', () => {
             closeSidebar();
             document.getElementById('api-key-input').value = localStorage.getItem('geminiApiKey') || '';
@@ -1763,8 +1768,7 @@ ${text}
             document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off';
             document.getElementById('auto-newline-toggle').checked = localStorage.getItem('autoNewlineAfterUrl') !== 'off';
             updateAiStatusPanel();
-            document.getElementById('settings-modal').classList.remove('hidden');
-            keyLayers.push({ name: 'settings', keys: modalKeys(closeSettingsModal) });
+            openSettingsModal();
         });
         document.getElementById('settings-modal').addEventListener('click', (e) => {
             const settingsModal = document.getElementById('settings-modal');
@@ -1800,7 +1804,7 @@ ${text}
         async function runAiSort() {
             if (isSorting || currentInboxItems.length === 0 || !currentUser) return false;
             const apiKey = localStorage.getItem('geminiApiKey'); const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
-            if (!apiKey) { document.getElementById('settings-modal').classList.remove('hidden'); return false; }
+            if (!apiKey) { openSettingsModal(); return false; }
             const lastManualSortTime = parseInt(localStorage.getItem('lastManualSortTime') || '0', 10);
             const sortCooldownRemaining = Math.max(0, AI_SORT_COOLDOWN_MS - (Date.now() - lastManualSortTime));
             if (sortCooldownRemaining > 0) {
