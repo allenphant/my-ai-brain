@@ -734,6 +734,9 @@
                 if (text) sharedContent += `${text}\n`;
                 if (url) sharedContent += url;
                 sharedContent = sharedContent.trim();
+                if (localStorage.getItem('autoNewlineAfterUrl') !== 'off') {
+                    sharedContent = insertNewlineAfterGluedUrls(sharedContent);
+                }
                 
                 if (sharedContent) {
                     const inputArea = document.getElementById('idea-input');
@@ -796,6 +799,14 @@
                 document.getElementById('auth-status').classList.replace('bg-emerald-500', 'bg-amber-500');
                 document.getElementById('auth-text').innerText = "請先登入";
                 document.getElementById('login-btn').classList.remove('hidden'); document.getElementById('logout-btn').classList.add('hidden');
+                document.getElementById('main-grid-container').innerHTML = '';
+                document.getElementById('inbox-list').innerHTML = `
+                    <li class="bg-white/80 p-6 rounded-xl border border-indigo-100 text-slate-500 text-sm text-center ignore-drag backdrop-blur-sm">
+                        <i class="fas fa-right-to-bracket text-indigo-300 text-xl mb-2"></i>
+                        <div>請先登入才能查看你的收件匣</div>
+                        <button id="inbox-login-prompt-btn" class="mt-3 text-indigo-600 font-semibold hover:underline">立即登入</button>
+                    </li>`;
+                document.getElementById('inbox-login-prompt-btn').addEventListener('click', () => document.getElementById('login-btn').click());
                 handleIncomingShare();
             }
         });
@@ -896,9 +907,22 @@
             return `<div class="mt-2 w-full"><a href="${imageUrl}" target="_blank" class="pointer-events-auto"><img src="${imageUrl}" class="w-full max-h-48 object-cover rounded-lg border border-slate-200 hover:opacity-90 transition-opacity pointer-events-auto"></a></div>`;
         }
 
+        function buildUrlBoundaryRegex(flags = '') {
+            // Stops a URL match at whitespace or CJK ideographs/kana/fullwidth punctuation,
+            // since those glue directly onto URLs with no separating space in normal typing.
+            return new RegExp('https?:\\/\\/[^\\s　-〿぀-ヿ㐀-鿿＀-￯]+', flags);
+        }
+
+        function insertNewlineAfterGluedUrls(text) {
+            return text.replace(buildUrlBoundaryRegex('g'), (match, offset, fullString) => {
+                const nextChar = fullString[offset + match.length];
+                return (nextChar && !/\s/.test(nextChar)) ? match + '\n' : match;
+            });
+        }
+
         function getLinkPreviewData(text) {
-            const safeText = text || ''; 
-            const urlMatch = safeText.match(/(https?:\/\/[^\s　-〿぀-ヿ㐀-鿿＀-￯]+)/);
+            const safeText = text || '';
+            const urlMatch = safeText.match(buildUrlBoundaryRegex());
             let previewHTML = '';
             let textWithoutUrl = safeText;
 
@@ -1289,7 +1313,7 @@
         const AI_SORT_COOLDOWN_MS = 5 * 60 * 1000;
 
         function extractUrls(text) {
-            return [...new Set((text.match(/https?:\/\/[^\s　-〿぀-ヿ㐀-鿿＀-￯]+/g) || []).map(url => url.trim()))];
+            return [...new Set((text.match(buildUrlBoundaryRegex('g')) || []).map(url => url.trim()))];
         }
 
         function canUseWebPolish(text) {
@@ -1480,7 +1504,27 @@
         });
 
         addCardInput.addEventListener('input', updateWebPolishButtonsState);
-        
+
+        function attachAutoNewlinePaste(textareaEl) {
+            textareaEl.addEventListener('paste', (e) => {
+                if (localStorage.getItem('autoNewlineAfterUrl') === 'off') return;
+                const clipboardText = (e.clipboardData || window.clipboardData)?.getData('text');
+                if (!clipboardText) return;
+                const processed = insertNewlineAfterGluedUrls(clipboardText);
+                if (processed === clipboardText) return;
+                e.preventDefault();
+                const start = textareaEl.selectionStart;
+                const end = textareaEl.selectionEnd;
+                const original = textareaEl.value;
+                textareaEl.value = original.slice(0, start) + processed + original.slice(end);
+                const newCursor = start + processed.length;
+                textareaEl.selectionStart = textareaEl.selectionEnd = newCursor;
+                textareaEl.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+        }
+        attachAutoNewlinePaste(ideaInput);
+        attachAutoNewlinePaste(addCardInput);
+
         ideaInput.addEventListener('keydown', function(e) { 
             if (e.key === 'Enter' && !e.shiftKey) { 
                 // 改用觸控裝置偵測，避免電腦上的小視窗預覽時誤判為手機
@@ -1674,7 +1718,8 @@ ${text}
             closeSidebar();
             document.getElementById('api-key-input').value = localStorage.getItem('geminiApiKey') || '';
             document.getElementById('imgbb-key-input').value = localStorage.getItem('imgbbApiKey') || '';
-            document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off'; 
+            document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off';
+            document.getElementById('auto-newline-toggle').checked = localStorage.getItem('autoNewlineAfterUrl') !== 'off';
             updateAiStatusPanel();
             document.getElementById('settings-modal').classList.remove('hidden');
         });
@@ -1705,6 +1750,7 @@ ${text}
             if(geminiKey) { localStorage.setItem('geminiApiKey', geminiKey); if (document.getElementById('model-select').value) localStorage.setItem('geminiModel', document.getElementById('model-select').value); }
             if(imgbbKey) { localStorage.setItem('imgbbApiKey', imgbbKey); }
             localStorage.setItem('autoSortSetting', document.getElementById('auto-sort-select').value);
+            localStorage.setItem('autoNewlineAfterUrl', document.getElementById('auto-newline-toggle').checked ? 'on' : 'off');
             document.getElementById('settings-modal').classList.add('hidden');
         });
 
