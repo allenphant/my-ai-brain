@@ -1988,6 +1988,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 history.back();
                 return;
             }
+            currentEditorLoadId += 1;
             if (editorSaveTimeout) {
                 clearTimeout(editorSaveTimeout);
                 editorSaveTimeout = null;

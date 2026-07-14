@@ -64,6 +64,9 @@ const firebaseFirestoreModule = `
         if (cardId) {
             return { exists: () => true, data: () => ({ text: cardTexts[cardId] }) };
         }
+        if (ref.path.endsWith('/details/note')) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
         return { exists: () => false, data: () => ({}) };
     };
     export const onSnapshot = (ref, callback) => {
@@ -100,7 +103,11 @@ const browserGlobalsModule = `
     window.tailwind = { config: {} };
     window.Sortable = class { constructor() {} };
     window.EditorJS = class {
-        constructor(config) { this.config = config; queueMicrotask(() => config.onReady?.()); }
+        constructor(config) {
+            globalThis.__mockEditorConstructCount = (globalThis.__mockEditorConstructCount || 0) + 1;
+            this.config = config;
+            queueMicrotask(() => config.onReady?.());
+        }
         async save() { return { time: Date.now(), blocks: [] }; }
         destroy() {}
     };
@@ -265,6 +272,8 @@ try {
     assert.match(page.url(), /[?&]editor=card-1/);
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.equal(await page.evaluate(() => globalThis.__mockEditorConstructCount || 0), 0, 'closing during note load must abort editor initialization');
     assert.equal(new URL(page.url()).search, '');
 
     await page.click('li[data-id="card-1"] .web-research-btn');
