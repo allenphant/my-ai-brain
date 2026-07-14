@@ -143,6 +143,9 @@ const browserGlobalsModule = `
     window.Checklist = class {};
     window.Quote = class {};
     window.Marker = class {};
+    window.InlineCode = class {};
+    window.CodeTool = class {};
+    window.Delimiter = class {};
     window.Undo = class { constructor() {} };
 `;
 
