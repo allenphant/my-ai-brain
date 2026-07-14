@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
     WEB_RESEARCH_CACHE_TTL_MS,
@@ -142,4 +143,21 @@ test('interactive card targets include anchors and buttons and their descendants
     assert.equal(isInteractiveCardTarget(anchorChild), true);
     assert.equal(isInteractiveCardTarget(plainText), false);
     assert.equal(isInteractiveCardTarget(null), false);
+});
+
+test('production markup exposes only the per-card research preview flow', async () => {
+    const [html, appSource] = await Promise.all([
+        readFile(new URL('../index.html', import.meta.url), 'utf8'),
+        readFile(new URL('../app.js', import.meta.url), 'utf8')
+    ]);
+
+    assert.doesNotMatch(html, /id="polish-link-btn"/);
+    assert.doesNotMatch(html, /id="polish-add-card-btn"/);
+    assert.match(html, /id="web-research-preview-modal"/);
+    assert.match(html, /id="web-research-preview-content"/);
+    assert.match(html, /id="cancel-web-research-preview-btn"/);
+    assert.match(html, /id="append-web-research-btn"/);
+    assert.match(appSource, /function getWebResearchButtonHTML\(item\)/);
+    assert.match(appSource, /runCardWebResearch/);
+    assert.match(appSource, /runTransaction/);
 });
