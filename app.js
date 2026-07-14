@@ -1,8 +1,15 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc, setDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { createLayerStack, attachKeyboardManager } from './js/keyboard-layers.js';
         import { attachMdShortcuts } from './js/md-shortcuts.js';
+        import {
+            buildWebResearchAppendData,
+            canUseWebResearch,
+            getWebResearchCooldownRemaining,
+            readWebResearchCache,
+            writeWebResearchCache
+        } from './web-research.mjs';
 
         // --- Firebase 初始化 ---
         let firebaseConfig;
@@ -779,7 +786,6 @@
                         inputArea.value = sharedContent;
                         inputArea.style.height = 'auto';
                         inputArea.style.height = inputArea.scrollHeight + 'px';
-                        updateWebPolishButtonsState();
                         inputArea.focus();
                         showToast('已匯入分享內容到輸入框，可編輯後送出！', 'fas fa-share-alt');
                     } else {
@@ -801,7 +807,6 @@
                     inputArea.value = pendingShare;
                     inputArea.style.height = 'auto';
                     inputArea.style.height = inputArea.scrollHeight + 'px';
-                    updateWebPolishButtonsState();
                     inputArea.focus();
                     showToast('已自動載入先前分享的內容！', 'fas fa-share-alt');
                 }
@@ -910,6 +915,17 @@
                 </div>`;
         }
 
+        function getWebResearchButtonHTML(item) {
+            if (!canUseWebResearch(item?.text).ok) return '';
+            return `
+                <div class="flex justify-end mt-1" data-card-interactive>
+                    <button type="button" class="web-research-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 text-xs font-bold transition-colors" title="AI 研讀這張卡片的網址">
+                        <i class="fas fa-wand-magic-sparkles"></i>
+                        <span>AI 研讀</span>
+                    </button>
+                </div>`;
+        }
+
         function attachItemListeners(li, item, collectionName) {
             const copyBtn = li.querySelector('.copy-btn');
             if (copyBtn) {
@@ -929,6 +945,11 @@
             });
             li.querySelector('.edit-btn')?.addEventListener('click', () => {
                 pendingEditTarget = { id: item.id, col: collectionName }; editInput.value = item.text; openEditCardModal();
+            });
+            li.querySelector('.web-research-btn')?.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                runCardWebResearch(item, collectionName, event.currentTarget);
             });
         }
 
@@ -1000,6 +1021,7 @@
                     </div>
                     ${getImageHTML(item.imageUrl)}
                     ${previewHTML}
+                    ${getWebResearchButtonHTML(item)}
                     <div class="absolute right-2 top-2 bg-white/95 backdrop-blur-md shadow-sm border border-slate-200/60 rounded-full pointer-events-auto p-0.5 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
                         ${getActionButtonsHTML()}
                     </div>`;
@@ -1037,6 +1059,7 @@
                     </div>
                     ${getImageHTML(item.imageUrl)}
                     ${previewHTML}
+                    ${getWebResearchButtonHTML(item)}
                     <div class="absolute right-2 top-2 bg-white/95 backdrop-blur-md shadow-sm border border-slate-200/60 rounded-full pointer-events-auto p-0.5 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
                         ${getActionButtonsHTML()}
                     </div>`;
@@ -1080,6 +1103,7 @@
                     </div>
                     ${getImageHTML(item.imageUrl)}
                     ${previewHTML}
+                    ${getWebResearchButtonHTML(item)}
                     <div class="absolute right-2 top-2 bg-white/95 backdrop-blur-md shadow-sm border border-slate-200/60 rounded-full pointer-events-auto p-0.5 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
                         ${getActionButtonsHTML()}
                     </div>`;
@@ -1220,7 +1244,6 @@
         let activeAddCardColId = null;
         const addCardModal = document.getElementById('add-card-modal');
         const addCardInput = document.getElementById('add-card-input');
-        const polishAddCardBtn = document.getElementById('polish-add-card-btn');
 
         window.openAddCardModal = function(colId, colName) {
             activeAddCardColId = colId;
@@ -1228,7 +1251,6 @@
             addCardInput.value = '';
             addCardModal.classList.remove('hidden');
             keyLayers.push({ name: 'add-card', keys: modalKeys(window.closeAddCardModal) });
-            updateWebPolishButtonsState();
             setTimeout(() => addCardInput.focus(), 100);
         };
 
@@ -1237,7 +1259,6 @@
             keyLayers.pop('add-card');
             activeAddCardColId = null;
             addCardInput.value = '';
-            updateWebPolishButtonsState();
         };
 
         document.getElementById('cancel-add-card-btn').addEventListener('click', closeAddCardModal);
@@ -1298,7 +1319,6 @@
             } finally {
                 btn.disabled = false;
                 btn.innerText = '新增';
-                updateWebPolishButtonsState();
             }
         });
 
@@ -1337,75 +1357,17 @@
         // ✨ ImgBB API 圖片上傳與表單提交流程
         // ==========================================
         const ideaInput = document.getElementById('idea-input');
-        const polishLinkBtn = document.getElementById('polish-link-btn');
         const imageUploadInput = document.getElementById('image-upload-input');
         const imagePreviewContainer = document.getElementById('image-preview-container');
         const imagePreviewImg = document.getElementById('image-preview-img');
         const removeImageBtn = document.getElementById('remove-image-btn');
         const aiWebStatusEl = document.getElementById('ai-web-status');
         const aiSortStatusEl = document.getElementById('ai-sort-status');
-        const WEB_POLISH_COOLDOWN_MS = 60 * 1000;
-        const WEB_POLISH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-        const WEB_POLISH_CACHE_PREFIX = 'webPolishCache:';
+        const webResearchPreviewModal = document.getElementById('web-research-preview-modal');
+        const webResearchPreviewContent = document.getElementById('web-research-preview-content');
+        const appendWebResearchBtn = document.getElementById('append-web-research-btn');
         const AI_SORT_COOLDOWN_MS = 5 * 60 * 1000;
-
-        function extractUrls(text) {
-            return [...new Set((text.match(buildUrlBoundaryRegex('g')) || []).map(url => url.trim()))];
-        }
-
-        function canUseWebPolish(text) {
-            const normalizedText = (text || '').trim();
-            const urls = extractUrls(normalizedText);
-            if (urls.length !== 1) {
-                return { ok: false, reason: urls.length === 0 ? 'no_url' : 'multiple_urls' };
-            }
-            if (normalizedText.length > 1200) {
-                return { ok: false, reason: 'too_long' };
-            }
-            return { ok: true, reason: 'ok' };
-        }
-
-        function hashString(value) {
-            let hash = 2166136261;
-            for (let i = 0; i < value.length; i++) {
-                hash ^= value.charCodeAt(i);
-                hash = Math.imul(hash, 16777619);
-            }
-            return (hash >>> 0).toString(36);
-        }
-
-        function getWebPolishCacheKey(text) {
-            return `${WEB_POLISH_CACHE_PREFIX}${hashString((text || '').trim().replace(/\s+/g, ' '))}`;
-        }
-
-        function getCachedWebPolish(text) {
-            const raw = localStorage.getItem(getWebPolishCacheKey(text));
-            if (!raw) return null;
-            try {
-                const parsed = JSON.parse(raw);
-                if (!parsed?.value || !parsed?.savedAt) return null;
-                if (Date.now() - parsed.savedAt > WEB_POLISH_CACHE_TTL_MS) {
-                    localStorage.removeItem(getWebPolishCacheKey(text));
-                    return null;
-                }
-                return parsed.value;
-            } catch (error) {
-                localStorage.removeItem(getWebPolishCacheKey(text));
-                return null;
-            }
-        }
-
-        function cacheWebPolishResult(text, value) {
-            localStorage.setItem(getWebPolishCacheKey(text), JSON.stringify({
-                value,
-                savedAt: Date.now()
-            }));
-        }
-
-        function getWebPolishCooldownRemaining() {
-            const lastRun = parseInt(localStorage.getItem('lastWebPolishTime') || '0', 10);
-            return Math.max(0, WEB_POLISH_COOLDOWN_MS - (Date.now() - lastRun));
-        }
+        let pendingWebResearch = null;
 
         function formatCooldown(ms) {
             return `${Math.ceil(ms / 1000)} 秒`;
@@ -1464,14 +1426,21 @@
             };
         }
 
-        function updateWebPolishButtonsState() {
-            polishLinkBtn.disabled = !canUseWebPolish(ideaInput.value).ok;
-            polishAddCardBtn.disabled = !canUseWebPolish(addCardInput.value).ok;
+        function openWebResearchPreview(payload) {
+            pendingWebResearch = payload;
+            webResearchPreviewContent.textContent = payload.result;
+            webResearchPreviewModal.classList.remove('hidden');
         }
 
-        async function runManualWebPolish(text, button) {
-            const normalizedText = (text || '').trim();
-            const eligibility = canUseWebPolish(normalizedText);
+        function closeWebResearchPreview() {
+            webResearchPreviewModal.classList.add('hidden');
+            webResearchPreviewContent.textContent = '';
+            pendingWebResearch = null;
+        }
+
+        async function runCardWebResearch(item, collectionName, button) {
+            const normalizedText = (item?.text || '').trim();
+            const eligibility = canUseWebResearch(normalizedText);
             if (!eligibility.ok) {
                 if (eligibility.reason === 'no_url') showToast('沒有偵測到網址，無法執行 AI 研讀。', 'fas fa-link');
                 else if (eligibility.reason === 'multiple_urls') showToast('一次只支援研讀 1 個網址，請先精簡輸入。', 'fas fa-link');
@@ -1487,20 +1456,26 @@
                 return null;
             }
 
-            const cached = getCachedWebPolish(normalizedText);
+            const cached = readWebResearchCache(localStorage, normalizedText);
             if (cached) {
                 saveAiStatus('web', '使用快取', '相同內容直接套用快取結果');
                 updateAiStatusPanel();
-                showToast('已套用先前的 AI 研讀結果。', 'fas fa-clock-rotate-left');
-                return cached;
+                openWebResearchPreview({
+                    itemId: item.id,
+                    collectionName,
+                    sourceText: normalizedText,
+                    result: cached
+                });
+                showToast('已載入先前的 AI 研讀結果供預覽。', 'fas fa-clock-rotate-left');
+                return;
             }
 
-            const cooldownRemaining = getWebPolishCooldownRemaining();
+            const cooldownRemaining = getWebResearchCooldownRemaining(localStorage);
             if (cooldownRemaining > 0) {
                 saveAiStatus('web', '冷卻中', `剩餘 ${formatCooldown(cooldownRemaining)}`);
                 updateAiStatusPanel();
                 showToast(`AI 研讀冷卻中，請 ${formatCooldown(cooldownRemaining)} 後再試。`, 'fas fa-hourglass-half');
-                return null;
+                return;
             }
 
             const restoreButton = setButtonLoading(button, '<div class="loader w-4 h-4 border-2 border-t-transparent mx-auto"></div>');
@@ -1510,11 +1485,16 @@
             try {
                 const polished = await polishContentWithWebSearch(normalizedText, apiKey, targetModel);
                 if (!polished) throw new Error('AI 沒有回傳內容');
-                cacheWebPolishResult(normalizedText, polished);
+                writeWebResearchCache(localStorage, normalizedText, polished);
                 saveAiStatus('web', '成功', '已完成網址研讀並寫入快取');
                 updateAiStatusPanel();
-                showToast('AI 研讀完成，已套用潤飾內容。', 'fas fa-wand-magic-sparkles');
-                return polished;
+                openWebResearchPreview({
+                    itemId: item.id,
+                    collectionName,
+                    sourceText: normalizedText,
+                    result: polished
+                });
+                showToast('AI 研讀完成，請預覽後確認追加。', 'fas fa-wand-magic-sparkles');
             } catch (error) {
                 console.error('AI 網頁研讀潤飾失敗：', error);
                 const rawMessage = error?.message || '未知錯誤';
@@ -1527,21 +1507,62 @@
                     showToast(`AI 網頁研讀失敗：${rawMessage}`, 'fas fa-exclamation-triangle');
                 }
                 updateAiStatusPanel();
-                return null;
             } finally {
                 restoreButton();
-                updateWebPolishButtonsState();
             }
         }
+
+        async function appendPendingWebResearch() {
+            if (!currentUser || !pendingWebResearch) return;
+            const payload = pendingWebResearch;
+            const restoreButton = setButtonLoading(
+                appendWebResearchBtn,
+                '<div class="loader w-4 h-4 border-2 border-t-transparent mx-auto"></div>',
+                '追加到詳細筆記'
+            );
+            const noteRef = doc(
+                db,
+                'artifacts',
+                appId,
+                'users',
+                currentUser.uid,
+                payload.collectionName,
+                payload.itemId,
+                'details',
+                'note'
+            );
+
+            try {
+                await runTransaction(db, async transaction => {
+                    const noteSnapshot = await transaction.get(noteRef);
+                    const existingData = noteSnapshot.exists() ? noteSnapshot.data().data : null;
+                    const now = Date.now();
+                    transaction.set(noteRef, {
+                        data: buildWebResearchAppendData(existingData, payload.result, now),
+                        updatedAt: now
+                    }, { merge: true });
+                });
+                closeWebResearchPreview();
+                showToast('AI 研讀結果已追加到詳細筆記。', 'fas fa-check-circle');
+            } catch (error) {
+                console.error('追加 AI 研讀結果失敗：', error);
+                showToast(`追加失敗：${error?.message || '未知錯誤'}`, 'fas fa-exclamation-triangle');
+            } finally {
+                restoreButton();
+            }
+        }
+
+        document.getElementById('cancel-web-research-preview-btn').addEventListener('click', closeWebResearchPreview);
+        document.getElementById('close-web-research-preview-btn').addEventListener('click', closeWebResearchPreview);
+        appendWebResearchBtn.addEventListener('click', appendPendingWebResearch);
+        webResearchPreviewModal.addEventListener('click', event => {
+            if (event.target === webResearchPreviewModal) closeWebResearchPreview();
+        });
 
         ideaInput.addEventListener('input', function() {
             this.style.height = '40px';
             this.style.height = (this.scrollHeight) + 'px';
-            updateWebPolishButtonsState();
         });
-
-        addCardInput.addEventListener('input', updateWebPolishButtonsState);
-
         function attachAutoNewlinePaste(textareaEl) {
             textareaEl.addEventListener('paste', (e) => {
                 if (localStorage.getItem('autoNewlineAfterUrl') === 'off') return;
@@ -1561,7 +1582,6 @@
         }
         attachAutoNewlinePaste(ideaInput);
         attachAutoNewlinePaste(addCardInput);
-
         ideaInput.addEventListener('keydown', function(e) { 
             if (e.key === 'Enter' && !e.shiftKey) { 
                 // 改用觸控裝置偵測，避免電腦上的小視窗預覽時誤判為手機
@@ -1577,23 +1597,6 @@
             try { const text = await navigator.clipboard.readText(); ideaInput.value += text; ideaInput.dispatchEvent(new Event('input')); ideaInput.focus(); } catch (err) { alert("無法自動讀取剪貼簿，請手動貼上。"); }
         });
 
-        polishLinkBtn.addEventListener('click', async () => {
-            const polished = await runManualWebPolish(ideaInput.value, polishLinkBtn);
-            if (!polished) return;
-            ideaInput.value = polished;
-            ideaInput.dispatchEvent(new Event('input'));
-            ideaInput.focus();
-        });
-
-        polishAddCardBtn.addEventListener('click', async () => {
-            const polished = await runManualWebPolish(addCardInput.value, polishAddCardBtn);
-            if (!polished) return;
-            addCardInput.value = polished;
-            addCardInput.dispatchEvent(new Event('input'));
-            addCardInput.focus();
-        });
-
-        updateWebPolishButtonsState();
         updateAiStatusPanel();
 
         ideaInput.addEventListener('paste', (e) => {
@@ -1744,7 +1747,7 @@ ${text}
             } catch (error) { 
                 console.error("送出失敗", error); alert("送出失敗：" + error.message);
             } finally { 
-                btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>'; updateWebPolishButtonsState(); ideaInput.focus(); 
+                btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane text-xs"></i>'; ideaInput.focus();
             }
         });
 
