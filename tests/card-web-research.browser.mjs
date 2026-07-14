@@ -343,6 +343,30 @@ try {
     assert.equal(await page.$eval('#editor-modal', element => element.classList.contains('hidden')), true);
     await externalPage.close();
 
+    const getNoteWriteCount = () => page.evaluate(() =>
+        (globalThis.__mockSetDocWrites || []).filter(write => write.path.endsWith('/inbox/card-1/details/note')).length
+    );
+    const waitForNextNoteWrite = previousCount => page.waitForFunction(
+        previous => {
+            const writes = (globalThis.__mockSetDocWrites || [])
+                .filter(write => write.path.endsWith('/inbox/card-1/details/note'));
+            return writes.length === previous + 1
+                && writes.at(-1).path.endsWith('/inbox/card-1/details/note');
+        },
+        { timeout: 2_000 },
+        previousCount
+    );
+    const openCardEditorAndWait = async () => {
+        const previousCount = await page.evaluate(() => globalThis.__mockEditorConstructCount || 0);
+        await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
+        await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+        await page.waitForFunction(
+            previous => (globalThis.__mockEditorConstructCount || 0) === previous + 1,
+            { timeout: 2_000 },
+            previousCount
+        );
+    };
+
     await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
     await page.waitForFunction(() => document.body.classList.contains('editor-open'));
     assert.match(page.url(), /[?&]editor=card-1/);
@@ -360,9 +384,10 @@ try {
         element.innerText = '返回前修改標題';
         element.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    const noteWritesBeforeBack = await getNoteWriteCount();
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
-    await page.waitForFunction(() => (globalThis.__mockSetDocWrites || []).some(write => write.path.endsWith('/inbox/card-1/details/note')));
+    await waitForNextNoteWrite(noteWritesBeforeBack);
     await page.waitForFunction(
         expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
         { timeout: 2_000 },
@@ -370,14 +395,15 @@ try {
     );
     await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
 
-    await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
-    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await openCardEditorAndWait();
     await page.$eval('#editor-title', element => {
         element.innerText = 'Escape 前修改標題';
         element.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    const noteWritesBeforeEscape = await getNoteWriteCount();
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await waitForNextNoteWrite(noteWritesBeforeEscape);
     await page.waitForFunction(
         expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
         { timeout: 2_000 },
@@ -385,14 +411,15 @@ try {
     );
     await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
 
-    await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
-    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await openCardEditorAndWait();
     await page.$eval('#editor-title', element => {
         element.innerText = '關閉鈕前修改標題';
         element.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    const noteWritesBeforeCloseButton = await getNoteWriteCount();
     await page.click('#editor-close-btn');
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await waitForNextNoteWrite(noteWritesBeforeCloseButton);
     await page.waitForFunction(
         expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
         { timeout: 2_000 },
@@ -400,14 +427,15 @@ try {
     );
     await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
 
-    await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
-    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await openCardEditorAndWait();
     await page.$eval('#editor-title', element => {
         element.innerText = 'Backdrop 前修改標題';
         element.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    const noteWritesBeforeBackdrop = await getNoteWriteCount();
     await page.evaluate(() => document.querySelector('#editor-backdrop').click());
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await waitForNextNoteWrite(noteWritesBeforeBackdrop);
     await page.waitForFunction(
         expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
         { timeout: 2_000 },
