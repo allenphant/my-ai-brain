@@ -58,7 +58,9 @@ const firebaseFirestoreModule = `
         const cardTexts = {
             'card-1': '測試文章 https://success.example',
             'card-2': '冷卻文章 https://cooldown.example',
-            'card-3': '配額文章 https://quota.example'
+            'card-3': '配額文章 https://quota.example',
+            'card-4': '錯誤文章 https://error.example',
+            'card-5': '沒有網址的普通卡片'
         };
         const cardId = Object.keys(cardTexts).find(id => ref.path.endsWith('/inbox/' + id));
         if (cardId) {
@@ -74,7 +76,9 @@ const firebaseFirestoreModule = `
             ? [
                 { id: 'card-1', data: () => ({ text: '測試文章 https://success.example', createdAt: 3 }) },
                 { id: 'card-2', data: () => ({ text: '冷卻文章 https://cooldown.example', createdAt: 2 }) },
-                { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', createdAt: 1 }) }
+                { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', createdAt: 1 }) },
+                { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', createdAt: 0 }) },
+                { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) }
             ]
             : [];
         queueMicrotask(() => callback({ forEach: handler => rows.forEach(handler) }));
@@ -82,6 +86,7 @@ const firebaseFirestoreModule = `
     };
     export const runTransaction = async (db, operation) => {
         globalThis.__mockTransactionWrites ||= [];
+        if (globalThis.__mockTransactionShouldFail) throw new Error('Mock append failure');
         const transaction = {
             get: async () => ({
                 exists: () => true,
@@ -180,6 +185,15 @@ try {
                 });
                 return;
             }
+            if ((request.postData() || '').includes('error.example')) {
+                request.respond({
+                    status: 500,
+                    headers: corsHeaders,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ error: { message: 'Server failure' } })
+                });
+                return;
+            }
             request.respond({
                 status: 200,
                 headers: corsHeaders,
@@ -219,7 +233,8 @@ try {
 
     assert.equal(await page.$('#polish-link-btn'), null);
     assert.equal(await page.$('#polish-add-card-btn'), null);
-    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 3);
+    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 4);
+    assert.equal(await page.$('li[data-id="card-5"] .web-research-btn'), null);
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
 
@@ -237,6 +252,13 @@ try {
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     assert.equal(geminiPosts, 1, 'cache hit must not make a second Gemini POST');
 
+    await page.evaluate(() => { globalThis.__mockTransactionShouldFail = true; });
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#append-web-research-btn').disabled);
+    assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), false);
+    assert.equal(await page.evaluate(() => globalThis.__mockTransactionWrites.length), 0);
+
+    await page.evaluate(() => { globalThis.__mockTransactionShouldFail = false; });
     await page.click('#append-web-research-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     const writes = await page.evaluate(() => globalThis.__mockTransactionWrites);
@@ -245,6 +267,8 @@ try {
     assert.equal(writes[0].data.data.blocks[0].data.text, '既有筆記');
     assert.match(writes[0].data.data.blocks[1].data.text, /^AI 網址研讀｜/);
     assert.equal(writes[0].data.data.blocks[2].data.text, 'AI 整理結果<br>https://success.example');
+    assert.match(await page.$eval('li[data-id="card-1"]', element => element.innerText), /測試文章/);
+    assert.doesNotMatch(await page.$eval('li[data-id="card-1"]', element => element.innerText), /AI 整理結果/);
 
     await page.click('li[data-id="card-2"] .web-research-btn');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '冷卻中');
@@ -257,11 +281,18 @@ try {
     assert.equal(geminiPosts, 2);
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
 
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('li[data-id="card-4"] .web-research-btn');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '失敗');
+    assert.equal(geminiPosts, 3);
+    assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
+    assert.match(await page.$eval('li[data-id="card-4"]', element => element.innerText), /錯誤文章/);
+
     const externalPagePromise = new Promise(resolve => browser.once('targetcreated', async target => {
         const targetPage = await target.page();
         if (targetPage) resolve(targetPage);
     }));
-    await page.click('#inbox-list a[href="https://success.example"]');
+    await page.click('#inbox-list a[href="https://success.example/"]');
     const externalPage = await externalPagePromise;
     await new Promise(resolve => setTimeout(resolve, 100));
     assert.equal(await page.$eval('#editor-modal', element => element.classList.contains('hidden')), true);
@@ -276,6 +307,13 @@ try {
     assert.equal(await page.evaluate(() => globalThis.__mockEditorConstructCount || 0), 0, 'closing during note load must abort editor initialization');
     assert.equal(new URL(page.url()).search, '');
 
+    await page.goForward({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    assert.match(page.url(), /[?&]editor=card-1/);
+    await page.waitForFunction(() => (globalThis.__mockEditorConstructCount || 0) === 1);
+    await page.goBack({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     await page.goBack({ waitUntil: 'domcontentloaded' });
@@ -289,9 +327,12 @@ try {
         cacheHit: true,
         cooldownBlockedSecondCard: true,
         quotaErrorPreservedCard: true,
+        genericErrorPreservedCard: true,
+        appendFailureRetried: true,
         appendedBlocks: writes[0].data.data.blocks.length,
         externalLinkOpenedEditor: false,
         mobileBackClosedEditor: true,
+        forwardReopenedEditor: true,
         pageErrors
     }, null, 2));
 } finally {

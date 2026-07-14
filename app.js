@@ -8,6 +8,7 @@
             canUseWebResearch,
             getWebResearchCooldownRemaining,
             isInteractiveCardTarget,
+            normalizeHttpUrl,
             readWebResearchCache,
             writeWebResearchCache
         } from './web-research.mjs';
@@ -966,8 +967,10 @@
         }
 
         function getImageHTML(imageUrl) {
-            if (!imageUrl) return '';
-            return `<div class="mt-2 w-full"><a href="${imageUrl}" target="_blank" class="pointer-events-auto"><img src="${imageUrl}" class="w-full max-h-48 object-cover rounded-lg border border-slate-200 hover:opacity-90 transition-opacity pointer-events-auto"></a></div>`;
+            const normalizedUrl = normalizeHttpUrl(imageUrl);
+            if (!normalizedUrl) return '';
+            const safeUrl = escapeHtml(normalizedUrl);
+            return `<div class="mt-2 w-full"><a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="pointer-events-auto"><img src="${safeUrl}" class="w-full max-h-48 object-cover rounded-lg border border-slate-200 hover:opacity-90 transition-opacity pointer-events-auto"></a></div>`;
         }
 
         function buildUrlBoundaryRegex(flags = '') {
@@ -990,16 +993,18 @@
             let textWithoutUrl = safeText;
 
             if (urlMatch) {
-                const url = urlMatch[0]; 
+                const url = normalizeHttpUrl(urlMatch[0]);
+                if (!url) return { previewHTML, textWithoutUrl };
+                const escapedUrl = escapeHtml(url);
                 const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
                 if (ytMatch) {
-                    previewHTML = `<a href="${url}" target="_blank" class="block w-full mt-2 rounded-xl overflow-hidden border border-slate-200 hover:border-rose-300 transition-colors relative group/preview pointer-events-auto"><img src="https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg" class="w-full h-auto object-cover aspect-video"><div class="absolute inset-0 bg-black/20 flex items-center justify-center opacity-80 group-hover/preview:opacity-100 transition-opacity"><i class="fab fa-youtube text-red-500 text-5xl drop-shadow-md bg-white rounded-full"></i></div></a>`;
+                    previewHTML = `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" class="block w-full mt-2 rounded-xl overflow-hidden border border-slate-200 hover:border-rose-300 transition-colors relative group/preview pointer-events-auto"><img src="https://img.youtube.com/vi/${escapeHtml(ytMatch[1])}/mqdefault.jpg" class="w-full h-auto object-cover aspect-video"><div class="absolute inset-0 bg-black/20 flex items-center justify-center opacity-80 group-hover/preview:opacity-100 transition-opacity"><i class="fab fa-youtube text-red-500 text-5xl drop-shadow-md bg-white rounded-full"></i></div></a>`;
                 } else if (url.includes('github.com')) {
-                    const repoParts = url.replace('https://github.com/', '').split('/');
+                    const repoParts = new URL(url).pathname.replace(/^\//, '').split('/');
                     const repoPath = repoParts.slice(0, 2).join('/');
-                    previewHTML = `<a href="${url}" target="_blank" class="flex items-center gap-3 p-3 w-full mt-2 rounded-xl border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-slate-700 pointer-events-auto"><i class="fab fa-github text-2xl shrink-0"></i><div class="flex flex-col overflow-hidden w-full"><span class="text-xs text-slate-400">GitHub Repository</span><span class="text-sm font-bold truncate">${repoPath || 'GitHub Link'}</span></div></a>`;
+                    previewHTML = `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-3 p-3 w-full mt-2 rounded-xl border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-slate-700 pointer-events-auto"><i class="fab fa-github text-2xl shrink-0"></i><div class="flex flex-col overflow-hidden w-full"><span class="text-xs text-slate-400">GitHub Repository</span><span class="text-sm font-bold truncate">${escapeHtml(repoPath || 'GitHub Link')}</span></div></a>`;
                 } else {
-                    previewHTML = `<a href="${url}" target="_blank" class="flex items-center gap-3 p-3 w-full mt-2 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-slate-700 pointer-events-auto"><div class="w-8 h-8 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center shrink-0"><i class="fas fa-link"></i></div><div class="flex flex-col overflow-hidden w-full"><span class="text-sm font-semibold truncate text-blue-600">${url}</span><span class="text-xs text-slate-400 truncate">外部網站</span></div></a>`;
+                    previewHTML = `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-3 p-3 w-full mt-2 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-slate-700 pointer-events-auto"><div class="w-8 h-8 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center shrink-0"><i class="fas fa-link"></i></div><div class="flex flex-col overflow-hidden w-full"><span class="text-sm font-semibold truncate text-blue-600">${escapedUrl}</span><span class="text-xs text-slate-400 truncate">外部網站</span></div></a>`;
                 }
                 textWithoutUrl = safeText.replace(urlMatch[0], '').trim();
             }
@@ -1395,17 +1400,21 @@
         }
 
         function saveAiStatus(type, status, detail) {
-            localStorage.setItem(`aiStatus:${type}`, JSON.stringify({
-                status,
-                detail,
-                timestamp: Date.now()
-            }));
+            try {
+                localStorage.setItem(`aiStatus:${type}`, JSON.stringify({
+                    status,
+                    detail,
+                    timestamp: Date.now()
+                }));
+            } catch (error) {
+                console.warn('無法儲存 AI 狀態：', error);
+            }
         }
 
         function readAiStatus(type) {
-            const raw = localStorage.getItem(`aiStatus:${type}`);
-            if (!raw) return null;
             try {
+                const raw = localStorage.getItem(`aiStatus:${type}`);
+                if (!raw) return null;
                 return JSON.parse(raw);
             } catch (error) {
                 return null;
@@ -1467,8 +1476,14 @@
                 return null;
             }
 
-            const apiKey = localStorage.getItem('geminiApiKey');
-            const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
+            let apiKey = null;
+            let targetModel = 'gemini-2.5-flash';
+            try {
+                apiKey = localStorage.getItem('geminiApiKey');
+                targetModel = localStorage.getItem('geminiModel') || targetModel;
+            } catch (error) {
+                console.warn('無法讀取 AI 設定：', error);
+            }
             if (!apiKey) {
                 openSettingsModal();
                 showToast('請先設定 Gemini API Key，才能使用 AI 研讀。', 'fas fa-key');
@@ -1498,14 +1513,28 @@
             }
 
             const restoreButton = setButtonLoading(button, '<div class="loader w-4 h-4 border-2 border-t-transparent mx-auto"></div>');
-            localStorage.setItem('lastWebPolishTime', Date.now().toString());
-            showToast('AI 正在使用 Google 搜尋研讀網址並潤飾...', 'fas fa-robot');
 
             try {
+                try {
+                    localStorage.setItem('lastWebPolishTime', Date.now().toString());
+                } catch (storageError) {
+                    console.warn('無法儲存 AI 研讀冷卻時間：', storageError);
+                }
+                showToast('AI 正在使用 Google 搜尋研讀網址並潤飾...', 'fas fa-robot');
                 const polished = await polishContentWithWebSearch(normalizedText, apiKey, targetModel);
                 if (!polished) throw new Error('AI 沒有回傳內容');
-                writeWebResearchCache(localStorage, normalizedText, polished);
-                saveAiStatus('web', '成功', '已完成網址研讀並寫入快取');
+                let cacheWritten = true;
+                try {
+                    writeWebResearchCache(localStorage, normalizedText, polished);
+                } catch (storageError) {
+                    cacheWritten = false;
+                    console.warn('無法寫入 AI 研讀快取：', storageError);
+                }
+                saveAiStatus(
+                    'web',
+                    '成功',
+                    cacheWritten ? '已完成網址研讀並寫入快取' : '已完成網址研讀（瀏覽器未允許寫入快取）'
+                );
                 updateAiStatusPanel();
                 openWebResearchPreview({
                     itemId: item.id,
@@ -2202,13 +2231,56 @@ ${JSON.stringify(inboxData, null, 2)}`;
         });
         updateEditorLayout();
 
-        window.addEventListener('popstate', () => {
-            if (!webResearchPreviewModal.classList.contains('hidden')) {
+        window.addEventListener('popstate', async (event) => {
+            const targetOverlay = event.state?.overlay || null;
+
+            if (!webResearchPreviewModal.classList.contains('hidden') && targetOverlay !== 'web-research-preview') {
                 closeWebResearchPreview({ fromHistory: true });
                 return;
             }
-            if (activeEditorCardId) {
+            if (activeEditorCardId && targetOverlay !== 'editor') {
                 closeEditor({ fromHistory: true });
+                return;
+            }
+
+            if (targetOverlay === 'editor' && !activeEditorCardId && currentUser) {
+                const itemId = event.state?.itemId;
+                const collectionName = event.state?.collectionName;
+                if (!itemId || !collectionName) {
+                    history.replaceState({ overlay: null }, '', window.location.pathname);
+                    return;
+                }
+                try {
+                    const cardSnapshot = await getDoc(doc(
+                        db,
+                        'artifacts',
+                        appId,
+                        'users',
+                        currentUser.uid,
+                        collectionName,
+                        itemId
+                    ));
+                    if (history.state?.overlay !== 'editor') return;
+                    if (cardSnapshot.exists()) {
+                        openEditor(
+                            itemId,
+                            cardSnapshot.data().text || '無標題',
+                            collectionName,
+                            { fromHistory: true }
+                        );
+                    } else {
+                        history.replaceState({ overlay: null }, '', window.location.pathname);
+                    }
+                } catch (error) {
+                    console.error('無法從瀏覽紀錄重新開啟卡片：', error);
+                    history.replaceState({ overlay: null }, '', window.location.pathname);
+                }
+                return;
+            }
+
+            if (targetOverlay === 'web-research-preview' && webResearchPreviewModal.classList.contains('hidden')) {
+                // Preview content is intentionally ephemeral; discard unusable Forward state.
+                history.replaceState({ overlay: null }, '', window.location.pathname);
             }
         });
         document.getElementById('editor-title').addEventListener('input', (e) => {

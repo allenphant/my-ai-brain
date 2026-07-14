@@ -11,6 +11,7 @@ import {
     getWebResearchCacheKey,
     getWebResearchCooldownRemaining,
     isInteractiveCardTarget,
+    normalizeHttpUrl,
     readWebResearchCache,
     writeWebResearchCache
 } from '../web-research.mjs';
@@ -88,6 +89,28 @@ test('cache reads valid values and removes expired, malformed, or incomplete ent
     storage.setItem(getWebResearchCacheKey(text), JSON.stringify({ savedAt: now }));
     assert.equal(readWebResearchCache(storage, text, now), null);
     assert.equal(storage.getItem(getWebResearchCacheKey(text)), null);
+
+    storage.setItem(getWebResearchCacheKey(text), JSON.stringify({
+        source: text,
+        value: {},
+        savedAt: 'invalid'
+    }));
+    assert.equal(readWebResearchCache(storage, text, now), null);
+    assert.equal(storage.getItem(getWebResearchCacheKey(text)), null);
+});
+
+test('cache records and verifies normalized source text to guard hash collisions', () => {
+    const storage = new MemoryStorage();
+    const text = ' note   https://one.example ';
+    const now = 1_800_000_000_000;
+
+    writeWebResearchCache(storage, text, '研讀結果', now);
+    const raw = JSON.parse(storage.getItem(getWebResearchCacheKey(text)));
+    assert.equal(raw.source, 'note https://one.example');
+
+    raw.source = 'different source';
+    storage.setItem(getWebResearchCacheKey(text), JSON.stringify(raw));
+    assert.equal(readWebResearchCache(storage, text, now), null);
 });
 
 test('cooldown reports remaining milliseconds without going below zero', () => {
@@ -101,6 +124,16 @@ test('cooldown reports remaining milliseconds without going below zero', () => {
         WEB_RESEARCH_COOLDOWN_MS - 1_000
     );
     assert.equal(getWebResearchCooldownRemaining(storage, now + WEB_RESEARCH_COOLDOWN_MS), 0);
+});
+
+test('cache and cooldown reads degrade safely when browser storage is unavailable', () => {
+    const unavailableStorage = {
+        getItem() { throw new Error('Storage disabled'); },
+        removeItem() { throw new Error('Storage disabled'); }
+    };
+
+    assert.equal(readWebResearchCache(unavailableStorage, 'https://one.example'), null);
+    assert.equal(getWebResearchCooldownRemaining(unavailableStorage), 0);
 });
 
 test('append data preserves existing metadata and blocks and escapes AI content', () => {
@@ -143,6 +176,15 @@ test('interactive card targets include anchors and buttons and their descendants
     assert.equal(isInteractiveCardTarget(anchorChild), true);
     assert.equal(isInteractiveCardTarget(plainText), false);
     assert.equal(isInteractiveCardTarget(null), false);
+});
+
+test('HTTP URL normalization rejects unsafe schemes and encodes attribute-breaking markup', () => {
+    assert.equal(normalizeHttpUrl('javascript:alert(1)'), null);
+    assert.equal(normalizeHttpUrl('data:text/html,<svg/onload=alert(1)>'), null);
+
+    const normalized = normalizeHttpUrl('https://safe.example/\"><svg/onload=alert(1)>');
+    assert.match(normalized, /^https:\/\/safe\.example\//);
+    assert.doesNotMatch(normalized, /["<>]/);
 });
 
 test('production markup exposes only the per-card research preview flow', async () => {

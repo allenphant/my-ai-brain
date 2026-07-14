@@ -18,6 +18,20 @@ export function canUseWebResearch(text) {
     return { ok: true, reason: 'ok' };
 }
 
+export function normalizeHttpUrl(value) {
+    try {
+        const url = new URL(String(value));
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+        return url.href;
+    } catch (error) {
+        return null;
+    }
+}
+
+function normalizeSourceText(text) {
+    return (text || '').trim().replace(/\s+/g, ' ');
+}
+
 function hashString(value) {
     let hash = 2166136261;
     for (let index = 0; index < value.length; index++) {
@@ -28,38 +42,68 @@ function hashString(value) {
 }
 
 export function getWebResearchCacheKey(text) {
-    const normalizedText = (text || '').trim().replace(/\s+/g, ' ');
+    const normalizedText = normalizeSourceText(text);
     return `${WEB_RESEARCH_CACHE_PREFIX}${hashString(normalizedText)}`;
+}
+
+function removeStorageItem(storage, key) {
+    try {
+        storage.removeItem(key);
+    } catch (error) {
+        // Storage can be unavailable in private/restricted browser contexts.
+    }
 }
 
 export function readWebResearchCache(storage, text, now = Date.now()) {
     const key = getWebResearchCacheKey(text);
-    const raw = storage.getItem(key);
+    let raw;
+    try {
+        raw = storage.getItem(key);
+    } catch (error) {
+        return null;
+    }
     if (!raw) return null;
 
     try {
         const parsed = JSON.parse(raw);
-        if (!parsed?.value || !parsed?.savedAt) {
-            storage.removeItem(key);
+        const isValid = parsed?.source === normalizeSourceText(text)
+            && typeof parsed?.value === 'string'
+            && parsed.value.trim().length > 0
+            && typeof parsed?.savedAt === 'number'
+            && Number.isFinite(parsed.savedAt)
+            && parsed.savedAt > 0
+            && parsed.savedAt <= now;
+        if (!isValid) {
+            removeStorageItem(storage, key);
             return null;
         }
         if (now - parsed.savedAt > WEB_RESEARCH_CACHE_TTL_MS) {
-            storage.removeItem(key);
+            removeStorageItem(storage, key);
             return null;
         }
         return parsed.value;
     } catch (error) {
-        storage.removeItem(key);
+        removeStorageItem(storage, key);
         return null;
     }
 }
 
 export function writeWebResearchCache(storage, text, value, now = Date.now()) {
-    storage.setItem(getWebResearchCacheKey(text), JSON.stringify({ value, savedAt: now }));
+    storage.setItem(getWebResearchCacheKey(text), JSON.stringify({
+        source: normalizeSourceText(text),
+        value,
+        savedAt: now
+    }));
 }
 
 export function getWebResearchCooldownRemaining(storage, now = Date.now()) {
-    const lastRun = Number.parseInt(storage.getItem('lastWebPolishTime') || '0', 10);
+    let lastRun = 0;
+    try {
+        lastRun = Number(storage.getItem('lastWebPolishTime') || 0);
+    } catch (error) {
+        return 0;
+    }
+    if (!Number.isFinite(lastRun) || lastRun <= 0 || lastRun > now) return 0;
     return Math.max(0, WEB_RESEARCH_COOLDOWN_MS - (now - lastRun));
 }
 
