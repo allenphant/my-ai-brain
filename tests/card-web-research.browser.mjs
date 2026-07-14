@@ -53,7 +53,10 @@ const firebaseFirestoreModule = `
     export const addDoc = async () => ({ id: 'new-id' });
     export const deleteDoc = async () => {};
     export const updateDoc = async () => {};
-    export const setDoc = async () => {};
+    export const setDoc = async (ref, data, options) => {
+        globalThis.__mockSetDocWrites ||= [];
+        globalThis.__mockSetDocWrites.push({ path: ref.path, data, options });
+    };
     export const getDoc = async ref => {
         const cardTexts = {
             'card-1': '測試文章 https://success.example',
@@ -66,21 +69,37 @@ const firebaseFirestoreModule = `
         if (cardId) {
             return { exists: () => true, data: () => ({ text: cardTexts[cardId] }) };
         }
+        if (ref.path.endsWith('/todos/todo-1')) {
+            return { exists: () => true, data: () => ({ text: '待辦網址 https://todo.example' }) };
+        }
+        if (ref.path.endsWith('/bookmarks/bookmark-1')) {
+            return { exists: () => true, data: () => ({ text: '書籤網址 https://bookmark.example' }) };
+        }
         if (ref.path.endsWith('/details/note')) {
             await new Promise(resolve => setTimeout(resolve, 200));
         }
         return { exists: () => false, data: () => ({}) };
     };
     export const onSnapshot = (ref, callback) => {
-        const rows = ref.path.endsWith('/inbox')
-            ? [
+        let rows = [];
+        if (ref.path.endsWith('/inbox')) {
+            rows = [
                 { id: 'card-1', data: () => ({ text: '測試文章 https://success.example', createdAt: 3 }) },
                 { id: 'card-2', data: () => ({ text: '冷卻文章 https://cooldown.example', createdAt: 2 }) },
                 { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', createdAt: 1 }) },
                 { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', createdAt: 0 }) },
                 { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) }
-            ]
-            : [];
+            ];
+        } else if (ref.path.endsWith('/categories')) {
+            rows = [
+                { id: 'todos', data: () => ({ name: '待辦事項', icon: 'fas fa-check-square', type: 'todo', order: 1 }) },
+                { id: 'bookmarks', data: () => ({ name: '稍後閱讀', icon: 'fas fa-bookmark', type: 'bookmark', order: 2 }) }
+            ];
+        } else if (ref.path.endsWith('/todos')) {
+            rows = [{ id: 'todo-1', data: () => ({ text: '待辦網址 https://todo.example', createdAt: 1 }) }];
+        } else if (ref.path.endsWith('/bookmarks')) {
+            rows = [{ id: 'bookmark-1', data: () => ({ text: '書籤網址 https://bookmark.example', createdAt: 1 }) }];
+        }
         queueMicrotask(() => callback({ forEach: handler => rows.forEach(handler) }));
         return () => {};
     };
@@ -226,6 +245,8 @@ try {
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     try {
         await page.waitForSelector('.web-research-btn', { timeout: 10_000 });
+        await page.waitForSelector('#list-todos li[data-id="todo-1"] .web-research-btn', { timeout: 10_000 });
+        await page.waitForSelector('#list-bookmarks li[data-id="bookmark-1"] .web-research-btn', { timeout: 10_000 });
     } catch (error) {
         console.error(JSON.stringify({ pageErrors, consoleMessages }, null, 2));
         throw error;
@@ -233,7 +254,7 @@ try {
 
     assert.equal(await page.$('#polish-link-btn'), null);
     assert.equal(await page.$('#polish-add-card-btn'), null);
-    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 4);
+    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 6);
     assert.equal(await page.$('li[data-id="card-5"] .web-research-btn'), null);
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
@@ -288,6 +309,27 @@ try {
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
     assert.match(await page.$eval('li[data-id="card-4"]', element => element.innerText), /錯誤文章/);
 
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('#list-todos li[data-id="todo-1"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.click('#close-web-research-preview-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('#list-bookmarks li[data-id="bookmark-1"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.evaluate(() => document.querySelector('#web-research-preview-modal').click());
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+
+    await page.click('#list-bookmarks li[data-id="bookmark-1"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    const allWrites = await page.evaluate(() => globalThis.__mockTransactionWrites);
+    assert.equal(allWrites.length, 2);
+    assert.match(allWrites[1].path, /bookmarks\/bookmark-1\/details\/note$/);
+    assert.equal(geminiPosts, 5);
+
     const externalPagePromise = new Promise(resolve => browser.once('targetcreated', async target => {
         const targetPage = await target.page();
         if (targetPage) resolve(targetPage);
@@ -311,14 +353,55 @@ try {
     await page.waitForFunction(() => document.body.classList.contains('editor-open'));
     assert.match(page.url(), /[?&]editor=card-1/);
     await page.waitForFunction(() => (globalThis.__mockEditorConstructCount || 0) === 1);
+    await page.$eval('#editor-title', element => {
+        element.innerText = '返回前修改標題';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await page.waitForFunction(() => (globalThis.__mockSetDocWrites || []).some(write => write.path.endsWith('/inbox/card-1/details/note')));
+    await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
 
-    await page.click('li[data-id="card-1"] .web-research-btn');
+    await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
+
+    await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.click('#editor-close-btn');
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
+
+    await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.evaluate(() => document.querySelector('#editor-backdrop').click());
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
+
+    await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.evaluate(() => document.querySelector('li[data-id="card-1"] .web-research-btn').click());
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.evaluate(() => document.body.classList.contains('editor-open')), true);
+    await page.goBack({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
+
+    await page.click('li[data-id="card-1"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     assert.equal(new URL(page.url()).origin, baseUrl);
+
+    await page.goto(`${baseUrl}?editor=card-1&col=inbox`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    assert.match(page.url(), /[?&]editor=card-1/);
+    await page.goBack({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
 
     assert.deepEqual(pageErrors, []);
     console.log(JSON.stringify({
@@ -329,6 +412,11 @@ try {
         quotaErrorPreservedCard: true,
         genericErrorPreservedCard: true,
         appendFailureRetried: true,
+        todoAndBookmarkRenderers: true,
+        overlayCloseControls: true,
+        stackedBackOrder: true,
+        deepLinkOpenedEditor: true,
+        backSavedPendingEditorChange: true,
         appendedBlocks: writes[0].data.data.blocks.length,
         externalLinkOpenedEditor: false,
         mobileBackClosedEditor: true,
