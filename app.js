@@ -1996,6 +1996,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
         let currentEditorLoadId = 0;
         let editorInstance = null;
         let mdShortcutsCleanup = null;
+        let pendingEditorTitle = null;
 
         async function openEditor(itemId, itemText, collectionName, { fromHistory = false } = {}) {
             const loadId = ++currentEditorLoadId;
@@ -2006,9 +2007,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             
             // Force save if pending
             if (editorSaveTimeout) {
-                clearTimeout(editorSaveTimeout);
-                editorSaveTimeout = null;
-                await saveEditorContent();
+                await flushPendingEditorChanges();
             }
             
             if (editorInstance) {
@@ -2099,9 +2098,36 @@ ${JSON.stringify(inboxData, null, 2)}`;
             }
         }
 
+        async function savePendingEditorTitle() {
+            if (!activeEditorCardId || !activeEditorCollection || !pendingEditorTitle) return;
+            const cardId = activeEditorCardId;
+            const collectionName = activeEditorCollection;
+            const title = pendingEditorTitle;
+            pendingEditorTitle = null;
+
+            try {
+                const cardRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, collectionName, cardId);
+                await updateDoc(cardRef, { text: title });
+            } catch (error) {
+                console.error('Failed to update title:', error);
+                showSaveStatus('標題儲存失敗', 'fas fa-exclamation-circle text-red-500');
+            }
+        }
+
+        async function flushPendingEditorChanges() {
+            if (editorSaveTimeout) {
+                clearTimeout(editorSaveTimeout);
+                editorSaveTimeout = null;
+            }
+            await Promise.all([
+                savePendingEditorTitle(),
+                saveEditorContent()
+            ]);
+        }
+
         function handleEditorChange() {
             clearTimeout(editorSaveTimeout);
-            editorSaveTimeout = setTimeout(saveEditorContent, 1000);
+            editorSaveTimeout = setTimeout(flushPendingEditorChanges, 1000);
         }
 
         function initEditor(initialData = null, onChangeCallback = null) {
@@ -2179,11 +2205,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 return;
             }
             currentEditorLoadId += 1;
-            if (editorSaveTimeout) {
-                clearTimeout(editorSaveTimeout);
-                editorSaveTimeout = null;
-                saveEditorContent(); // Fire and forget
-            }
+            void flushPendingEditorChanges();
             const modal = document.getElementById('editor-modal');
             const backdrop = document.getElementById('editor-backdrop');
             const container = document.getElementById('editor-container');
@@ -2285,19 +2307,10 @@ ${JSON.stringify(inboxData, null, 2)}`;
         });
         document.getElementById('editor-title').addEventListener('input', (e) => {
             clearTimeout(editorSaveTimeout);
-            editorSaveTimeout = setTimeout(async () => {
-                if (!activeEditorCardId) return;
-                const newTitle = e.target.innerText.trim();
-                if (!newTitle) return; // Prevent empty title
-                
-                try {
-                    const cardRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, activeEditorCollection, activeEditorCardId);
-                    await updateDoc(cardRef, { text: newTitle });
-                    saveEditorContent(); // Also save body
-                } catch(err) {
-                    console.error("Failed to update title:", err);
-                }
-            }, 1000);
+            const newTitle = e.target.innerText.trim();
+            pendingEditorTitle = newTitle || null;
+            if (!newTitle) return; // Prevent empty title
+            editorSaveTimeout = setTimeout(flushPendingEditorChanges, 1000);
         });
         window.addEventListener('beforeunload', (e) => {
             if (editorSaveTimeout) {

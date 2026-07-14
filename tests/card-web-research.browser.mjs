@@ -52,7 +52,10 @@ const firebaseFirestoreModule = `
     export const doc = (...parts) => ({ path: toPath(parts) });
     export const addDoc = async () => ({ id: 'new-id' });
     export const deleteDoc = async () => {};
-    export const updateDoc = async () => {};
+    export const updateDoc = async (ref, data) => {
+        globalThis.__mockUpdateDocWrites ||= [];
+        globalThis.__mockUpdateDocWrites.push({ path: ref.path, data });
+    };
     export const setDoc = async (ref, data, options) => {
         globalThis.__mockSetDocWrites ||= [];
         globalThis.__mockSetDocWrites.push({ path: ref.path, data, options });
@@ -360,24 +363,56 @@ try {
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
     await page.waitForFunction(() => (globalThis.__mockSetDocWrites || []).some(write => write.path.endsWith('/inbox/card-1/details/note')));
+    await page.waitForFunction(
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        { timeout: 2_000 },
+        '返回前修改標題'
+    );
     await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
 
     await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
     await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.$eval('#editor-title', element => {
+        element.innerText = 'Escape 前修改標題';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await page.waitForFunction(
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        { timeout: 2_000 },
+        'Escape 前修改標題'
+    );
     await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
 
     await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
     await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.$eval('#editor-title', element => {
+        element.innerText = '關閉鈕前修改標題';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     await page.click('#editor-close-btn');
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await page.waitForFunction(
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        { timeout: 2_000 },
+        '關閉鈕前修改標題'
+    );
     await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
 
     await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
     await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.$eval('#editor-title', element => {
+        element.innerText = 'Backdrop 前修改標題';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     await page.evaluate(() => document.querySelector('#editor-backdrop').click());
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    await page.waitForFunction(
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        { timeout: 2_000 },
+        'Backdrop 前修改標題'
+    );
     await page.waitForFunction(() => document.querySelector('#editor-modal').classList.contains('hidden'));
 
     await page.click('#inbox-list li[data-id="card-1"] .leading-relaxed');
@@ -417,6 +452,7 @@ try {
         stackedBackOrder: true,
         deepLinkOpenedEditor: true,
         backSavedPendingEditorChange: true,
+        allClosePathsSavedPendingTitle: true,
         appendedBlocks: writes[0].data.data.blocks.length,
         externalLinkOpenedEditor: false,
         mobileBackClosedEditor: true,
