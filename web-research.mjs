@@ -108,5 +108,5 @@ export function buildWebResearchAppendData(existingData, result, now = Date.now(
 }
 
 export function isInteractiveCardTarget(target) {
-    return Boolean(target?.closest?.('a, button, [data-card-interactive]'));
+    return Boolean(target?.closest?.('a, button, input, [data-card-interactive]'));
 }

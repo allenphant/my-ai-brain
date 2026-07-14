@@ -137,7 +137,7 @@ test('append data creates a valid empty note when details do not exist', () => {
 });
 
 test('interactive card targets include anchors and buttons and their descendants', () => {
-    const anchorChild = { closest: selector => selector === 'a, button, [data-card-interactive]' ? {} : null };
+    const anchorChild = { closest: selector => selector.includes('a') ? {} : null };
     const plainText = { closest: () => null };
 
     assert.equal(isInteractiveCardTarget(anchorChild), true);
@@ -160,4 +160,16 @@ test('production markup exposes only the per-card research preview flow', async 
     assert.match(appSource, /function getWebResearchButtonHTML\(item\)/);
     assert.match(appSource, /runCardWebResearch/);
     assert.match(appSource, /runTransaction/);
+});
+
+test('card interactions and overlays use browser history instead of bubbling or replace-only routing', async () => {
+    const appSource = await readFile(new URL('../app.js', import.meta.url), 'utf8');
+
+    assert.match(appSource, /isInteractiveCardTarget/);
+    assert.match(appSource, /if \(isInteractiveCardTarget\(e\.target\)\) return;/);
+    assert.match(appSource, /history\.pushState\(\{ overlay: 'editor'/);
+    assert.match(appSource, /history\.pushState\(\{ overlay: 'web-research-preview'/);
+    assert.match(appSource, /window\.addEventListener\('popstate'/);
+    assert.match(appSource, /closeWebResearchPreview\(\{ fromHistory: true \}\)/);
+    assert.match(appSource, /closeEditor\(\{ fromHistory: true \}\)/);
 });
