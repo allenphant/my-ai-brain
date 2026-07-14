@@ -5,6 +5,7 @@
             buildWebResearchAppendData,
             canUseWebResearch,
             getWebResearchCooldownRemaining,
+            isInteractiveCardTarget,
             readWebResearchCache,
             writeWebResearchCache
         } from './web-research.mjs';
@@ -789,8 +790,14 @@
                 if (editorId && editorCol) {
                     getDoc(doc(db, 'artifacts', appId, 'users', user.uid, editorCol, editorId))
                         .then(docSnap => {
-                            if (docSnap.exists()) openEditor(editorId, docSnap.data().text || '無標題', editorCol);
-                            else history.replaceState(null, '', window.location.pathname);
+                            if (docSnap.exists()) {
+                                const editorUrl = `${window.location.pathname}?editor=${encodeURIComponent(editorId)}&col=${encodeURIComponent(editorCol)}`;
+                                history.replaceState({ overlay: null }, '', window.location.pathname);
+                                history.pushState({ overlay: 'editor', itemId: editorId, collectionName: editorCol }, '', editorUrl);
+                                openEditor(editorId, docSnap.data().text || '無標題', editorCol, { fromHistory: true });
+                            } else {
+                                history.replaceState({ overlay: null }, '', window.location.pathname);
+                            }
                         }).catch(err => console.error(err));
                 }
                 
@@ -969,7 +976,7 @@
                 li.classList.add('cursor-pointer');
                 li.addEventListener('click', (e) => {
                     if (justDropped) return; 
-                    if (e.target.tagName.toLowerCase() === 'button' || e.target.closest('button')) return;
+                    if (isInteractiveCardTarget(e.target)) return;
                     openEditor(item.id, item.text, collectionName);
                 });
                 
@@ -1008,7 +1015,7 @@
                 li.addEventListener('click', async (e) => {
                     if (justDropped) return; 
                     if (e.target.tagName.toLowerCase() === 'img') return;
-                    if (e.target === checkbox || e.target.closest('button')) return; 
+                    if (isInteractiveCardTarget(e.target)) return;
                     
                     openEditor(item.id, item.text, containerEl.getAttribute('data-col'));
                 });
@@ -1363,13 +1370,20 @@
             };
         }
 
-        function openWebResearchPreview(payload) {
+        function openWebResearchPreview(payload, { fromHistory = false } = {}) {
             pendingWebResearch = payload;
             webResearchPreviewContent.textContent = payload.result;
             webResearchPreviewModal.classList.remove('hidden');
+            if (!fromHistory) {
+                history.pushState({ overlay: 'web-research-preview' }, '', window.location.href);
+            }
         }
 
-        function closeWebResearchPreview() {
+        function closeWebResearchPreview({ fromHistory = false } = {}) {
+            if (!fromHistory && history.state?.overlay === 'web-research-preview') {
+                history.back();
+                return;
+            }
             webResearchPreviewModal.classList.add('hidden');
             webResearchPreviewContent.textContent = '';
             pendingWebResearch = null;
@@ -1838,7 +1852,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
         let currentEditorLoadId = 0;
         let editorInstance = null;
 
-        async function openEditor(itemId, itemText, collectionName) {
+        async function openEditor(itemId, itemText, collectionName, { fromHistory = false } = {}) {
             const loadId = ++currentEditorLoadId;
             const modal = document.getElementById('editor-modal');
             const backdrop = document.getElementById('editor-backdrop');
@@ -1867,7 +1881,10 @@ ${JSON.stringify(inboxData, null, 2)}`;
             // Set UI
             titleInput.innerText = itemText;
             modal.classList.remove('hidden');
-            history.replaceState(null, '', `?editor=${itemId}&col=${collectionName}`);
+            if (!fromHistory) {
+                const editorUrl = `${window.location.pathname}?editor=${encodeURIComponent(itemId)}&col=${encodeURIComponent(collectionName)}`;
+                history.pushState({ overlay: 'editor', itemId, collectionName }, '', editorUrl);
+            }
             // Force reflow
             void modal.offsetWidth;
             document.body.classList.add('editor-open');
@@ -1966,7 +1983,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
             editorInstance = new EditorJS(config);
         }
 
-        function closeEditor() {
+        function closeEditor({ fromHistory = false } = {}) {
+            if (!fromHistory && history.state?.overlay === 'editor') {
+                history.back();
+                return;
+            }
             if (editorSaveTimeout) {
                 clearTimeout(editorSaveTimeout);
                 editorSaveTimeout = null;
@@ -1982,7 +2003,6 @@ ${JSON.stringify(inboxData, null, 2)}`;
             setTimeout(() => modal.classList.add('hidden'), 300);
             activeEditorCardId = null;
             activeEditorCollection = null;
-            history.replaceState(null, '', window.location.pathname);
             
             if (editorInstance) {
                 editorInstance.destroy();
@@ -1990,8 +2010,8 @@ ${JSON.stringify(inboxData, null, 2)}`;
             }
         }
 
-        document.getElementById('editor-close-btn').addEventListener('click', closeEditor);
-        document.getElementById('editor-backdrop').addEventListener('click', closeEditor);
+        document.getElementById('editor-close-btn').addEventListener('click', () => closeEditor());
+        document.getElementById('editor-backdrop').addEventListener('click', () => closeEditor());
 
         let isSideLayout = localStorage.getItem('editorLayout') === 'side';
         function updateEditorLayout() {
@@ -2018,7 +2038,21 @@ ${JSON.stringify(inboxData, null, 2)}`;
         });
         updateEditorLayout();
 
+        window.addEventListener('popstate', () => {
+            if (!webResearchPreviewModal.classList.contains('hidden')) {
+                closeWebResearchPreview({ fromHistory: true });
+                return;
+            }
+            if (activeEditorCardId) {
+                closeEditor({ fromHistory: true });
+            }
+        });
+
         document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !webResearchPreviewModal.classList.contains('hidden')) {
+                closeWebResearchPreview();
+                return;
+            }
             if (e.key === 'Escape' && activeEditorCardId) {
                 // Prevent closing if a sub-menu is open
                 if (document.querySelector('.ce-settings--opened, .ce-popover--opened, .ce-inline-toolbar--showed')) return;
