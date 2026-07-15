@@ -168,6 +168,9 @@ try {
     const pageErrors = [];
     const consoleMessages = [];
     let geminiPosts = 0;
+    let webResearchPosts = 0;
+    let verificationPosts = 0;
+    const requestedGeminiModels = [];
 
     page.on('pageerror', error => pageErrors.push(error.message));
     page.on('console', message => consoleMessages.push(`${message.type()}: ${message.text()}`));
@@ -200,17 +203,72 @@ try {
                 request.respond({ status: 204, headers: corsHeaders });
                 return;
             }
+            if (request.method() === 'GET' && url.includes('/v1beta/models?')) {
+                request.respond({
+                    status: 200,
+                    headers: corsHeaders,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ models: [
+                        { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-3.1-flash-lite', displayName: 'Gemini 3.1 Flash-Lite', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-8.0-no-search', displayName: 'Gemini 8 No Search', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-9.0-flash', displayName: 'Gemini 9 Flash', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/text-embedding-004', displayName: 'Embedding', supportedGenerationMethods: ['embedContent'] }
+                    ] })
+                });
+                return;
+            }
             geminiPosts += 1;
-            if ((request.postData() || '').includes('quota.example')) {
+            const postData = request.postData() || '';
+            const modelMatch = url.match(/\/models\/([^:]+):generateContent/);
+            if (modelMatch) requestedGeminiModels.push(modelMatch[1]);
+            if (postData.includes('只回覆「SEARCH_OK」')) {
+                verificationPosts += 1;
+                if (url.includes('/gemini-3.1-flash-lite:')) {
+                    request.respond({
+                        status: 429,
+                        headers: corsHeaders,
+                        contentType: 'application/json',
+                        body: JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED', message: 'Temporary quota exhausted' } })
+                    });
+                    return;
+                }
+                if (url.includes('/gemini-8.0-no-search:')) {
+                    request.respond({
+                        status: 400,
+                        headers: corsHeaders,
+                        contentType: 'application/json',
+                        body: JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'google_search tool is not supported' } })
+                    });
+                    return;
+                }
+                request.respond({
+                    status: 200,
+                    headers: corsHeaders,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'SEARCH_OK' }] } }] })
+                });
+                return;
+            }
+            webResearchPosts += 1;
+            if (postData.includes('quota.example')) {
                 request.respond({
                     status: 429,
                     headers: corsHeaders,
                     contentType: 'application/json',
-                    body: JSON.stringify({ error: { message: 'Quota exceeded 429' } })
+                    body: JSON.stringify({ error: {
+                        status: 'RESOURCE_EXHAUSTED',
+                        message: 'Quota exceeded',
+                        details: [
+                            { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] },
+                            { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '21s' }
+                        ]
+                    } })
                 });
                 return;
             }
-            if ((request.postData() || '').includes('error.example')) {
+            if (postData.includes('error.example')) {
                 request.respond({
                     status: 500,
                     headers: corsHeaders,
@@ -226,7 +284,11 @@ try {
                 body: JSON.stringify({
                     candidates: [{
                         finishReason: 'STOP',
-                        content: { parts: [{ text: 'AI 整理結果\nhttps://success.example' }] }
+                        content: { parts: [
+                            { thought: true, text: '內部推理不得顯示' },
+                            { inlineData: { mimeType: 'text/plain', data: 'ignored' } },
+                            { text: 'AI 整理結果\nhttps://success.example' }
+                        ] }
                     }]
                 })
             });
@@ -265,19 +327,79 @@ try {
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
 
+    await page.$eval('#settings-btn', button => button.click());
+    await page.click('#verify-key-btn');
+    await page.waitForFunction(() => !document.querySelector('#model-select-container').classList.contains('hidden'));
+    await page.waitForFunction(() => !document.querySelector('#web-research-model-select-container').classList.contains('hidden'));
+    assert.deepEqual(
+        await page.$$eval('#model-select option', options => options.map(option => option.value)),
+        ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-8.0-no-search', 'gemini-9.0-flash']
+    );
+    assert.deepEqual(
+        await page.$$eval('#web-research-model-select option', options => options.map(option => option.value)),
+        ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
+    );
+    assert.deepEqual(
+        await page.$$eval('#web-research-candidate-select option', options => options.map(option => option.value)),
+        ['gemini-3.1-flash-lite', 'gemini-8.0-no-search', 'gemini-9.0-flash']
+    );
+    await page.click('#web-research-model-discovery summary');
+    await page.select('#model-select', 'gemini-3.1-flash-lite');
+    await page.select('#web-research-candidate-select', 'gemini-9.0-flash');
+    await page.click('#verify-web-research-model-btn');
+    await page.waitForFunction(
+        () => Array.from(document.querySelectorAll('#web-research-model-select option')).some(option => option.value === 'gemini-9.0-flash'),
+        { timeout: 5_000 }
+    ).catch(async error => {
+        console.error(JSON.stringify({
+            verificationPosts,
+            requestedGeminiModels,
+            status: await page.$eval('#web-research-model-verification-status', element => element.textContent),
+            options: await page.$$eval('#web-research-model-select option', options => options.map(option => option.value)),
+            pageErrors,
+            consoleMessages
+        }, null, 2));
+        throw error;
+    });
+    assert.equal(verificationPosts, 1);
+    await page.select('#web-research-candidate-select', 'gemini-3.1-flash-lite');
+    await page.click('#verify-web-research-model-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('這不代表模型不支援'));
+    assert.equal(
+        await page.$eval('#web-research-candidate-select', select => Array.from(select.options).some(option => option.value === 'gemini-3.1-flash-lite')),
+        true,
+        '429 verification must leave the model retryable'
+    );
+    await page.select('#web-research-candidate-select', 'gemini-8.0-no-search');
+    await page.click('#verify-web-research-model-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('明確回覆不支援'));
+    assert.equal(
+        await page.$eval('#web-research-candidate-select', select => Array.from(select.options).some(option => option.value === 'gemini-8.0-no-search')),
+        false,
+        'clear 400 unsupported response should be cached and removed from candidates'
+    );
+    assert.equal(verificationPosts, 3);
+    await page.select('#web-research-model-select', 'gemini-9.0-flash');
+    await page.click('#save-settings-btn');
+    assert.deepEqual(await page.evaluate(() => ({
+        general: localStorage.getItem('geminiModel'),
+        web: localStorage.getItem('geminiWebResearchModel')
+    })), { general: 'gemini-3.1-flash-lite', web: 'gemini-9.0-flash' });
+
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     assert.equal(
         await page.$eval('#web-research-preview-content', element => element.textContent),
         'AI 整理結果\nhttps://success.example'
     );
-    assert.equal(geminiPosts, 1);
+    assert.equal(webResearchPosts, 1);
+    assert.equal(requestedGeminiModels.at(-1), 'gemini-9.0-flash');
 
     await page.click('#cancel-web-research-preview-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
-    assert.equal(geminiPosts, 1, 'cache hit must not make a second Gemini POST');
+    assert.equal(webResearchPosts, 1, 'cache hit must not make a second Gemini POST');
 
     await page.evaluate(() => { globalThis.__mockTransactionShouldFail = true; });
     await page.click('#append-web-research-btn');
@@ -299,19 +421,24 @@ try {
 
     await page.click('li[data-id="card-2"] .web-research-btn');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '冷卻中');
-    assert.equal(geminiPosts, 1, 'cooldown must block a different uncached card');
+    assert.equal(webResearchPosts, 1, 'cooldown must block a different uncached card');
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
 
     await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
     await page.click('li[data-id="card-3"] .web-research-btn');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '配額不足');
-    assert.equal(geminiPosts, 2);
+    assert.equal(webResearchPosts, 2);
+    const quotaStatus = await page.evaluate(() => JSON.parse(localStorage.getItem('aiStatus:web')));
+    assert.match(quotaStatus.detail, /gemini-9\.0-flash/);
+    assert.match(quotaStatus.detail, /HTTP 429/);
+    assert.match(quotaStatus.detail, /GenerateRequestsPerDayPerProjectPerModel-FreeTier/);
+    assert.match(quotaStatus.detail, /21s/);
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
 
     await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
     await page.click('li[data-id="card-4"] .web-research-btn');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '失敗');
-    assert.equal(geminiPosts, 3);
+    assert.equal(webResearchPosts, 3);
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
     assert.match(await page.$eval('li[data-id="card-4"]', element => element.innerText), /錯誤文章/);
 
@@ -334,7 +461,7 @@ try {
     const allWrites = await page.evaluate(() => globalThis.__mockTransactionWrites);
     assert.equal(allWrites.length, 2);
     assert.match(allWrites[1].path, /bookmarks\/bookmark-1\/details\/note$/);
-    assert.equal(geminiPosts, 5);
+    assert.equal(webResearchPosts, 5);
 
     const externalPagePromise = new Promise(resolve => browser.once('targetcreated', async target => {
         const targetPage = await target.page();
@@ -473,6 +600,8 @@ try {
     console.log(JSON.stringify({
         cardResearchButton: 'visible',
         geminiPosts,
+        webResearchPosts,
+        verificationPosts,
         cacheHit: true,
         cooldownBlockedSecondCard: true,
         quotaErrorPreservedCard: true,

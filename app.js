@@ -4,12 +4,18 @@
         import { createLayerStack, attachKeyboardManager } from './js/keyboard-layers.js';
         import { attachMdShortcuts } from './js/md-shortcuts.js';
         import {
+            DEFAULT_WEB_RESEARCH_MODEL,
             buildWebResearchAppendData,
             canUseWebResearch,
+            describeGeminiApiError,
+            extractGeminiResponseText,
             getWebResearchCooldownRemaining,
+            getWebResearchModelOptions,
             isInteractiveCardTarget,
             normalizeHttpUrl,
             readWebResearchCache,
+            readWebResearchModelVerification,
+            writeWebResearchModelVerification,
             writeWebResearchCache
         } from './web-research.mjs';
 
@@ -1477,10 +1483,10 @@
             }
 
             let apiKey = null;
-            let targetModel = 'gemini-2.5-flash';
+            let targetModel = DEFAULT_WEB_RESEARCH_MODEL;
             try {
                 apiKey = localStorage.getItem('geminiApiKey');
-                targetModel = localStorage.getItem('geminiModel') || targetModel;
+                targetModel = localStorage.getItem('geminiWebResearchModel') || targetModel;
             } catch (error) {
                 console.warn('無法讀取 AI 設定：', error);
             }
@@ -1546,13 +1552,15 @@
             } catch (error) {
                 console.error('AI 網頁研讀潤飾失敗：', error);
                 const rawMessage = error?.message || '未知錯誤';
-                const lowerMessage = rawMessage.toLowerCase();
-                if (lowerMessage.includes('429') || lowerMessage.includes('quota') || lowerMessage.includes('too many requests')) {
-                    saveAiStatus('web', '配額不足', 'Gemini 回傳 429 / quota exceeded');
-                    showToast('Gemini 配額暫時不足，已保留原始文字，請稍後再試。', 'fas fa-gauge-high');
+                const geminiError = error?.gemini;
+                if (geminiError?.isQuota) {
+                    saveAiStatus('web', '配額不足', geminiError.detail);
+                    const retryText = geminiError.retryDelay ? `，約 ${geminiError.retryDelay} 後可重試` : '';
+                    showToast(`網址研讀模型 ${geminiError.model} 配額不足${retryText}。`, 'fas fa-gauge-high');
                 } else {
-                    saveAiStatus('web', '失敗', rawMessage);
-                    showToast(`AI 網頁研讀失敗：${rawMessage}`, 'fas fa-exclamation-triangle');
+                    const detail = geminiError?.detail || `模型 ${targetModel}｜${rawMessage}`;
+                    saveAiStatus('web', '失敗', detail);
+                    showToast(`AI 網頁研讀失敗：${geminiError?.message || rawMessage}`, 'fas fa-exclamation-triangle');
                 }
                 updateAiStatusPanel();
             } finally {
@@ -1711,12 +1719,18 @@ ${text}
             
             if (!response.ok) {
                 const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.error?.message || `HTTP error! status: ${response.status}`);
+                const info = describeGeminiApiError(errData, response.status, model);
+                const requestError = new Error(info.message);
+                requestError.gemini = info;
+                throw requestError;
             }
             
             const data = await response.json();
             if (data.error) {
-                throw new Error(data.error.message);
+                const info = describeGeminiApiError(data, data.error.code, model);
+                const requestError = new Error(info.message);
+                requestError.gemini = info;
+                throw requestError;
             }
             
             const candidate = data.candidates?.[0];
@@ -1728,7 +1742,7 @@ ${text}
                 throw new Error(`生成中斷，原因: ${candidate.finishReason}`);
             }
             
-            const partText = candidate.content?.parts?.[0]?.text;
+            const partText = extractGeminiResponseText(data);
             if (!partText) {
                 throw new Error("回傳結果無內容");
             }
@@ -1802,6 +1816,100 @@ ${text}
         // ==========================================
         // ✨ 設定邏輯與 AI 分類
         // ==========================================
+        let availableGeminiModels = [];
+
+        function replaceSelectOptions(select, models, selectedValue, emptyLabel = '目前沒有可用模型') {
+            select.innerHTML = '';
+            if (!models.length) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = emptyLabel;
+                select.appendChild(option);
+                select.disabled = true;
+                return;
+            }
+            select.disabled = false;
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.id;
+                option.textContent = model.label;
+                select.appendChild(option);
+            });
+            if (selectedValue && models.some(model => model.id === selectedValue)) {
+                select.value = selectedValue;
+            }
+        }
+
+        function populateGeminiModelSettings(models, apiKey, preferredWebModel = null) {
+            availableGeminiModels = Array.isArray(models) ? models : [];
+            const generalModels = availableGeminiModels
+                .filter(model => model.supportedGenerationMethods?.includes('generateContent'))
+                .map(model => ({ id: model.name.replace(/^models\//, ''), label: model.displayName || model.name }));
+            const verificationStatuses = Object.fromEntries(generalModels.map(model => [
+                model.id,
+                readWebResearchModelVerification(localStorage, apiKey, model.id)
+            ]));
+            const researchModels = getWebResearchModelOptions(availableGeminiModels, verificationStatuses);
+            const currentGeneralModel = document.getElementById('model-select').value;
+            const savedGeneralModel = currentGeneralModel
+                || localStorage.getItem('geminiModel')
+                || DEFAULT_WEB_RESEARCH_MODEL;
+            const savedWebModel = preferredWebModel
+                || localStorage.getItem('geminiWebResearchModel')
+                || DEFAULT_WEB_RESEARCH_MODEL;
+
+            replaceSelectOptions(document.getElementById('model-select'), generalModels, savedGeneralModel);
+            replaceSelectOptions(
+                document.getElementById('web-research-model-select'),
+                researchModels.verified,
+                savedWebModel,
+                '尚無已確認支援 Search 的模型'
+            );
+            replaceSelectOptions(
+                document.getElementById('web-research-candidate-select'),
+                researchModels.unknown,
+                null,
+                '沒有待測試的新模型'
+            );
+            document.getElementById('verify-web-research-model-btn').disabled = researchModels.unknown.length === 0;
+            document.getElementById('model-select-container').classList.remove('hidden');
+            document.getElementById('web-research-model-select-container').classList.remove('hidden');
+            return researchModels;
+        }
+
+        async function loadGeminiModels(key) {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${key}`);
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const info = describeGeminiApiError(data, response.status, 'models.list');
+                const error = new Error(info.message);
+                error.gemini = info;
+                throw error;
+            }
+            return Array.isArray(data.models) ? data.models : [];
+        }
+
+        async function probeWebResearchModel(apiKey, model) {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: '請使用 Google Search 查詢今天是星期幾，只回覆「SEARCH_OK」。' }] }],
+                    tools: [{ google_search: {} }],
+                    generationConfig: { maxOutputTokens: 16, temperature: 0 }
+                })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.error) {
+                const info = describeGeminiApiError(data, response.status, model);
+                const error = new Error(info.message);
+                error.gemini = info;
+                throw error;
+            }
+            if (!data.candidates?.length) throw new Error('測試請求成功，但模型沒有回傳候選結果');
+            return true;
+        }
+
         function closeSettingsModal() {
             document.getElementById('settings-modal').classList.add('hidden');
             keyLayers.pop('settings');
@@ -1833,19 +1941,57 @@ ${text}
             const key = document.getElementById('api-key-input').value.trim(); if(!key) return;
             const btn = document.getElementById('verify-key-btn'); btn.disabled = true; btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-t-indigo-700 mx-auto"></div>';
             try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
-                const data = await res.json();
-                const models = data.models.filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'));
-                const select = document.getElementById('model-select'); select.innerHTML = '';
-                models.forEach(m => { const opt = document.createElement('option'); opt.value = m.name.replace('models/', ''); opt.textContent = m.displayName || m.name; select.appendChild(opt); });
-                document.getElementById('model-select-container').classList.remove('hidden');
-            } catch(e) {} finally { btn.disabled = false; btn.innerText = '查詢並指定可用模型'; }
+                const models = await loadGeminiModels(key);
+                populateGeminiModelSettings(models, key);
+                document.getElementById('web-research-model-verification-status').textContent = `已即時取得 ${models.length} 個 Gemini 模型。`;
+            } catch(error) {
+                const detail = error?.gemini?.detail || error?.message || '無法取得模型清單';
+                document.getElementById('web-research-model-verification-status').textContent = detail;
+                showToast(`查詢模型失敗：${error?.gemini?.message || error?.message}`, 'fas fa-exclamation-triangle');
+            } finally { btn.disabled = false; btn.innerText = '重新查詢可用模型'; }
+        });
+
+        document.getElementById('verify-web-research-model-btn').addEventListener('click', async () => {
+            const apiKey = document.getElementById('api-key-input').value.trim();
+            const model = document.getElementById('web-research-candidate-select').value;
+            if (!apiKey || !model) return;
+            const button = document.getElementById('verify-web-research-model-btn');
+            const status = document.getElementById('web-research-model-verification-status');
+            button.disabled = true;
+            button.textContent = '測試中…';
+            status.textContent = `正在用 ${model} 送出一次最小 Search 測試…`;
+            try {
+                await probeWebResearchModel(apiKey, model);
+                writeWebResearchModelVerification(localStorage, apiKey, model, 'supported');
+                populateGeminiModelSettings(availableGeminiModels, apiKey, model);
+                status.textContent = `${model} 已確認支援 Search；結果會保留 7 天。`;
+            } catch (error) {
+                const info = error?.gemini;
+                const unsupported = info?.status === 400
+                    && /google[_ ]search|tool|unsupported|not supported|不支援|invalid argument/i.test(info.message);
+                if (unsupported) {
+                    writeWebResearchModelVerification(localStorage, apiKey, model, 'unsupported');
+                    populateGeminiModelSettings(availableGeminiModels, apiKey);
+                    status.textContent = `${model} 明確回覆不支援 Search。`;
+                } else {
+                    status.textContent = info?.isQuota
+                        ? `${model} 暫時無法驗證：${info.detail}。這不代表模型不支援，可稍後重試。`
+                        : `${model} 暫時無法驗證：${info?.detail || error.message}。`;
+                }
+            } finally {
+                button.disabled = document.getElementById('web-research-candidate-select').disabled;
+                button.textContent = '測試 Search';
+            }
         });
 
         document.getElementById('save-settings-btn').addEventListener('click', () => {
             const geminiKey = document.getElementById('api-key-input').value.trim();
             const imgbbKey = document.getElementById('imgbb-key-input').value.trim();
-            if(geminiKey) { localStorage.setItem('geminiApiKey', geminiKey); if (document.getElementById('model-select').value) localStorage.setItem('geminiModel', document.getElementById('model-select').value); }
+            if(geminiKey) {
+                localStorage.setItem('geminiApiKey', geminiKey);
+                if (document.getElementById('model-select').value) localStorage.setItem('geminiModel', document.getElementById('model-select').value);
+                if (document.getElementById('web-research-model-select').value) localStorage.setItem('geminiWebResearchModel', document.getElementById('web-research-model-select').value);
+            }
             if(imgbbKey) { localStorage.setItem('imgbbApiKey', imgbbKey); }
             localStorage.setItem('autoSortSetting', document.getElementById('auto-sort-select').value);
             localStorage.setItem('autoNewlineAfterUrl', document.getElementById('auto-newline-toggle').checked ? 'on' : 'off');
