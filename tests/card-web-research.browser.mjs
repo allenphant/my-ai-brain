@@ -61,13 +61,17 @@ const firebaseFirestoreModule = `
         globalThis.__mockSetDocWrites.push({ path: ref.path, data, options });
     };
     export const getDoc = async ref => {
+        if (ref.path.endsWith('/settings/tags')) {
+            return { exists: () => true, data: () => ({ items: [{ id: 'ai', name: 'AI' }, { id: 'design', name: '設計' }] }) };
+        }
         const cardTexts = {
             'card-1': '測試文章 https://success.example',
             'card-2': '冷卻文章 https://cooldown.example',
             'card-3': '配額文章 https://quota.example',
             'card-4': '錯誤文章 https://error.example',
             'card-5': '沒有網址的普通卡片',
-            'card-6': '空回傳文章 https://empty.example'
+            'card-6': '空回傳文章 https://empty.example',
+            'card-7': '影片貼文 https://video.example'
         };
         const cardId = Object.keys(cardTexts).find(id => ref.path.endsWith('/inbox/' + id));
         if (cardId) {
@@ -85,6 +89,13 @@ const firebaseFirestoreModule = `
         return { exists: () => false, data: () => ({}) };
     };
     export const onSnapshot = (ref, callback) => {
+        if (ref.path.endsWith('/settings/tags')) {
+            queueMicrotask(() => callback({
+                exists: () => true,
+                data: () => ({ items: [{ id: 'ai', name: 'AI' }, { id: 'design', name: '設計' }] })
+            }));
+            return () => {};
+        }
         let rows = [];
         if (ref.path.endsWith('/inbox')) {
             rows = [
@@ -93,7 +104,8 @@ const firebaseFirestoreModule = `
                 { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', createdAt: 1 }) },
                 { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', createdAt: 0 }) },
                 { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) },
-                { id: 'card-6', data: () => ({ text: '空回傳文章 https://empty.example', createdAt: -2 }) }
+                { id: 'card-6', data: () => ({ text: '空回傳文章 https://empty.example', createdAt: -2 }) },
+                { id: 'card-7', data: () => ({ text: '影片貼文 https://video.example', createdAt: -3 }) }
             ];
         } else if (ref.path.endsWith('/categories')) {
             rows = [
@@ -112,16 +124,24 @@ const firebaseFirestoreModule = `
         globalThis.__mockTransactionWrites ||= [];
         if (globalThis.__mockTransactionShouldFail) throw new Error('Mock append failure');
         const transaction = {
-            get: async () => ({
-                exists: () => true,
-                data: () => ({
-                    data: {
-                        time: 100,
-                        version: '2.30.0',
-                        blocks: [{ type: 'paragraph', data: { text: '既有筆記' } }]
-                    }
-                })
-            }),
+            get: async ref => {
+                if (ref.path.endsWith('/settings/tags')) {
+                    return { exists: () => true, data: () => ({ items: [{ id: 'ai', name: 'AI' }, { id: 'design', name: '設計' }] }) };
+                }
+                if (/\\/(?:inbox|todos|bookmarks)\\/[^/]+$/.test(ref.path)) {
+                    return { exists: () => true, data: () => ({ tagIds: ['ai'] }) };
+                }
+                return {
+                    exists: () => true,
+                    data: () => ({
+                        data: {
+                            time: 100,
+                            version: '2.30.0',
+                            blocks: [{ type: 'paragraph', data: { text: '既有筆記' } }]
+                        }
+                    })
+                };
+            },
             set: (ref, data, options) => globalThis.__mockTransactionWrites.push({ path: ref.path, data, options })
         };
         return operation(transaction);
@@ -172,7 +192,10 @@ try {
     let geminiPosts = 0;
     let webResearchPosts = 0;
     let verificationPosts = 0;
+    let jinaGets = 0;
+    const jinaRequests = [];
     const requestedGeminiModels = [];
+    const researchPostBodies = [];
 
     page.on('pageerror', error => pageErrors.push(error.message));
     page.on('console', message => consoleMessages.push(`${message.type()}: ${message.text()}`));
@@ -193,6 +216,33 @@ try {
         }
         if (url.includes('firebase-firestore.js')) {
             request.respond({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' }, contentType: 'text/javascript', body: firebaseFirestoreModule });
+            return;
+        }
+        if (url.startsWith('https://r.jina.ai/http')) {
+            const jinaCorsHeaders = {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Max-Tokens, X-Retain-Media',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+            };
+            if (request.method() === 'OPTIONS') {
+                request.respond({ status: 204, headers: jinaCorsHeaders });
+                return;
+            }
+            jinaGets += 1;
+            jinaRequests.push({ url, headers: request.headers() });
+            const sourceUrl = url.replace('https://r.jina.ai/', '');
+            request.respond({
+                status: 200,
+                headers: jinaCorsHeaders,
+                contentType: 'application/json',
+                body: JSON.stringify({ data: {
+                    title: 'Jina 擷取的公開頁面',
+                    url: sourceUrl,
+                    content: sourceUrl.includes('video.example')
+                        ? '[Video 1](https://cdn.example/clip.mp4)'
+                        : `這是由 Jina Reader 從 ${sourceUrl} 擷取的公開文字，內容足夠讓 Gemini 整理。`
+                } })
+            });
             return;
         }
         if (url.includes('generativelanguage.googleapis.com')) {
@@ -271,6 +321,7 @@ try {
                 return;
             }
             webResearchPosts += 1;
+            researchPostBodies.push(postData);
             if (postData.includes('quota.example')) {
                 request.respond({
                     status: 429,
@@ -315,7 +366,13 @@ try {
                         content: { parts: [
                             { thought: true, text: '內部推理不得顯示' },
                             { inlineData: { mimeType: 'text/plain', data: 'ignored' } },
-                            { text: 'AI 整理結果\nhttps://success.example' }
+                            { text: JSON.stringify({
+                                tldr: '這是一篇設計工具介紹。',
+                                evaluation: '適合作為設計工作流程參考。',
+                                details: '文章說明工具用途與適合的使用情境。',
+                                matchedTagIds: ['design'],
+                                suggestedTags: ['設計工具']
+                            }) }
                         ] }
                     }]
                 })
@@ -350,12 +407,22 @@ try {
 
     assert.equal(await page.$('#polish-link-btn'), null);
     assert.equal(await page.$('#polish-add-card-btn'), null);
-    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 7);
+    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 8);
     assert.equal(await page.$('li[data-id="card-5"] .web-research-btn'), null);
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
 
     await page.$eval('#settings-btn', button => button.click());
+    assert.match(await page.$eval('#web-research-system-prompt', element => element.value), /TL;DR/);
+    assert.deepEqual(
+        await page.$$eval('#tag-manager-list input', inputs => inputs.map(input => input.value)),
+        ['AI', '設計']
+    );
+    await page.$eval('#new-tag-input', input => { input.value = '研究'; });
+    await page.click('#add-tag-btn');
+    assert.equal(await page.$$eval('#tag-manager-list input', inputs => inputs.some(input => input.value === '研究')), true);
+    await page.$eval('#web-research-system-prompt', input => { input.value = '自訂研讀提示：只根據來源輸出繁體中文。'; });
+    await page.screenshot({ path: '/tmp/my-ai-brain-jina-settings.png', fullPage: false });
     await page.click('#verify-key-btn');
     await page.waitForFunction(() => !document.querySelector('#model-select-container').classList.contains('hidden'));
     await page.waitForFunction(() => !document.querySelector('#web-research-model-select-container').classList.contains('hidden'));
@@ -365,11 +432,11 @@ try {
     );
     assert.deepEqual(
         await page.$$eval('#web-research-model-select option', options => options.map(option => option.value)),
-        ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
+        ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-6.0-race', 'gemini-7.0-server-error', 'gemini-8.0-no-search', 'gemini-9.0-flash']
     );
     assert.deepEqual(
         await page.$$eval('#web-research-candidate-select option', options => options.map(option => option.value)),
-        ['gemini-3.1-flash-lite', 'gemini-6.0-race', 'gemini-7.0-server-error', 'gemini-8.0-no-search', 'gemini-9.0-flash']
+        ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-6.0-race', 'gemini-7.0-server-error', 'gemini-8.0-no-search', 'gemini-9.0-flash']
     );
     await page.click('#web-research-model-discovery summary');
     await page.select('#model-select', 'gemini-3.1-flash-lite');
@@ -403,9 +470,9 @@ try {
     await page.$eval('#api-key-input', input => { input.value = 'changed-key'; });
     await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('已丟棄這次測試結果'));
     assert.equal(
-        await page.$eval('#web-research-model-select', select => Array.from(select.options).some(option => option.value === 'gemini-6.0-race')),
+        await page.evaluate(() => Object.keys(localStorage).some(key => key.endsWith(':gemini-6.0-race'))),
         false,
-        'a probe completed for a stale API key must be discarded'
+        'a probe completed for a stale API key must not be cached'
     );
     await page.$eval('#api-key-input', input => { input.value = 'fake-key'; });
     await page.select('#web-research-candidate-select', 'gemini-3.1-flash-lite');
@@ -425,18 +492,30 @@ try {
         'clear 400 unsupported response should be cached and removed from candidates'
     );
     assert.equal(verificationPosts, 5);
-    assert.equal(await page.$eval('#web-research-model-select', select => select.value), 'gemini-9.0-flash');
+    assert.equal(await page.$eval('#web-research-model-select', select => Array.from(select.options).some(option => option.value === 'gemini-9.0-flash')), true);
     await page.waitForFunction(() => !document.querySelector('#verify-key-btn').disabled);
     await page.$eval('#api-key-input', input => { input.value = 'query-race-key'; });
     await page.click('#verify-key-btn');
     await page.$eval('#api-key-input', input => { input.value = 'fake-key'; });
     await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('已丟棄舊 Key'));
-    assert.equal(await page.$eval('#web-research-model-select', select => select.value), 'gemini-9.0-flash');
+    assert.equal(await page.$eval('#web-research-model-select', select => Array.from(select.options).some(option => option.value === 'gemini-9.0-flash')), true);
+    await page.select('#web-research-model-select', 'gemini-9.0-flash');
     await page.click('#save-settings-btn');
     assert.deepEqual(await page.evaluate(() => ({
         general: localStorage.getItem('geminiModel'),
-        web: localStorage.getItem('geminiWebResearchModel')
-    })), { general: 'gemini-3.1-flash-lite', web: 'gemini-9.0-flash' });
+        web: localStorage.getItem('geminiWebResearchModel'),
+        prompt: localStorage.getItem('webResearchSystemPrompt')
+    })), {
+        general: 'gemini-3.1-flash-lite',
+        web: 'gemini-9.0-flash',
+        prompt: '自訂研讀提示：只根據來源輸出繁體中文。'
+    });
+    assert.equal(
+        await page.evaluate(() => (globalThis.__mockSetDocWrites || []).some(write =>
+            write.path.endsWith('/settings/tags') && write.data.items.some(tag => tag.name === '研究')
+        )),
+        true
+    );
 
     await page.$eval('#settings-btn', button => button.click());
     await page.$eval('#api-key-input', input => {
@@ -459,11 +538,21 @@ try {
 
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
-    assert.equal(
-        await page.$eval('#web-research-preview-content', element => element.textContent),
-        'AI 整理結果\nhttps://success.example'
+    assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /^TL;DR：這是一篇設計工具介紹。/);
+    assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /一句話評價：適合作為設計工作流程參考。/);
+    assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /來源：https:\/\/success\.example\/$/);
+    assert.deepEqual(
+        await page.$$eval('#web-research-preview-tags input', inputs => inputs.map(input => ({ value: input.value, checked: input.checked }))),
+        [{ value: 'design', checked: true }, { value: 'new:設計工具', checked: true }]
     );
+    await page.screenshot({ path: '/tmp/my-ai-brain-jina-preview.png', fullPage: false });
     assert.equal(webResearchPosts, 1);
+    assert.equal(jinaGets, 1);
+    assert.match(researchPostBodies[0], /自訂研讀提示/);
+    assert.match(researchPostBodies[0], /Jina Reader/);
+    assert.equal(jinaRequests[0].headers.accept, 'application/json');
+    assert.equal(jinaRequests[0].headers['x-retain-media'], 'link');
+    assert.equal(jinaRequests[0].headers['x-max-tokens'], '5000');
     assert.equal(requestedGeminiModels.at(-1), 'gemini-9.0-flash');
 
     await page.click('#cancel-web-research-preview-btn');
@@ -471,6 +560,8 @@ try {
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     assert.equal(webResearchPosts, 1, 'cache hit must not make a second Gemini POST');
+    assert.equal(jinaGets, 1, 'cache hit must not make a second Jina request');
+    await page.$eval('#web-research-preview-tags input[value="design"]', input => { input.checked = false; });
 
     await page.evaluate(() => { globalThis.__mockTransactionShouldFail = true; });
     await page.click('#append-web-research-btn');
@@ -482,11 +573,17 @@ try {
     await page.click('#append-web-research-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     const writes = await page.evaluate(() => globalThis.__mockTransactionWrites);
-    assert.equal(writes.length, 1);
-    assert.match(writes[0].path, /inbox\/card-1\/details\/note$/);
-    assert.equal(writes[0].data.data.blocks[0].data.text, '既有筆記');
-    assert.match(writes[0].data.data.blocks[1].data.text, /^AI 網址研讀｜/);
-    assert.equal(writes[0].data.data.blocks[2].data.text, 'AI 整理結果<br>https://success.example');
+    assert.equal(writes.length, 3);
+    const noteWrite = writes.find(write => write.path.endsWith('/inbox/card-1/details/note'));
+    const cardWrite = writes.find(write => write.path.endsWith('/inbox/card-1'));
+    const tagWrite = writes.find(write => write.path.endsWith('/settings/tags'));
+    assert.equal(noteWrite.data.data.blocks[0].data.text, '既有筆記');
+    assert.match(noteWrite.data.data.blocks[1].data.text, /^AI 網址研讀｜/);
+    assert.match(noteWrite.data.data.blocks[2].data.text, /^TL;DR：這是一篇設計工具介紹。/);
+    assert.deepEqual(cardWrite.data.tagIds, ['ai', '設計工具']);
+    assert.deepEqual(cardWrite.data.tagLabels, ['AI', '設計工具']);
+    assert.match(cardWrite.data.searchText, /測試文章/);
+    assert.equal(tagWrite.data.items.some(tag => tag.name === '設計工具'), true);
     assert.match(await page.$eval('li[data-id="card-1"]', element => element.innerText), /測試文章/);
     assert.doesNotMatch(await page.$eval('li[data-id="card-1"]', element => element.innerText), /AI 整理結果/);
 
@@ -544,9 +641,20 @@ try {
     await page.click('#append-web-research-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     const allWrites = await page.evaluate(() => globalThis.__mockTransactionWrites);
-    assert.equal(allWrites.length, 2);
-    assert.match(allWrites[1].path, /bookmarks\/bookmark-1\/details\/note$/);
+    const allNoteWrites = allWrites.filter(write => write.path.endsWith('/details/note'));
+    assert.equal(allNoteWrites.length, 2);
+    assert.match(allNoteWrites[1].path, /bookmarks\/bookmark-1\/details\/note$/);
     assert.equal(webResearchPosts, 6);
+
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('li[data-id="card-7"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.match(await page.$eval('#web-research-preview-media-notice', element => element.textContent), /影片內容未解析/);
+    assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /沒有足夠文字可供研讀/);
+    assert.equal(await page.$eval('#web-research-preview-tags-container', element => element.classList.contains('hidden')), true);
+    assert.equal(webResearchPosts, 6, 'video-only sources must not ask Gemini to invent a summary');
+    await page.click('#cancel-web-research-preview-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
 
     const externalPagePromise = new Promise(resolve => browser.once('targetcreated', async target => {
         const targetPage = await target.page();

@@ -356,7 +356,7 @@
         </div>
     </div>
     <div id="settings-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-bold text-slate-800 flex items-center"><i class="fas fa-cog text-indigo-500 mr-2 text-xl"></i> 系統設定</h3>
                 <button id="close-modal-btn" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
@@ -379,11 +379,11 @@
             <div class="mb-4 hidden" id="web-research-model-select-container">
                 <label class="block text-sm font-semibold text-slate-700 mb-2">網址研讀模型</label>
                 <select id="web-research-model-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer"></select>
-                <p class="mt-1 text-xs text-slate-500">只列出已知或已實測可使用 Google Search 的模型。</p>
+                <p class="mt-1 text-xs text-slate-500">Jina Reader 負責讀取原文；這個 Gemini 模型只負責整理筆記與建議 tag。</p>
 
                 <details id="web-research-model-discovery" class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <summary class="cursor-pointer text-xs font-semibold text-indigo-700">測試新模型的 Search 支援</summary>
-                    <p class="mt-2 text-xs text-slate-500">Gemini 的模型清單不會標示 Search 能力。你可以手動送出一次極小測試；結果會快取 7 天。</p>
+                    <p class="mt-2 text-xs text-slate-500">模型清單包含已確認與尚未確認的模型，因此可重新測試 Gemini 2.5 Flash。結果會快取 7 天。</p>
                     <div class="mt-2 flex flex-col sm:flex-row gap-2">
                         <select id="web-research-candidate-select" class="min-w-0 flex-1 px-3 py-2 border border-slate-300 rounded-lg outline-none text-xs bg-white cursor-pointer"></select>
                         <button id="verify-web-research-model-btn" type="button" class="shrink-0 rounded-lg bg-indigo-100 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-200">測試 Search</button>
@@ -392,9 +392,36 @@
                 </details>
             </div>
 
+            <div class="mb-4 pt-4 border-t border-slate-100">
+                <label class="block text-sm font-semibold text-slate-700 mb-2">Jina Reader API Key <span class="font-normal text-slate-400">（選填）</span></label>
+                <input type="password" id="jina-api-key-input" placeholder="jina_...；留空可使用匿名額度" autocomplete="off" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm font-mono">
+                <p class="mt-1 text-xs text-slate-500">網址會先送至 Jina 擷取公開文字，再將擷取結果交給 Gemini。Jina 不會解析影片內容。</p>
+            </div>
+
+            <div class="mb-4">
+                <div class="mb-2 flex items-center justify-between gap-3">
+                    <label for="web-research-system-prompt" class="block text-sm font-semibold text-slate-700">網址研讀 System Prompt</label>
+                    <button id="reset-web-research-prompt-btn" type="button" class="min-h-9 rounded-lg px-3 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-300">恢復預設</button>
+                </div>
+                <textarea id="web-research-system-prompt" rows="7" class="w-full resize-y px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm leading-relaxed" aria-describedby="web-research-prompt-help"></textarea>
+                <p id="web-research-prompt-help" class="mt-1 text-xs text-slate-500">預設要求繁體中文、純文字、TL;DR、一句話評價，並禁止猜測未解析的影片。</p>
+            </div>
+
+            <div class="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div class="mb-2">
+                    <div class="text-sm font-semibold text-slate-700">管理 Tag</div>
+                    <p class="mt-1 text-xs text-slate-500">Gemini 優先選擇這裡的 tag；新 tag 只會在研讀預覽勾選並確認後建立。</p>
+                </div>
+                <div id="tag-manager-list" class="mb-3 flex flex-wrap gap-2" aria-live="polite"></div>
+                <div class="flex gap-2">
+                    <input id="new-tag-input" type="text" maxlength="40" placeholder="新增 tag" class="min-w-0 flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm">
+                    <button id="add-tag-btn" type="button" class="min-h-10 shrink-0 rounded-lg bg-indigo-100 px-4 text-sm font-bold text-indigo-700 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-300">新增</button>
+                </div>
+            </div>
+
             <div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-800">
                 <div class="font-semibold mb-1">AI 使用提醒</div>
-                <div>網址研讀與 AI 整理都屬於高成本操作，若頻繁使用或模型配額較低，可能出現 429 / quota exceeded。</div>
+                <div>公開網址會送至 Jina Reader，擷取文字再送至 Gemini。登入限定、私人貼文與影片內容可能無法解析；系統會明確標示而不猜測。</div>
             </div>
 
             <!-- ImgBB API Key 設定區塊 -->
@@ -470,7 +497,15 @@
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            <div id="web-research-preview-content" class="m-5 p-4 rounded-xl bg-slate-50 border border-slate-200 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap overflow-y-auto custom-scrollbar select-text"></div>
+            <div class="m-5 space-y-4 overflow-y-auto custom-scrollbar">
+                <div id="web-research-preview-media-notice" class="hidden rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status"></div>
+                <div id="web-research-preview-content" class="p-4 rounded-xl bg-slate-50 border border-slate-200 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap select-text"></div>
+                <fieldset id="web-research-preview-tags-container" class="hidden rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+                    <legend class="px-1 text-sm font-bold text-slate-800">套用 Tag（可逐一取消）</legend>
+                    <div id="web-research-preview-tags" class="mt-2 flex flex-wrap gap-2"></div>
+                    <p class="mt-2 text-xs text-slate-500">標示「新」的 tag 只有在勾選並確認後才會建立。</p>
+                </fieldset>
+            </div>
             <div class="flex justify-end gap-3 px-5 py-4 border-t border-slate-100">
                 <button id="cancel-web-research-preview-btn" type="button" class="px-4 py-2 rounded-lg font-semibold text-slate-600 hover:bg-slate-100">取消</button>
                 <button id="append-web-research-btn" type="button" class="px-4 py-2 rounded-lg font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center min-w-[148px]">

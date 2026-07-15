@@ -1,7 +1,27 @@
-# PWA 聯網研讀與快捷鍵優化完成，支援多款新分類圖示與彈窗快捷新增
+# AI 網址研讀改用 Jina Reader 擷取、Gemini 整理，加入可管理 Tag
 
-> **更新時間**：2026-07-09 08:15
+> **更新時間**：2026-07-15 11:35
 > **專案核心**：以 Vanilla JS 與 Firebase 打造的類似 Notion 的個人 AI 大腦/知識庫工具。
+
+## 2026-07-15 最新狀態
+
+* **網址研讀資料流**：卡片網址先交給 Jina Reader 擷取公開網站／社群貼文文字，再把擷取內容交給獨立設定的 Gemini 模型整理；不再由 Gemini Search 猜讀網址。
+* **影片限制**：Jina 只保留影片連結與頁面周邊文字，不轉錄影片。若有文字則整理文字並標示「影片內容未解析」；若只有影片則不呼叫 Gemini、不產生推測摘要。
+* **Prompt 設定**：系統設定可編輯網址研讀 System Prompt，預設為繁體中文、純文字、TL;DR、一句話評價、詳細筆記，並禁止猜測未解析媒體；可一鍵恢復預設。
+* **Tag 管理**：使用者可在設定新增、重新命名、刪除 tag。Gemini 優先匹配既有 tag，也可建議新 tag；預覽時逐一勾選，只有勾選並確認的新 tag 才會建立。
+* **儲存位置**：研讀文字仍只 append 到卡片「詳細筆記」，主卡片文字與原網址保持簡潔。卡片另存 `tagIds`、`tagLabels`、`searchText`，tag catalog 存在 `users/{uid}/settings/tags`。
+* **快取與錯誤**：快取會納入網址、Gemini 模型、System Prompt 與 tag catalog；任一變更都不沿用舊預覽。Jina 擷取錯誤、Gemini 配額錯誤與空／損壞回應分開顯示。
+* **模型清單**：網址研讀模型會列出即時取得的所有 `generateContent` 模型；Search 支援測試清單也保留已確認模型，方便重新測試 Gemini 2.5 Flash。
+
+## 待辦／未來方向
+
+* **Tag filter**：依卡片 `tagIds` 實作單選／複選篩選。
+* **搜尋功能**：先以卡片 `searchText` 做本地全文搜尋，再評估以 Jina Embeddings 加入語意搜尋；搜尋 UI 與索引策略尚未實作。
+* **影片研讀**：目前刻意不處理影片。若未來需要，應另接字幕／逐字稿或影片理解服務，不能把 Jina Reader 當成影片轉錄器。
+
+---
+
+以下內容是 2026-07-09 的歷史快照；其中 Gemini Search Grounding 直讀網址的方案已由上方 Jina Reader → Gemini 流程取代。
 
 ## 本次對話目標
 

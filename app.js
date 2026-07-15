@@ -5,17 +5,26 @@
         import { attachMdShortcuts } from './js/md-shortcuts.js';
         import {
             DEFAULT_WEB_RESEARCH_MODEL,
+            DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT,
             buildWebResearchAppendData,
+            buildGeminiResearchRequest,
+            buildCardMoveData,
+            buildJinaReaderRequest,
             canUseWebResearch,
+            classifyJinaResearchSource,
             describeGeminiApiError,
             describeGeminiResponseIssue,
             extractGeminiResponseText,
+            extractUrls,
             getWebResearchCooldownRemaining,
             getWebResearchModelOptions,
             isInteractiveCardTarget,
             normalizeHttpUrl,
+            parseGeminiResearchResult,
+            parseJinaReaderResponse,
             readWebResearchCache,
             readWebResearchModelVerification,
+            resolveSelectedTags,
             writeWebResearchModelVerification,
             writeWebResearchCache
         } from './web-research.mjs';
@@ -44,6 +53,8 @@
 
         let currentUser = null;
         let currentCategories = [];
+        let currentTags = [];
+        let draftTags = [];
         let currentInboxItems = []; 
         let currentTodoItems = [];
         let pendingDeleteTarget = null;
@@ -882,6 +893,13 @@
             const getCol = (colName) => collection(db, 'artifacts', appId, 'users', userId, colName);
             const sortItems = (items) => items.sort((a, b) => getOrder(b) - getOrder(a));
 
+            onSnapshot(doc(db, 'artifacts', appId, 'users', userId, 'settings', 'tags'), (snapshot) => {
+                const tags = snapshot.exists() ? snapshot.data().items : [];
+                currentTags = Array.isArray(tags)
+                    ? tags.filter(tag => tag?.id && tag?.name).map(tag => ({ id: String(tag.id), name: String(tag.name) }))
+                    : [];
+            });
+
             onSnapshot(getCol('inbox'), (snapshot) => {
                 currentInboxItems = []; snapshot.forEach(doc => currentInboxItems.push({ id: doc.id, ...doc.data() }));
                 sortItems(currentInboxItems); renderList(currentInboxItems, document.getElementById('inbox-list'), 'inbox');
@@ -1384,6 +1402,9 @@
         const aiSortStatusEl = document.getElementById('ai-sort-status');
         const webResearchPreviewModal = document.getElementById('web-research-preview-modal');
         const webResearchPreviewContent = document.getElementById('web-research-preview-content');
+        const webResearchPreviewMediaNotice = document.getElementById('web-research-preview-media-notice');
+        const webResearchPreviewTagsContainer = document.getElementById('web-research-preview-tags-container');
+        const webResearchPreviewTags = document.getElementById('web-research-preview-tags');
         const appendWebResearchBtn = document.getElementById('append-web-research-btn');
         const AI_SORT_COOLDOWN_MS = 5 * 60 * 1000;
         let pendingWebResearch = null;
@@ -1451,7 +1472,37 @@
 
         function openWebResearchPreview(payload, { fromHistory = false } = {}) {
             pendingWebResearch = payload;
-            webResearchPreviewContent.textContent = payload.result;
+            const result = typeof payload.result === 'string'
+                ? { note: payload.result, matchedTags: [], suggestedTags: [] }
+                : payload.result;
+            pendingWebResearch.result = result;
+            webResearchPreviewContent.textContent = result.note;
+            const mediaNotice = result.mediaNotice || '';
+            webResearchPreviewMediaNotice.textContent = mediaNotice;
+            webResearchPreviewMediaNotice.classList.toggle('hidden', !mediaNotice);
+            const suggestions = [...(result.matchedTags || []), ...(result.suggestedTags || [])];
+            webResearchPreviewTags.replaceChildren();
+            suggestions.forEach(tag => {
+                const label = document.createElement('label');
+                label.className = 'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-indigo-300';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = true;
+                checkbox.value = tag.id;
+                checkbox.className = 'h-4 w-4 accent-indigo-600';
+                checkbox.setAttribute('data-web-research-tag', '');
+                const text = document.createElement('span');
+                text.textContent = tag.name;
+                label.append(checkbox, text);
+                if (tag.isNew) {
+                    const badge = document.createElement('span');
+                    badge.className = 'rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700';
+                    badge.textContent = '新';
+                    label.appendChild(badge);
+                }
+                webResearchPreviewTags.appendChild(label);
+            });
+            webResearchPreviewTagsContainer.classList.toggle('hidden', suggestions.length === 0);
             webResearchPreviewModal.classList.remove('hidden');
             keyLayers.push({
                 name: 'web-research-preview',
@@ -1469,6 +1520,10 @@
             }
             webResearchPreviewModal.classList.add('hidden');
             webResearchPreviewContent.textContent = '';
+            webResearchPreviewMediaNotice.textContent = '';
+            webResearchPreviewMediaNotice.classList.add('hidden');
+            webResearchPreviewTags.replaceChildren();
+            webResearchPreviewTagsContainer.classList.add('hidden');
             pendingWebResearch = null;
             keyLayers.pop('web-research-preview');
         }
@@ -1485,9 +1540,13 @@
 
             let apiKey = null;
             let targetModel = DEFAULT_WEB_RESEARCH_MODEL;
+            let jinaApiKey = '';
+            let systemPrompt = DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
             try {
                 apiKey = localStorage.getItem('geminiApiKey');
                 targetModel = localStorage.getItem('geminiWebResearchModel') || targetModel;
+                jinaApiKey = localStorage.getItem('jinaApiKey') || '';
+                systemPrompt = localStorage.getItem('webResearchSystemPrompt') || systemPrompt;
             } catch (error) {
                 console.warn('無法讀取 AI 設定：', error);
             }
@@ -1497,7 +1556,12 @@
                 return null;
             }
 
-            const cached = readWebResearchCache(localStorage, normalizedText);
+            const cacheContext = {
+                model: targetModel,
+                prompt: systemPrompt,
+                tags: currentTags.map(tag => `${tag.id}:${tag.name}`)
+            };
+            const cached = readWebResearchCache(localStorage, normalizedText, Date.now(), cacheContext);
             if (cached) {
                 saveAiStatus('web', '使用快取', '相同內容直接套用快取結果');
                 updateAiStatusPanel();
@@ -1505,6 +1569,7 @@
                     itemId: item.id,
                     collectionName,
                     sourceText: normalizedText,
+                    cardTagIds: Array.isArray(item.tagIds) ? item.tagIds : [],
                     result: cached
                 });
                 showToast('已載入先前的 AI 研讀結果供預覽。', 'fas fa-clock-rotate-left');
@@ -1527,12 +1592,34 @@
                 } catch (storageError) {
                     console.warn('無法儲存 AI 研讀冷卻時間：', storageError);
                 }
-                showToast('AI 正在使用 Google 搜尋研讀網址並潤飾...', 'fas fa-robot');
-                const polished = await polishContentWithWebSearch(normalizedText, apiKey, targetModel);
-                if (!polished) throw new Error('AI 沒有回傳內容');
+                showToast('正在用 Jina Reader 擷取原文，再交給 Gemini 整理...', 'fas fa-robot');
+                const sourceUrl = extractUrls(normalizedText)[0];
+                const userNote = normalizedText.replace(sourceUrl, '').trim();
+                const source = await readUrlWithJina(sourceUrl, jinaApiKey);
+                const media = classifyJinaResearchSource(source);
+                const researchSource = {
+                    ...source,
+                    mediaStatus: media.status,
+                    mediaNotice: media.notice
+                };
+                const polished = media.canSummarize
+                    ? await polishJinaContentWithGemini({
+                        source: researchSource,
+                        userNote,
+                        tags: currentTags,
+                        apiKey,
+                        model: targetModel,
+                        systemPrompt
+                    })
+                    : {
+                        note: `${media.notice}\n\n來源：${source.url || sourceUrl}`,
+                        matchedTags: [],
+                        suggestedTags: []
+                    };
+                polished.mediaNotice = media.notice;
                 let cacheWritten = true;
                 try {
-                    writeWebResearchCache(localStorage, normalizedText, polished);
+                    writeWebResearchCache(localStorage, normalizedText, polished, Date.now(), cacheContext);
                 } catch (storageError) {
                     cacheWritten = false;
                     console.warn('無法寫入 AI 研讀快取：', storageError);
@@ -1547,19 +1634,24 @@
                     itemId: item.id,
                     collectionName,
                     sourceText: normalizedText,
+                    cardTagIds: Array.isArray(item.tagIds) ? item.tagIds : [],
                     result: polished
                 });
                 showToast('AI 研讀完成，請預覽後確認追加。', 'fas fa-wand-magic-sparkles');
             } catch (error) {
                 const rawMessage = error?.message || '未知錯誤';
                 const geminiError = error?.gemini;
+                const jinaError = error?.jina;
                 console.error('AI 網頁研讀潤飾失敗', geminiError ? {
                     model: geminiError.model,
                     status: geminiError.status,
                     quotaId: geminiError.quotaId,
                     retryDelay: geminiError.retryDelay
-                } : { message: rawMessage });
-                if (geminiError?.isQuota) {
+                } : { stage: jinaError ? 'jina' : 'unknown', message: rawMessage });
+                if (jinaError) {
+                    saveAiStatus('web', '來源擷取失敗', jinaError.detail);
+                    showToast(`Jina Reader 擷取失敗：${jinaError.message}`, 'fas fa-file-circle-xmark');
+                } else if (geminiError?.isQuota) {
                     saveAiStatus('web', '配額不足', geminiError.detail);
                     const retryText = geminiError.retryDelay ? `，約 ${geminiError.retryDelay} 後可重試` : '';
                     showToast(`網址研讀模型 ${geminiError.model} 配額不足${retryText}。`, 'fas fa-gauge-high');
@@ -1571,6 +1663,29 @@
                 updateAiStatusPanel();
             } finally {
                 restoreButton();
+            }
+        }
+
+        async function readUrlWithJina(sourceUrl, apiKey = '') {
+            const request = buildJinaReaderRequest(sourceUrl, apiKey);
+            const response = await fetch(request.url, request.options);
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const message = String(payload?.message || payload?.data?.message || `HTTP ${response.status}`).slice(0, 300);
+                const error = new Error(message);
+                error.jina = {
+                    status: response.status,
+                    message,
+                    detail: `Jina Reader｜HTTP ${response.status}｜${message}`
+                };
+                throw error;
+            }
+            try {
+                return parseJinaReaderResponse(payload, sourceUrl);
+            } catch (cause) {
+                const error = new Error(cause.message);
+                error.jina = { status: response.status, message: cause.message, detail: `Jina Reader｜HTTP ${response.status}｜${cause.message}` };
+                throw error;
             }
         }
 
@@ -1593,19 +1708,53 @@
                 'details',
                 'note'
             );
+            const cardRef = doc(
+                db,
+                'artifacts',
+                appId,
+                'users',
+                currentUser.uid,
+                payload.collectionName,
+                payload.itemId
+            );
+            const tagsRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'tags');
+            const selectedSuggestionIds = [...webResearchPreviewTags.querySelectorAll('input[data-web-research-tag]:checked')]
+                .map(input => input.value);
+            const suggestions = [...(payload.result.matchedTags || []), ...(payload.result.suggestedTags || [])];
 
             try {
                 await runTransaction(db, async transaction => {
-                    const noteSnapshot = await transaction.get(noteRef);
+                    const [noteSnapshot, cardSnapshot, tagsSnapshot] = await Promise.all([
+                        transaction.get(noteRef),
+                        transaction.get(cardRef),
+                        transaction.get(tagsRef)
+                    ]);
                     const existingData = noteSnapshot.exists() ? noteSnapshot.data().data : null;
+                    const cardData = cardSnapshot.exists() ? cardSnapshot.data() : {};
+                    const serverTags = tagsSnapshot.exists() && Array.isArray(tagsSnapshot.data().items)
+                        ? tagsSnapshot.data().items
+                        : currentTags;
+                    const resolvedTags = resolveSelectedTags({
+                        catalog: serverTags,
+                        existingCardTagIds: Array.isArray(cardData.tagIds) ? cardData.tagIds : payload.cardTagIds,
+                        suggestions,
+                        selectedSuggestionIds
+                    });
                     const now = Date.now();
                     transaction.set(noteRef, {
-                        data: buildWebResearchAppendData(existingData, payload.result, now),
+                        data: buildWebResearchAppendData(existingData, payload.result.note, now),
                         updatedAt: now
                     }, { merge: true });
+                    transaction.set(cardRef, {
+                        tagIds: resolvedTags.cardTagIds,
+                        tagLabels: resolvedTags.cardTagLabels,
+                        searchText: `${payload.sourceText}\n${payload.result.note}`.toLocaleLowerCase('zh-Hant'),
+                        updatedAt: now
+                    }, { merge: true });
+                    transaction.set(tagsRef, { items: resolvedTags.catalog, updatedAt: now }, { merge: true });
                 });
                 closeWebResearchPreview();
-                showToast('AI 研讀結果已追加到詳細筆記。', 'fas fa-check-circle');
+                showToast('AI 研讀結果與勾選的 tag 已儲存。', 'fas fa-check-circle');
             } catch (error) {
                 console.error('追加 AI 研讀結果失敗：', error);
                 showToast(`追加失敗：${error?.message || '未知錯誤'}`, 'fas fa-exclamation-triangle');
@@ -1703,24 +1852,11 @@
             imagePreviewContainer.classList.add('hidden'); imagePreviewImg.src = '';
         });
 
-        async function polishContentWithWebSearch(text, apiKey, model) {
-            const promptText = `使用者輸入了以下內容，其中包含網頁連結：
-"""
-${text}
-"""
-請你利用 Google 搜尋功能（Search Grounding）去讀取並研讀這些連結的內容，理解該網頁在講什麼。
-接著，結合使用者原本提供的說明文字或備註，潤飾並整理成一段通順、精煉且包含重點的繁體中文筆記。
-請注意：
-1. 必須保留原本的網頁連結在產出內容中（或者在最後面附上原連結）。
-2. 請直接輸出潤飾整理後的筆記內容，不要包含任何前言、引言或『以下是整理後的內容：』等無關字樣。`;
-
+        async function polishJinaContentWithGemini({ source, userNote, tags, apiKey, model, systemPrompt }) {
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: promptText }] }],
-                    tools: [{ google_search: {} }] // Enable Google Search Grounding!
-                })
+                body: JSON.stringify(buildGeminiResearchRequest({ source, userNote, tags, systemPrompt }))
             });
             
             if (!response.ok) {
@@ -1762,7 +1898,7 @@ ${text}
                 throw responseError;
             }
             
-            return partText.trim();
+            return parseGeminiResearchResult(partText, tags, source);
         }
 
         document.getElementById('add-form').addEventListener('submit', async (e) => {
@@ -1879,15 +2015,15 @@ ${text}
             replaceSelectOptions(document.getElementById('model-select'), generalModels, savedGeneralModel);
             replaceSelectOptions(
                 document.getElementById('web-research-model-select'),
-                researchModels.verified,
+                generalModels,
                 savedWebModel,
-                '尚無已確認支援 Search 的模型'
+                '目前沒有可用的生成模型'
             );
             replaceSelectOptions(
                 document.getElementById('web-research-candidate-select'),
                 researchModels.unknown,
                 null,
-                '沒有待測試的新模型'
+                '沒有可測試的模型'
             );
             document.getElementById('verify-web-research-model-btn').disabled = researchModels.unknown.length === 0;
             document.getElementById('model-select-container').classList.remove('hidden');
@@ -1928,24 +2064,98 @@ ${text}
             return true;
         }
 
+        function renderTagManager() {
+            const container = document.getElementById('tag-manager-list');
+            container.replaceChildren();
+            if (!draftTags.length) {
+                const empty = document.createElement('span');
+                empty.className = 'text-xs text-slate-400';
+                empty.textContent = '尚未建立 tag';
+                container.appendChild(empty);
+                return;
+            }
+            draftTags.forEach(tag => {
+                const pill = document.createElement('span');
+                pill.className = 'inline-flex min-h-10 items-center gap-1 rounded-full border border-slate-200 bg-white pl-3 pr-1 text-sm text-slate-700 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100';
+                const name = document.createElement('input');
+                name.type = 'text';
+                name.maxLength = 40;
+                name.value = tag.name;
+                name.size = Math.max(2, Math.min(16, [...tag.name].length));
+                name.className = 'min-w-8 max-w-40 bg-transparent outline-none';
+                name.setAttribute('aria-label', `重新命名 tag ${tag.name}`);
+                name.addEventListener('input', () => {
+                    const nextName = name.value.replace(/\s+/g, ' ').slice(0, 40);
+                    tag.name = nextName;
+                    name.size = Math.max(2, Math.min(16, [...nextName].length));
+                });
+                name.addEventListener('blur', () => {
+                    tag.name = tag.name.trim() || '未命名';
+                    name.value = tag.name;
+                });
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-200';
+                remove.setAttribute('aria-label', `刪除 tag ${tag.name}`);
+                remove.innerHTML = '<i class="fas fa-times text-xs"></i>';
+                remove.addEventListener('click', () => {
+                    draftTags = draftTags.filter(item => item.id !== tag.id);
+                    renderTagManager();
+                });
+                pill.append(name, remove);
+                container.appendChild(pill);
+            });
+        }
+
+        function addDraftTag() {
+            const input = document.getElementById('new-tag-input');
+            const name = input.value.trim().replace(/\s+/g, ' ').slice(0, 40);
+            if (!name) return;
+            const resolved = resolveSelectedTags({
+                catalog: draftTags,
+                suggestions: [{ id: `new:${name}`, name, isNew: true }],
+                selectedSuggestionIds: [`new:${name}`]
+            });
+            if (resolved.catalog.length === draftTags.length) {
+                showToast('這個 tag 已經存在。', 'fas fa-tag');
+                return;
+            }
+            draftTags = resolved.catalog;
+            input.value = '';
+            renderTagManager();
+        }
+
         function closeSettingsModal() {
             document.getElementById('settings-modal').classList.add('hidden');
             keyLayers.pop('settings');
         }
 
         function openSettingsModal() {
+            document.getElementById('api-key-input').value = localStorage.getItem('geminiApiKey') || '';
+            document.getElementById('jina-api-key-input').value = localStorage.getItem('jinaApiKey') || '';
+            document.getElementById('imgbb-key-input').value = localStorage.getItem('imgbbApiKey') || '';
+            document.getElementById('web-research-system-prompt').value = localStorage.getItem('webResearchSystemPrompt') || DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
+            document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off';
+            document.getElementById('auto-newline-toggle').checked = localStorage.getItem('autoNewlineAfterUrl') !== 'off';
+            draftTags = currentTags.map(tag => ({ ...tag }));
+            renderTagManager();
+            updateAiStatusPanel();
             document.getElementById('settings-modal').classList.remove('hidden');
             keyLayers.push({ name: 'settings', keys: modalKeys(closeSettingsModal) });
         }
 
         document.getElementById('settings-btn').addEventListener('click', () => {
             closeSidebar();
-            document.getElementById('api-key-input').value = localStorage.getItem('geminiApiKey') || '';
-            document.getElementById('imgbb-key-input').value = localStorage.getItem('imgbbApiKey') || '';
-            document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off';
-            document.getElementById('auto-newline-toggle').checked = localStorage.getItem('autoNewlineAfterUrl') !== 'off';
-            updateAiStatusPanel();
             openSettingsModal();
+        });
+        document.getElementById('add-tag-btn').addEventListener('click', addDraftTag);
+        document.getElementById('new-tag-input').addEventListener('keydown', event => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            addDraftTag();
+        });
+        document.getElementById('reset-web-research-prompt-btn').addEventListener('click', () => {
+            document.getElementById('web-research-system-prompt').value = DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
         });
         document.getElementById('settings-modal').addEventListener('click', (e) => {
             const settingsModal = document.getElementById('settings-modal');
@@ -2029,9 +2239,19 @@ ${text}
             }
         });
 
-        document.getElementById('save-settings-btn').addEventListener('click', () => {
+        document.getElementById('save-settings-btn').addEventListener('click', async () => {
             const geminiKey = document.getElementById('api-key-input').value.trim();
+            const jinaKey = document.getElementById('jina-api-key-input').value.trim();
             const imgbbKey = document.getElementById('imgbb-key-input').value.trim();
+            const cleanedTags = draftTags
+                .map(tag => ({ id: String(tag.id), name: String(tag.name || '').trim().replace(/\s+/g, ' ').slice(0, 40) }))
+                .filter(tag => tag.id && tag.name);
+            const normalizedTagNames = cleanedTags.map(tag => tag.name.toLocaleLowerCase('zh-Hant'));
+            if (new Set(normalizedTagNames).size !== normalizedTagNames.length) {
+                showToast('Tag 名稱不可重複，請先調整後再儲存。', 'fas fa-tags');
+                return;
+            }
+            draftTags = cleanedTags;
             if(geminiKey) {
                 const storedGeminiKey = localStorage.getItem('geminiApiKey') || '';
                 if (geminiKey !== storedGeminiKey && modelSettingsApiKey !== geminiKey) {
@@ -2044,10 +2264,27 @@ ${text}
                     if (document.getElementById('web-research-model-select').value) localStorage.setItem('geminiWebResearchModel', document.getElementById('web-research-model-select').value);
                 }
             }
+            if (jinaKey) localStorage.setItem('jinaApiKey', jinaKey);
+            else localStorage.removeItem('jinaApiKey');
             if(imgbbKey) { localStorage.setItem('imgbbApiKey', imgbbKey); }
+            const systemPrompt = document.getElementById('web-research-system-prompt').value.trim() || DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
+            localStorage.setItem('webResearchSystemPrompt', systemPrompt);
             localStorage.setItem('autoSortSetting', document.getElementById('auto-sort-select').value);
             localStorage.setItem('autoNewlineAfterUrl', document.getElementById('auto-newline-toggle').checked ? 'on' : 'off');
-            closeSettingsModal();
+            try {
+                if (currentUser) {
+                    await setDoc(
+                        doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'tags'),
+                        { items: draftTags, updatedAt: Date.now() },
+                        { merge: true }
+                    );
+                }
+                currentTags = draftTags.map(tag => ({ ...tag }));
+                closeSettingsModal();
+            } catch (error) {
+                console.error('儲存 tag 設定失敗：', error);
+                showToast('Tag 設定儲存失敗，請稍後重試。', 'fas fa-exclamation-triangle');
+            }
         });
 
         async function runAiSort() {
@@ -2129,8 +2366,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                     let targetCol = mapping.categoryId;
                     if (!categoryIds.includes(targetCol)) targetCol = categoryIds[0] || 'inbox';
                     
-                    let docData = { text: item.text, createdAt: item.createdAt || Date.now(), order: Date.now() };
-                    if (item.imageUrl) docData.imageUrl = item.imageUrl;
+                    const docData = buildCardMoveData(item);
                     
                     historyMappings.push({
                         itemId: item.id,
@@ -2155,8 +2391,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
                         },
                         redo: async () => {
                             for (const m of historyMappings) {
-                                let docData = { text: m.data.text, createdAt: m.data.createdAt || Date.now(), order: Date.now() };
-                                if (m.data.imageUrl) docData.imageUrl = m.data.imageUrl;
+                                const docData = buildCardMoveData(m.data);
                                 await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, m.newCol, m.itemId), docData);
                                 await copyCardDetails('inbox', m.newCol, m.itemId, m.itemId);
                                 await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', m.itemId));
