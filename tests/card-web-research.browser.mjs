@@ -438,6 +438,25 @@ try {
         web: localStorage.getItem('geminiWebResearchModel')
     })), { general: 'gemini-3.1-flash-lite', web: 'gemini-9.0-flash' });
 
+    await page.$eval('#settings-btn', button => button.click());
+    await page.$eval('#api-key-input', input => {
+        input.value = 'new-unqueried-key';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    assert.equal(await page.$eval('#model-select-container', element => element.classList.contains('hidden')), true);
+    assert.equal(await page.$eval('#web-research-model-select-container', element => element.classList.contains('hidden')), true);
+    await page.click('#save-settings-btn');
+    assert.equal(await page.$eval('#settings-modal', element => element.classList.contains('hidden')), false);
+    assert.equal(await page.evaluate(() => localStorage.getItem('geminiApiKey')), 'fake-key');
+    await page.$eval('#api-key-input', input => {
+        input.value = 'fake-key';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.click('#verify-key-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-model-select-container').classList.contains('hidden'));
+    assert.equal(await page.$eval('#web-research-model-select', select => select.value), 'gemini-9.0-flash');
+    await page.click('#save-settings-btn');
+
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     assert.equal(

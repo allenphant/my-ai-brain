@@ -1832,6 +1832,7 @@ ${text}
         // ✨ 設定邏輯與 AI 分類
         // ==========================================
         let availableGeminiModels = [];
+        let modelSettingsApiKey = '';
 
         function replaceSelectOptions(select, models, selectedValue, emptyLabel = '目前沒有可用模型') {
             select.innerHTML = '';
@@ -1857,6 +1858,7 @@ ${text}
 
         function populateGeminiModelSettings(models, apiKey, preferredWebModel = null) {
             availableGeminiModels = Array.isArray(models) ? models : [];
+            modelSettingsApiKey = apiKey;
             const generalModels = availableGeminiModels
                 .filter(model => model.supportedGenerationMethods?.includes('generateContent'))
                 .map(model => ({ id: model.name.replace(/^models\//, ''), label: model.displayName || model.name }));
@@ -1952,6 +1954,15 @@ ${text}
             }
         });
         document.getElementById('close-modal-btn').addEventListener('click', () => closeSettingsModal());
+
+        document.getElementById('api-key-input').addEventListener('input', (event) => {
+            if (!modelSettingsApiKey || event.target.value.trim() === modelSettingsApiKey) return;
+            modelSettingsApiKey = '';
+            availableGeminiModels = [];
+            document.getElementById('model-select-container').classList.add('hidden');
+            document.getElementById('web-research-model-select-container').classList.add('hidden');
+            document.getElementById('web-research-model-verification-status').textContent = 'API Key 已變更，請重新查詢這把 Key 的可用模型。';
+        });
         
         document.getElementById('verify-key-btn').addEventListener('click', async () => {
             const key = document.getElementById('api-key-input').value.trim(); if(!key) return;
@@ -1965,6 +1976,10 @@ ${text}
                 populateGeminiModelSettings(models, key);
                 document.getElementById('web-research-model-verification-status').textContent = `已即時取得 ${models.length} 個 Gemini 模型。`;
             } catch(error) {
+                if (document.getElementById('api-key-input').value.trim() !== key) {
+                    document.getElementById('web-research-model-verification-status').textContent = 'API Key 已變更，已丟棄舊 Key 的模型查詢錯誤。';
+                    return;
+                }
                 const detail = error?.gemini?.detail || error?.message || '無法取得模型清單';
                 document.getElementById('web-research-model-verification-status').textContent = detail;
                 showToast(`查詢模型失敗：${error?.gemini?.message || error?.message}`, 'fas fa-exclamation-triangle');
@@ -2018,9 +2033,16 @@ ${text}
             const geminiKey = document.getElementById('api-key-input').value.trim();
             const imgbbKey = document.getElementById('imgbb-key-input').value.trim();
             if(geminiKey) {
+                const storedGeminiKey = localStorage.getItem('geminiApiKey') || '';
+                if (geminiKey !== storedGeminiKey && modelSettingsApiKey !== geminiKey) {
+                    showToast('API Key 已變更，請先查詢這把 Key 的可用模型。', 'fas fa-key');
+                    return;
+                }
                 localStorage.setItem('geminiApiKey', geminiKey);
-                if (document.getElementById('model-select').value) localStorage.setItem('geminiModel', document.getElementById('model-select').value);
-                if (document.getElementById('web-research-model-select').value) localStorage.setItem('geminiWebResearchModel', document.getElementById('web-research-model-select').value);
+                if (modelSettingsApiKey === geminiKey) {
+                    if (document.getElementById('model-select').value) localStorage.setItem('geminiModel', document.getElementById('model-select').value);
+                    if (document.getElementById('web-research-model-select').value) localStorage.setItem('geminiWebResearchModel', document.getElementById('web-research-model-select').value);
+                }
             }
             if(imgbbKey) { localStorage.setItem('imgbbApiKey', imgbbKey); }
             localStorage.setItem('autoSortSetting', document.getElementById('auto-sort-select').value);
