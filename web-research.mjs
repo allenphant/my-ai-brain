@@ -1,6 +1,14 @@
 export const WEB_RESEARCH_COOLDOWN_MS = 60 * 1000;
 export const WEB_RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const WEB_RESEARCH_CACHE_PREFIX = 'webPolishCache:';
+export const WEB_RESEARCH_MODEL_VERIFICATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const WEB_RESEARCH_MODEL_VERIFICATION_PREFIX = 'webResearchModelVerification:';
+export const DEFAULT_WEB_RESEARCH_MODEL = 'gemini-2.5-flash';
+
+const KNOWN_WEB_RESEARCH_MODEL_IDS = [
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite'
+];
 
 export function extractUrls(text) {
     return [...new Set(((text || '').match(/https?:\/\/[^\s]+/g) || []).map(url => url.trim()))];
@@ -39,6 +47,128 @@ function hashString(value) {
         hash = Math.imul(hash, 16777619);
     }
     return (hash >>> 0).toString(36);
+}
+
+function normalizeModelId(value) {
+    return String(value || '').replace(/^models\//, '').trim();
+}
+
+function canGenerateContent(model) {
+    return Array.isArray(model?.supportedGenerationMethods)
+        && model.supportedGenerationMethods.includes('generateContent');
+}
+
+export function getWebResearchModelOptions(models, verificationStatuses = {}) {
+    const available = (Array.isArray(models) ? models : [])
+        .filter(canGenerateContent)
+        .map(model => ({
+            id: normalizeModelId(model.name),
+            label: model.displayName || normalizeModelId(model.name)
+        }))
+        .filter(model => model.id);
+    const byId = new Map(available.map(model => [model.id, model]));
+    const verified = [];
+
+    for (const id of KNOWN_WEB_RESEARCH_MODEL_IDS) {
+        if (byId.has(id)) verified.push(byId.get(id));
+    }
+    for (const model of available) {
+        if (!KNOWN_WEB_RESEARCH_MODEL_IDS.includes(model.id)
+            && verificationStatuses[model.id] === 'supported') {
+            verified.push(model);
+        }
+    }
+
+    return {
+        verified,
+        unknown: available.filter(model => !KNOWN_WEB_RESEARCH_MODEL_IDS.includes(model.id)
+            && verificationStatuses[model.id] !== 'supported'
+            && verificationStatuses[model.id] !== 'unsupported'),
+        unsupported: available.filter(model => verificationStatuses[model.id] === 'unsupported')
+    };
+}
+
+export function extractGeminiResponseText(data) {
+    const parts = data?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return '';
+    return parts
+        .filter(part => part?.thought !== true && typeof part?.text === 'string' && part.text.trim())
+        .map(part => part.text.trim())
+        .join('\n\n');
+}
+
+function sanitizeGeminiMessage(value) {
+    return String(value || '未知錯誤')
+        .replace(/AIza[0-9A-Za-z_-]{8,}/g, '[API key 已隱藏]')
+        .replace(/([?&]key=)[^\s&]+/gi, '$1[已隱藏]')
+        .slice(0, 500);
+}
+
+export function describeGeminiApiError(payload, status, model) {
+    const details = Array.isArray(payload?.error?.details) ? payload.error.details : [];
+    const quotaFailure = details.find(detail => String(detail?.['@type'] || '').endsWith('QuotaFailure'));
+    const retryInfo = details.find(detail => String(detail?.['@type'] || '').endsWith('RetryInfo'));
+    const normalizedStatus = Number(status) || Number(payload?.error?.code) || 0;
+    const normalizedModel = normalizeModelId(model) || '未知模型';
+    const message = sanitizeGeminiMessage(payload?.error?.message);
+    const quotaId = quotaFailure?.violations?.find(violation => violation?.quotaId)?.quotaId || null;
+    const retryDelay = retryInfo?.retryDelay || null;
+    const pieces = [
+        `模型 ${normalizedModel}`,
+        normalizedStatus ? `HTTP ${normalizedStatus}` : null,
+        message,
+        quotaId ? `quota: ${quotaId}` : null,
+        retryDelay ? `可於 ${retryDelay} 後重試` : null
+    ].filter(Boolean);
+
+    return {
+        isQuota: normalizedStatus === 429 || payload?.error?.status === 'RESOURCE_EXHAUSTED',
+        status: normalizedStatus,
+        model: normalizedModel,
+        message,
+        quotaId,
+        retryDelay,
+        detail: pieces.join('｜')
+    };
+}
+
+function getWebResearchModelVerificationKey(apiKey, model) {
+    return `${WEB_RESEARCH_MODEL_VERIFICATION_PREFIX}${hashString(String(apiKey || ''))}:${normalizeModelId(model)}`;
+}
+
+export function readWebResearchModelVerification(storage, apiKey, model, now = Date.now()) {
+    const key = getWebResearchModelVerificationKey(apiKey, model);
+    let raw;
+    try {
+        raw = storage.getItem(key);
+    } catch (error) {
+        return null;
+    }
+    if (!raw) return null;
+
+    try {
+        const parsed = JSON.parse(raw);
+        const validStatus = parsed?.status === 'supported' || parsed?.status === 'unsupported';
+        const validTime = typeof parsed?.savedAt === 'number'
+            && Number.isFinite(parsed.savedAt)
+            && parsed.savedAt > 0
+            && parsed.savedAt <= now;
+        if (!validStatus || !validTime || now - parsed.savedAt > WEB_RESEARCH_MODEL_VERIFICATION_TTL_MS) {
+            removeStorageItem(storage, key);
+            return null;
+        }
+        return parsed.status;
+    } catch (error) {
+        removeStorageItem(storage, key);
+        return null;
+    }
+}
+
+export function writeWebResearchModelVerification(storage, apiKey, model, status, now = Date.now()) {
+    if (status !== 'supported' && status !== 'unsupported') {
+        throw new TypeError('Web research model verification status must be supported or unsupported');
+    }
+    storage.setItem(getWebResearchModelVerificationKey(apiKey, model), JSON.stringify({ status, savedAt: now }));
 }
 
 export function getWebResearchCacheKey(text) {

@@ -3,16 +3,23 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import {
+    DEFAULT_WEB_RESEARCH_MODEL,
     WEB_RESEARCH_CACHE_TTL_MS,
     WEB_RESEARCH_COOLDOWN_MS,
+    WEB_RESEARCH_MODEL_VERIFICATION_TTL_MS,
     buildWebResearchAppendData,
     canUseWebResearch,
+    describeGeminiApiError,
+    extractGeminiResponseText,
     extractUrls,
+    getWebResearchModelOptions,
     getWebResearchCacheKey,
     getWebResearchCooldownRemaining,
     isInteractiveCardTarget,
     normalizeHttpUrl,
+    readWebResearchModelVerification,
     readWebResearchCache,
+    writeWebResearchModelVerification,
     writeWebResearchCache
 } from '../web-research.mjs';
 
@@ -185,6 +192,97 @@ test('HTTP URL normalization rejects unsafe schemes and encodes attribute-breaki
     const normalized = normalizeHttpUrl('https://safe.example/\"><svg/onload=alert(1)>');
     assert.match(normalized, /^https:\/\/safe\.example\//);
     assert.doesNotMatch(normalized, /["<>]/);
+});
+
+test('web research model options preserve future generateContent models for explicit verification', () => {
+    const models = [
+        { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-9.0-flash', displayName: 'Gemini 9 Flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/text-embedding-004', displayName: 'Embedding', supportedGenerationMethods: ['embedContent'] }
+    ];
+
+    const options = getWebResearchModelOptions(models, {
+        'gemini-9.0-flash': 'supported'
+    });
+
+    assert.equal(DEFAULT_WEB_RESEARCH_MODEL, 'gemini-2.5-flash');
+    assert.deepEqual(options.verified.map(model => model.id), [
+        'gemini-2.5-flash',
+        'gemini-9.0-flash'
+    ]);
+    assert.deepEqual(options.unknown, []);
+
+    const unverified = getWebResearchModelOptions(models);
+    assert.deepEqual(unverified.verified.map(model => model.id), ['gemini-2.5-flash']);
+    assert.deepEqual(unverified.unknown.map(model => model.id), ['gemini-9.0-flash']);
+});
+
+test('Gemini response extraction joins all visible text parts and excludes thought parts', () => {
+    const response = {
+        candidates: [{
+            content: {
+                parts: [
+                    { thought: true, text: '不要顯示的推理' },
+                    { inlineData: { mimeType: 'text/plain', data: 'ignored' } },
+                    { text: '第一段' },
+                    { text: '第二段' }
+                ]
+            }
+        }]
+    };
+
+    assert.equal(extractGeminiResponseText(response), '第一段\n\n第二段');
+    assert.equal(extractGeminiResponseText({ candidates: [{ content: { parts: [{ thought: true, text: 'only thought' }] } }] }), '');
+    assert.equal(extractGeminiResponseText({}), '');
+});
+
+test('Gemini quota errors expose actionable safe metadata without leaking API keys', () => {
+    const payload = {
+        error: {
+            status: 'RESOURCE_EXHAUSTED',
+            message: 'Quota exhausted for key AIzaSyDefinitelySecret',
+            details: [
+                {
+                    '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                    violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }]
+                },
+                {
+                    '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                    retryDelay: '37s'
+                }
+            ]
+        }
+    };
+
+    const result = describeGeminiApiError(payload, 429, 'gemini-2.5-flash');
+    assert.equal(result.isQuota, true);
+    assert.equal(result.status, 429);
+    assert.equal(result.model, 'gemini-2.5-flash');
+    assert.equal(result.quotaId, 'GenerateRequestsPerDayPerProjectPerModel-FreeTier');
+    assert.equal(result.retryDelay, '37s');
+    assert.match(result.detail, /HTTP 429/);
+    assert.match(result.detail, /gemini-2\.5-flash/);
+    assert.doesNotMatch(result.detail, /AIzaSyDefinitelySecret/);
+});
+
+test('web research model verification is scoped to API key and expires after seven days', () => {
+    const storage = new MemoryStorage();
+    const now = 1_800_000_000_000;
+
+    writeWebResearchModelVerification(storage, 'key-one', 'gemini-9.0-flash', 'supported', now);
+    assert.equal(
+        readWebResearchModelVerification(storage, 'key-one', 'gemini-9.0-flash', now + WEB_RESEARCH_MODEL_VERIFICATION_TTL_MS),
+        'supported'
+    );
+    assert.equal(readWebResearchModelVerification(storage, 'key-two', 'gemini-9.0-flash', now), null);
+    assert.equal(
+        readWebResearchModelVerification(storage, 'key-one', 'gemini-9.0-flash', now + WEB_RESEARCH_MODEL_VERIFICATION_TTL_MS + 1),
+        null
+    );
+    assert.throws(
+        () => writeWebResearchModelVerification(storage, 'key-one', 'gemini-9.0-flash', 'temporary', now),
+        /supported or unsupported/
+    );
 });
 
 test('production markup exposes only the per-card research preview flow', async () => {
