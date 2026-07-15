@@ -37,7 +37,7 @@ export function normalizeHttpUrl(value) {
     }
 }
 
-function normalizeSourceText(text) {
+export function normalizeSourceText(text) {
     return (text || '').trim().replace(/\s+/g, ' ');
 }
 
@@ -91,12 +91,16 @@ function normalizeTagName(value) {
     return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 40);
 }
 
-function createTagId(name) {
-    return normalizeTagName(name)
-        .toLocaleLowerCase('zh-Hant')
-        .replace(/\//g, '／')
-        .replace(/\s+/g, '-')
-        .slice(0, 60);
+function createTagId(name, catalog = []) {
+    const normalizedName = normalizeTagName(name).toLocaleLowerCase('zh-Hant');
+    const baseId = `tag-${hashString(normalizedName)}`;
+    let candidate = baseId;
+    let suffix = 2;
+    while (catalog.some(tag => tag.id === candidate && tag.name.toLocaleLowerCase('zh-Hant') !== normalizedName)) {
+        candidate = `${baseId}-${suffix}`;
+        suffix += 1;
+    }
+    return candidate;
 }
 
 function uniqueBy(items, keyFn) {
@@ -295,7 +299,7 @@ export function resolveSelectedTags({ catalog = [], existingCardTagIds = [], sug
         const name = normalizeTagName(tag.name);
         if (!name) continue;
         const existing = nextCatalog.find(item => item.name.toLocaleLowerCase('zh-Hant') === name.toLocaleLowerCase('zh-Hant'));
-        if (!existing) nextCatalog.push({ id: createTagId(name), name });
+        if (!existing) nextCatalog.push({ id: createTagId(name, nextCatalog), name });
     }
     const selectedResolvedIds = selected.map(tag => {
         if (!tag?.isNew) return String(tag?.id || '');
@@ -319,6 +323,24 @@ export function buildCardMoveData(item, now = Date.now()) {
         text: String(data.text || ''),
         createdAt: data.createdAt || now,
         order: now
+    };
+}
+
+function normalizeSearchText(value) {
+    return String(value || '')
+        .replace(/\r?\n[ \t]*/g, '\n')
+        .replace(/[ \t]+/g, ' ')
+        .trim()
+        .toLocaleLowerCase('zh-Hant');
+}
+
+export function buildCardSearchFields({ cardText = '', previousResearchText = '', newResearchText = '' }) {
+    const researchParts = [previousResearchText, newResearchText]
+        .map(normalizeSearchText)
+        .filter(Boolean);
+    return {
+        cardSearchText: normalizeSearchText(cardText),
+        researchSearchText: researchParts.join('\n')
     };
 }
 

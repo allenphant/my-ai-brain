@@ -9,6 +9,7 @@
             buildWebResearchAppendData,
             buildGeminiResearchRequest,
             buildCardMoveData,
+            buildCardSearchFields,
             buildJinaReaderRequest,
             canUseWebResearch,
             classifyJinaResearchSource,
@@ -20,6 +21,7 @@
             getWebResearchModelOptions,
             isInteractiveCardTarget,
             normalizeHttpUrl,
+            normalizeSourceText,
             parseGeminiResearchResult,
             parseJinaReaderResponse,
             readWebResearchCache,
@@ -1328,6 +1330,7 @@
             try {
                 const newDocData = { 
                     text: text, 
+                    cardSearchText: text.toLocaleLowerCase('zh-Hant'),
                     createdAt: Date.now(), 
                     order: Date.now() 
                 };
@@ -1375,15 +1378,24 @@
                         const shortNewText = getShortText(newText);
                         historyManager.push({
                             undo: async () => {
-                                await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), { text: oldText });
+                                await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), {
+                                    text: oldText,
+                                    cardSearchText: oldText.toLocaleLowerCase('zh-Hant')
+                                });
                                 showToast(`已還原編輯：內容改回「${shortOldText}」`, 'fas fa-undo');
                             },
                             redo: async () => {
-                                await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), { text: newText });
+                                await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id), {
+                                    text: newText,
+                                    cardSearchText: newText.toLocaleLowerCase('zh-Hant')
+                                });
                                 showToast(`已重做編輯：內容改為「${shortNewText}」`, 'fas fa-redo');
                             }
                         });
-                        await updateDoc(docRef, { text: newText }); 
+                        await updateDoc(docRef, {
+                            text: newText,
+                            cardSearchText: newText.toLocaleLowerCase('zh-Hant')
+                        });
                         showToast(`已將內容修改為「${shortNewText}」`, 'fas fa-edit');
                     }
                 } catch(err) {} finally { btn.innerHTML = originalHTML; btn.disabled = false; closeEditCardModal(); }
@@ -1668,7 +1680,15 @@
 
         async function readUrlWithJina(sourceUrl, apiKey = '') {
             const request = buildJinaReaderRequest(sourceUrl, apiKey);
-            const response = await fetch(request.url, request.options);
+            let response;
+            try {
+                response = await fetch(request.url, request.options);
+            } catch (cause) {
+                const message = String(cause?.message || '網路連線失敗').slice(0, 300);
+                const error = new Error(message);
+                error.jina = { status: 0, message, detail: `Jina Reader｜網路或 CORS 失敗｜${message}` };
+                throw error;
+            }
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) {
                 const message = String(payload?.message || payload?.data?.message || `HTTP ${response.status}`).slice(0, 300);
@@ -1730,7 +1750,13 @@
                         transaction.get(tagsRef)
                     ]);
                     const existingData = noteSnapshot.exists() ? noteSnapshot.data().data : null;
-                    const cardData = cardSnapshot.exists() ? cardSnapshot.data() : {};
+                    if (!cardSnapshot.exists()) {
+                        throw new Error('卡片已被刪除或移動，請關閉預覽後重新研讀。');
+                    }
+                    const cardData = cardSnapshot.data();
+                    if (normalizeSourceText(cardData.text) !== normalizeSourceText(payload.sourceText)) {
+                        throw new Error('卡片內容已在其他地方變更，請關閉預覽後重新研讀。');
+                    }
                     const serverTags = tagsSnapshot.exists() && Array.isArray(tagsSnapshot.data().items)
                         ? tagsSnapshot.data().items
                         : currentTags;
@@ -1741,14 +1767,18 @@
                         selectedSuggestionIds
                     });
                     const now = Date.now();
+                    const searchFields = buildCardSearchFields({
+                        cardText: cardData.text || payload.sourceText,
+                        previousResearchText: cardData.researchSearchText,
+                        newResearchText: payload.result.note
+                    });
                     transaction.set(noteRef, {
                         data: buildWebResearchAppendData(existingData, payload.result.note, now),
                         updatedAt: now
                     }, { merge: true });
                     transaction.set(cardRef, {
                         tagIds: resolvedTags.cardTagIds,
-                        tagLabels: resolvedTags.cardTagLabels,
-                        searchText: `${payload.sourceText}\n${payload.result.note}`.toLocaleLowerCase('zh-Hant'),
+                        ...searchFields,
                         updatedAt: now
                     }, { merge: true });
                     transaction.set(tagsRef, { items: resolvedTags.catalog, updatedAt: now }, { merge: true });
@@ -1933,6 +1963,7 @@
 
                 const newDocData = { 
                     text: text || "（附加圖片）", 
+                    cardSearchText: (text || "（附加圖片）").toLocaleLowerCase('zh-Hant'),
                     createdAt: Date.now(), order: Date.now() 
                 };
 
@@ -2247,6 +2278,11 @@
                 .map(tag => ({ id: String(tag.id), name: String(tag.name || '').trim().replace(/\s+/g, ' ').slice(0, 40) }))
                 .filter(tag => tag.id && tag.name);
             const normalizedTagNames = cleanedTags.map(tag => tag.name.toLocaleLowerCase('zh-Hant'));
+            const tagIds = cleanedTags.map(tag => tag.id);
+            if (new Set(tagIds).size !== tagIds.length) {
+                showToast('Tag 識別碼衝突，請刪除衝突項目後重新建立。', 'fas fa-tags');
+                return;
+            }
             if (new Set(normalizedTagNames).size !== normalizedTagNames.length) {
                 showToast('Tag 名稱不可重複，請先調整後再儲存。', 'fas fa-tags');
                 return;
@@ -2540,7 +2576,10 @@ ${JSON.stringify(inboxData, null, 2)}`;
 
             try {
                 const cardRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, collectionName, cardId);
-                await updateDoc(cardRef, { text: title });
+                await updateDoc(cardRef, {
+                    text: title,
+                    cardSearchText: title.toLocaleLowerCase('zh-Hant')
+                });
             } catch (error) {
                 console.error('Failed to update title:', error);
                 showSaveStatus('標題儲存失敗', 'fas fa-exclamation-circle text-red-500');

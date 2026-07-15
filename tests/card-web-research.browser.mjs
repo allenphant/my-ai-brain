@@ -71,7 +71,8 @@ const firebaseFirestoreModule = `
             'card-4': '錯誤文章 https://error.example',
             'card-5': '沒有網址的普通卡片',
             'card-6': '空回傳文章 https://empty.example',
-            'card-7': '影片貼文 https://video.example'
+            'card-7': '影片貼文 https://video.example',
+            'card-8': 'Jina 錯誤 https://jina-error.example'
         };
         const cardId = Object.keys(cardTexts).find(id => ref.path.endsWith('/inbox/' + id));
         if (cardId) {
@@ -105,7 +106,8 @@ const firebaseFirestoreModule = `
                 { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', createdAt: 0 }) },
                 { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) },
                 { id: 'card-6', data: () => ({ text: '空回傳文章 https://empty.example', createdAt: -2 }) },
-                { id: 'card-7', data: () => ({ text: '影片貼文 https://video.example', createdAt: -3 }) }
+                { id: 'card-7', data: () => ({ text: '影片貼文 https://video.example', createdAt: -3 }) },
+                { id: 'card-8', data: () => ({ text: 'Jina 錯誤 https://jina-error.example', createdAt: -4 }) }
             ];
         } else if (ref.path.endsWith('/categories')) {
             rows = [
@@ -129,7 +131,17 @@ const firebaseFirestoreModule = `
                     return { exists: () => true, data: () => ({ items: [{ id: 'ai', name: 'AI' }, { id: 'design', name: '設計' }] }) };
                 }
                 if (/\\/(?:inbox|todos|bookmarks)\\/[^/]+$/.test(ref.path)) {
-                    return { exists: () => true, data: () => ({ tagIds: ['ai'] }) };
+                    if (globalThis.__mockTransactionCardMissing) {
+                        return { exists: () => false, data: () => ({}) };
+                    }
+                    const storedText = ref.path.endsWith('/bookmarks/bookmark-1')
+                        ? '書籤網址 https://bookmark.example'
+                        : '測試文章 https://success.example';
+                    return { exists: () => true, data: () => ({
+                        text: globalThis.__mockTransactionCardText || storedText,
+                        tagIds: ['ai'],
+                        researchSearchText: '先前研讀'
+                    }) };
                 }
                 return {
                     exists: () => true,
@@ -226,6 +238,10 @@ try {
             };
             if (request.method() === 'OPTIONS') {
                 request.respond({ status: 204, headers: jinaCorsHeaders });
+                return;
+            }
+            if (url.includes('jina-error.example')) {
+                request.abort('connectionfailed');
                 return;
             }
             jinaGets += 1;
@@ -407,7 +423,7 @@ try {
 
     assert.equal(await page.$('#polish-link-btn'), null);
     assert.equal(await page.$('#polish-add-card-btn'), null);
-    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 8);
+    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 9);
     assert.equal(await page.$('li[data-id="card-5"] .web-research-btn'), null);
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
@@ -563,6 +579,20 @@ try {
     assert.equal(jinaGets, 1, 'cache hit must not make a second Jina request');
     await page.$eval('#web-research-preview-tags input[value="design"]', input => { input.checked = false; });
 
+    await page.evaluate(() => { globalThis.__mockTransactionCardMissing = true; });
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#append-web-research-btn').disabled);
+    assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), false);
+    assert.equal(await page.evaluate(() => globalThis.__mockTransactionWrites.length), 0);
+    await page.evaluate(() => { globalThis.__mockTransactionCardMissing = false; });
+
+    await page.evaluate(() => { globalThis.__mockTransactionCardText = '已由其他裝置改成 https://changed.example'; });
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#append-web-research-btn').disabled);
+    assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), false);
+    assert.equal(await page.evaluate(() => globalThis.__mockTransactionWrites.length), 0);
+    await page.evaluate(() => { globalThis.__mockTransactionCardText = ''; });
+
     await page.evaluate(() => { globalThis.__mockTransactionShouldFail = true; });
     await page.click('#append-web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#append-web-research-btn').disabled);
@@ -580,9 +610,12 @@ try {
     assert.equal(noteWrite.data.data.blocks[0].data.text, '既有筆記');
     assert.match(noteWrite.data.data.blocks[1].data.text, /^AI 網址研讀｜/);
     assert.match(noteWrite.data.data.blocks[2].data.text, /^TL;DR：這是一篇設計工具介紹。/);
-    assert.deepEqual(cardWrite.data.tagIds, ['ai', '設計工具']);
-    assert.deepEqual(cardWrite.data.tagLabels, ['AI', '設計工具']);
-    assert.match(cardWrite.data.searchText, /測試文章/);
+    assert.equal(cardWrite.data.tagIds[0], 'ai');
+    assert.match(cardWrite.data.tagIds[1], /^tag-[a-z0-9]+$/);
+    assert.equal(cardWrite.data.tagLabels, undefined);
+    assert.match(cardWrite.data.cardSearchText, /測試文章/);
+    assert.match(cardWrite.data.researchSearchText, /^先前研讀\ntl;dr/);
+    assert.equal(cardWrite.data.tagSearchText, undefined);
     assert.equal(tagWrite.data.items.some(tag => tag.name === '設計工具'), true);
     assert.match(await page.$eval('li[data-id="card-1"]', element => element.innerText), /測試文章/);
     assert.doesNotMatch(await page.$eval('li[data-id="card-1"]', element => element.innerText), /AI 整理結果/);
@@ -614,6 +647,13 @@ try {
     assert.equal(await page.evaluate(() => globalThis.__xss === true), false);
     assert.equal(await page.$$eval('#toast-container img', images => images.length), 0);
     assert.equal(consoleMessages.some(message => message.includes('AIzaSyDefinitelySecretValue')), false);
+
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('li[data-id="card-8"] .web-research-btn');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '來源擷取失敗');
+    const jinaErrorStatus = await page.evaluate(() => JSON.parse(localStorage.getItem('aiStatus:web')));
+    assert.match(jinaErrorStatus.detail, /Jina Reader/);
+    assert.equal(webResearchPosts, 3, 'a Jina transport failure must not call Gemini');
 
     await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
     await page.click('li[data-id="card-6"] .web-research-btn');
@@ -712,7 +752,7 @@ try {
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
     await waitForNextNoteWrite(noteWritesBeforeBack);
     await page.waitForFunction(
-        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected && write.data.cardSearchText === expected.toLocaleLowerCase('zh-Hant')),
         { timeout: 2_000 },
         '返回前修改標題'
     );
@@ -728,7 +768,7 @@ try {
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
     await waitForNextNoteWrite(noteWritesBeforeEscape);
     await page.waitForFunction(
-        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected && write.data.cardSearchText === expected.toLocaleLowerCase('zh-Hant')),
         { timeout: 2_000 },
         'Escape 前修改標題'
     );
@@ -744,7 +784,7 @@ try {
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
     await waitForNextNoteWrite(noteWritesBeforeCloseButton);
     await page.waitForFunction(
-        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected && write.data.cardSearchText === expected.toLocaleLowerCase('zh-Hant')),
         { timeout: 2_000 },
         '關閉鈕前修改標題'
     );
@@ -760,7 +800,7 @@ try {
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
     await waitForNextNoteWrite(noteWritesBeforeBackdrop);
     await page.waitForFunction(
-        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected && write.data.cardSearchText === expected.toLocaleLowerCase('zh-Hant')),
         { timeout: 2_000 },
         'Backdrop 前修改標題'
     );

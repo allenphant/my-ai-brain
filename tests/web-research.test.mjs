@@ -11,6 +11,7 @@ import {
     buildWebResearchAppendData,
     buildGeminiResearchRequest,
     buildCardMoveData,
+    buildCardSearchFields,
     buildJinaReaderRequest,
     canUseWebResearch,
     classifyJinaResearchSource,
@@ -355,10 +356,18 @@ test('selected tag resolution preserves card tags and creates only checked sugge
 
     assert.deepEqual(resolved.catalog, [
         { id: 'ai', name: 'AI' },
-        { id: '設計工具', name: '設計工具' }
+        { id: resolved.catalog[1].id, name: '設計工具' }
     ]);
-    assert.deepEqual(resolved.cardTagIds, ['ai', '設計工具']);
+    assert.match(resolved.catalog[1].id, /^tag-[a-z0-9]+$/);
+    assert.deepEqual(resolved.cardTagIds, ['ai', resolved.catalog[1].id]);
     assert.deepEqual(resolved.cardTagLabels, ['AI', '設計工具']);
+
+    const collisionSafe = resolveSelectedTags({
+        catalog: [{ id: 'ai', name: '人工智慧' }],
+        suggestions: [{ id: 'new:AI', name: 'AI', isNew: true }],
+        selectedSuggestionIds: ['new:AI']
+    });
+    assert.notEqual(collisionSafe.catalog[1].id, 'ai');
 });
 
 test('AI category moves preserve tag and search metadata', () => {
@@ -368,15 +377,27 @@ test('AI category moves preserve tag and search metadata', () => {
         createdAt: 123,
         imageUrl: 'https://image.example/a.png',
         tagIds: ['ai'],
-        tagLabels: ['AI'],
-        searchText: '卡片 ai'
+        cardSearchText: '卡片',
+        researchSearchText: '研讀內容'
     }, 999);
 
     assert.equal(moved.id, undefined);
     assert.equal(moved.order, 999);
     assert.deepEqual(moved.tagIds, ['ai']);
-    assert.deepEqual(moved.tagLabels, ['AI']);
-    assert.equal(moved.searchText, '卡片 ai');
+    assert.equal(moved.cardSearchText, '卡片');
+    assert.equal(moved.researchSearchText, '研讀內容');
+});
+
+test('search fields keep prior research and omit denormalized tag labels', () => {
+    const fields = buildCardSearchFields({
+        cardText: '新的卡片標題',
+        previousResearchText: '第一次研讀',
+        newResearchText: '第二次研讀'
+    });
+
+    assert.equal(fields.cardSearchText, '新的卡片標題');
+    assert.equal(fields.researchSearchText, '第一次研讀\n第二次研讀');
+    assert.equal(fields.tagSearchText, undefined);
 });
 
 test('Gemini response extraction joins all visible text parts and excludes thought parts', () => {
