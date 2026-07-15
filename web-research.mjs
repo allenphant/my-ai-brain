@@ -97,6 +97,35 @@ export function extractGeminiResponseText(data) {
         .join('\n\n');
 }
 
+function describePartType(part) {
+    if (part?.thought === true) return 'thought';
+    if (typeof part?.text === 'string') return 'text';
+    if (part?.inlineData) return 'inlineData';
+    if (part?.functionCall) return 'functionCall';
+    if (part?.functionResponse) return 'functionResponse';
+    return 'unknown';
+}
+
+export function describeGeminiResponseIssue(data, model) {
+    const candidate = data?.candidates?.[0];
+    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+    const finishReason = candidate?.finishReason || 'missing';
+    const partTypes = parts.length ? parts.map(describePartType).join(', ') : 'none';
+    const normalizedModel = normalizeModelId(model) || '未知模型';
+    const message = candidate ? '回傳結果沒有可顯示文字' : '模型未回傳候選結果';
+    return {
+        isQuota: false,
+        status: 200,
+        model: normalizedModel,
+        message,
+        quotaId: null,
+        retryDelay: null,
+        finishReason,
+        partTypes,
+        detail: `模型 ${normalizedModel}｜HTTP 200｜${message}｜finishReason: ${finishReason}｜parts: ${partTypes}`
+    };
+}
+
 function sanitizeGeminiMessage(value) {
     return String(value || '未知錯誤')
         .replace(/AIza[0-9A-Za-z_-]{8,}/g, '[API key 已隱藏]')

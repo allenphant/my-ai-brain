@@ -10,6 +10,7 @@ import {
     buildWebResearchAppendData,
     canUseWebResearch,
     describeGeminiApiError,
+    describeGeminiResponseIssue,
     extractGeminiResponseText,
     extractUrls,
     getWebResearchModelOptions,
@@ -234,6 +235,21 @@ test('Gemini response extraction joins all visible text parts and excludes thoug
     assert.equal(extractGeminiResponseText(response), '第一段\n\n第二段');
     assert.equal(extractGeminiResponseText({ candidates: [{ content: { parts: [{ thought: true, text: 'only thought' }] } }] }), '');
     assert.equal(extractGeminiResponseText({}), '');
+});
+
+test('empty Gemini responses expose safe finish and part-shape diagnostics', () => {
+    const result = describeGeminiResponseIssue({
+        candidates: [{
+            finishReason: 'MAX_TOKENS',
+            content: { parts: [{ thought: true, text: 'secret reasoning' }, { inlineData: { mimeType: 'text/plain' } }] }
+        }]
+    }, 'gemini-9.0-flash');
+
+    assert.match(result.detail, /模型 gemini-9\.0-flash/);
+    assert.match(result.detail, /HTTP 200/);
+    assert.match(result.detail, /finishReason: MAX_TOKENS/);
+    assert.match(result.detail, /parts: thought, inlineData/);
+    assert.doesNotMatch(result.detail, /secret reasoning/);
 });
 
 test('Gemini quota errors expose actionable safe metadata without leaking API keys', () => {

@@ -66,7 +66,8 @@ const firebaseFirestoreModule = `
             'card-2': '冷卻文章 https://cooldown.example',
             'card-3': '配額文章 https://quota.example',
             'card-4': '錯誤文章 https://error.example',
-            'card-5': '沒有網址的普通卡片'
+            'card-5': '沒有網址的普通卡片',
+            'card-6': '空回傳文章 https://empty.example'
         };
         const cardId = Object.keys(cardTexts).find(id => ref.path.endsWith('/inbox/' + id));
         if (cardId) {
@@ -91,7 +92,8 @@ const firebaseFirestoreModule = `
                 { id: 'card-2', data: () => ({ text: '冷卻文章 https://cooldown.example', createdAt: 2 }) },
                 { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', createdAt: 1 }) },
                 { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', createdAt: 0 }) },
-                { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) }
+                { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) },
+                { id: 'card-6', data: () => ({ text: '空回傳文章 https://empty.example', createdAt: -2 }) }
             ];
         } else if (ref.path.endsWith('/categories')) {
             rows = [
@@ -175,7 +177,7 @@ try {
     page.on('pageerror', error => pageErrors.push(error.message));
     page.on('console', message => consoleMessages.push(`${message.type()}: ${message.text()}`));
     await page.setRequestInterception(true);
-    page.on('request', request => {
+    page.on('request', async request => {
         const url = request.url();
         if (url.startsWith(baseUrl)) {
             request.continue();
@@ -204,6 +206,9 @@ try {
                 return;
             }
             if (request.method() === 'GET' && url.includes('/v1beta/models?')) {
+                if (url.includes('key=query-race-key')) {
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                }
                 request.respond({
                     status: 200,
                     headers: corsHeaders,
@@ -212,6 +217,8 @@ try {
                         { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] },
                         { name: 'models/gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', supportedGenerationMethods: ['generateContent'] },
                         { name: 'models/gemini-3.1-flash-lite', displayName: 'Gemini 3.1 Flash-Lite', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-6.0-race', displayName: 'Gemini 6 Race', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-7.0-server-error', displayName: 'Gemini 7 Server Error', supportedGenerationMethods: ['generateContent'] },
                         { name: 'models/gemini-8.0-no-search', displayName: 'Gemini 8 No Search', supportedGenerationMethods: ['generateContent'] },
                         { name: 'models/gemini-9.0-flash', displayName: 'Gemini 9 Flash', supportedGenerationMethods: ['generateContent'] },
                         { name: 'models/text-embedding-004', displayName: 'Embedding', supportedGenerationMethods: ['embedContent'] }
@@ -225,6 +232,18 @@ try {
             if (modelMatch) requestedGeminiModels.push(modelMatch[1]);
             if (postData.includes('只回覆「SEARCH_OK」')) {
                 verificationPosts += 1;
+                if (url.includes('/gemini-6.0-race:')) {
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                }
+                if (url.includes('/gemini-7.0-server-error:')) {
+                    request.respond({
+                        status: 500,
+                        headers: corsHeaders,
+                        contentType: 'application/json',
+                        body: JSON.stringify({ error: { status: 'INTERNAL', message: 'Temporary server failure' } })
+                    });
+                    return;
+                }
                 if (url.includes('/gemini-3.1-flash-lite:')) {
                     request.respond({
                         status: 429,
@@ -273,7 +292,16 @@ try {
                     status: 500,
                     headers: corsHeaders,
                     contentType: 'application/json',
-                    body: JSON.stringify({ error: { message: 'Server failure' } })
+                    body: JSON.stringify({ error: { message: 'Server failure <img src=x onerror="globalThis.__xss=true"> AIzaSyDefinitelySecretValue' } })
+                });
+                return;
+            }
+            if (postData.includes('empty.example')) {
+                request.respond({
+                    status: 200,
+                    headers: corsHeaders,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ thought: true, text: 'private chain of thought' }] } }] })
                 });
                 return;
             }
@@ -322,7 +350,7 @@ try {
 
     assert.equal(await page.$('#polish-link-btn'), null);
     assert.equal(await page.$('#polish-add-card-btn'), null);
-    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 6);
+    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 7);
     assert.equal(await page.$('li[data-id="card-5"] .web-research-btn'), null);
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
@@ -333,7 +361,7 @@ try {
     await page.waitForFunction(() => !document.querySelector('#web-research-model-select-container').classList.contains('hidden'));
     assert.deepEqual(
         await page.$$eval('#model-select option', options => options.map(option => option.value)),
-        ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-8.0-no-search', 'gemini-9.0-flash']
+        ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-6.0-race', 'gemini-7.0-server-error', 'gemini-8.0-no-search', 'gemini-9.0-flash']
     );
     assert.deepEqual(
         await page.$$eval('#web-research-model-select option', options => options.map(option => option.value)),
@@ -341,7 +369,7 @@ try {
     );
     assert.deepEqual(
         await page.$$eval('#web-research-candidate-select option', options => options.map(option => option.value)),
-        ['gemini-3.1-flash-lite', 'gemini-8.0-no-search', 'gemini-9.0-flash']
+        ['gemini-3.1-flash-lite', 'gemini-6.0-race', 'gemini-7.0-server-error', 'gemini-8.0-no-search', 'gemini-9.0-flash']
     );
     await page.click('#web-research-model-discovery summary');
     await page.select('#model-select', 'gemini-3.1-flash-lite');
@@ -362,6 +390,24 @@ try {
         throw error;
     });
     assert.equal(verificationPosts, 1);
+    await page.select('#web-research-candidate-select', 'gemini-7.0-server-error');
+    await page.click('#verify-web-research-model-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('gemini-7.0-server-error 暫時無法驗證'));
+    assert.equal(
+        await page.$eval('#web-research-candidate-select', select => Array.from(select.options).some(option => option.value === 'gemini-7.0-server-error')),
+        true,
+        '5xx verification must leave the model retryable'
+    );
+    await page.select('#web-research-candidate-select', 'gemini-6.0-race');
+    await page.click('#verify-web-research-model-btn');
+    await page.$eval('#api-key-input', input => { input.value = 'changed-key'; });
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('已丟棄這次測試結果'));
+    assert.equal(
+        await page.$eval('#web-research-model-select', select => Array.from(select.options).some(option => option.value === 'gemini-6.0-race')),
+        false,
+        'a probe completed for a stale API key must be discarded'
+    );
+    await page.$eval('#api-key-input', input => { input.value = 'fake-key'; });
     await page.select('#web-research-candidate-select', 'gemini-3.1-flash-lite');
     await page.click('#verify-web-research-model-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('這不代表模型不支援'));
@@ -378,8 +424,14 @@ try {
         false,
         'clear 400 unsupported response should be cached and removed from candidates'
     );
-    assert.equal(verificationPosts, 3);
-    await page.select('#web-research-model-select', 'gemini-9.0-flash');
+    assert.equal(verificationPosts, 5);
+    assert.equal(await page.$eval('#web-research-model-select', select => select.value), 'gemini-9.0-flash');
+    await page.waitForFunction(() => !document.querySelector('#verify-key-btn').disabled);
+    await page.$eval('#api-key-input', input => { input.value = 'query-race-key'; });
+    await page.click('#verify-key-btn');
+    await page.$eval('#api-key-input', input => { input.value = 'fake-key'; });
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('已丟棄舊 Key'));
+    assert.equal(await page.$eval('#web-research-model-select', select => select.value), 'gemini-9.0-flash');
     await page.click('#save-settings-btn');
     assert.deepEqual(await page.evaluate(() => ({
         general: localStorage.getItem('geminiModel'),
@@ -441,6 +493,20 @@ try {
     assert.equal(webResearchPosts, 3);
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
     assert.match(await page.$eval('li[data-id="card-4"]', element => element.innerText), /錯誤文章/);
+    const genericErrorStatus = await page.evaluate(() => JSON.parse(localStorage.getItem('aiStatus:web')));
+    assert.doesNotMatch(genericErrorStatus.detail, /AIzaSyDefinitelySecretValue/);
+    assert.equal(await page.evaluate(() => globalThis.__xss === true), false);
+    assert.equal(await page.$$eval('#toast-container img', images => images.length), 0);
+    assert.equal(consoleMessages.some(message => message.includes('AIzaSyDefinitelySecretValue')), false);
+
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('li[data-id="card-6"] .web-research-btn');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').detail?.includes('parts: thought'));
+    const emptyStatus = await page.evaluate(() => JSON.parse(localStorage.getItem('aiStatus:web')));
+    assert.match(emptyStatus.detail, /HTTP 200/);
+    assert.match(emptyStatus.detail, /finishReason: STOP/);
+    assert.doesNotMatch(emptyStatus.detail, /private chain of thought/);
+    assert.equal(webResearchPosts, 4);
 
     await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
     await page.click('#list-todos li[data-id="todo-1"] .web-research-btn');
@@ -461,7 +527,7 @@ try {
     const allWrites = await page.evaluate(() => globalThis.__mockTransactionWrites);
     assert.equal(allWrites.length, 2);
     assert.match(allWrites[1].path, /bookmarks\/bookmark-1\/details\/note$/);
-    assert.equal(webResearchPosts, 5);
+    assert.equal(webResearchPosts, 6);
 
     const externalPagePromise = new Promise(resolve => browser.once('targetcreated', async target => {
         const targetPage = await target.page();

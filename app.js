@@ -8,6 +8,7 @@
             buildWebResearchAppendData,
             canUseWebResearch,
             describeGeminiApiError,
+            describeGeminiResponseIssue,
             extractGeminiResponseText,
             getWebResearchCooldownRemaining,
             getWebResearchModelOptions,
@@ -1550,9 +1551,14 @@
                 });
                 showToast('AI 研讀完成，請預覽後確認追加。', 'fas fa-wand-magic-sparkles');
             } catch (error) {
-                console.error('AI 網頁研讀潤飾失敗：', error);
                 const rawMessage = error?.message || '未知錯誤';
                 const geminiError = error?.gemini;
+                console.error('AI 網頁研讀潤飾失敗', geminiError ? {
+                    model: geminiError.model,
+                    status: geminiError.status,
+                    quotaId: geminiError.quotaId,
+                    retryDelay: geminiError.retryDelay
+                } : { message: rawMessage });
                 if (geminiError?.isQuota) {
                     saveAiStatus('web', '配額不足', geminiError.detail);
                     const retryText = geminiError.retryDelay ? `，約 ${geminiError.retryDelay} 後可重試` : '';
@@ -1735,16 +1741,25 @@ ${text}
             
             const candidate = data.candidates?.[0];
             if (!candidate) {
-                throw new Error("模型未回傳結果");
+                const info = describeGeminiResponseIssue(data, model);
+                const responseError = new Error(info.message);
+                responseError.gemini = info;
+                throw responseError;
             }
             
             if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-                throw new Error(`生成中斷，原因: ${candidate.finishReason}`);
+                const info = describeGeminiResponseIssue(data, model);
+                const responseError = new Error(`生成中斷，原因: ${candidate.finishReason}`);
+                responseError.gemini = info;
+                throw responseError;
             }
             
             const partText = extractGeminiResponseText(data);
             if (!partText) {
-                throw new Error("回傳結果無內容");
+                const info = describeGeminiResponseIssue(data, model);
+                const responseError = new Error(info.message);
+                responseError.gemini = info;
+                throw responseError;
             }
             
             return partText.trim();
@@ -1855,6 +1870,7 @@ ${text}
                 || localStorage.getItem('geminiModel')
                 || DEFAULT_WEB_RESEARCH_MODEL;
             const savedWebModel = preferredWebModel
+                || document.getElementById('web-research-model-select').value
                 || localStorage.getItem('geminiWebResearchModel')
                 || DEFAULT_WEB_RESEARCH_MODEL;
 
@@ -1942,6 +1958,10 @@ ${text}
             const btn = document.getElementById('verify-key-btn'); btn.disabled = true; btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-t-indigo-700 mx-auto"></div>';
             try {
                 const models = await loadGeminiModels(key);
+                if (document.getElementById('api-key-input').value.trim() !== key) {
+                    document.getElementById('web-research-model-verification-status').textContent = 'API Key 已變更，已丟棄舊 Key 的模型查詢結果。';
+                    return;
+                }
                 populateGeminiModelSettings(models, key);
                 document.getElementById('web-research-model-verification-status').textContent = `已即時取得 ${models.length} 個 Gemini 模型。`;
             } catch(error) {
@@ -1962,13 +1982,23 @@ ${text}
             status.textContent = `正在用 ${model} 送出一次最小 Search 測試…`;
             try {
                 await probeWebResearchModel(apiKey, model);
+                if (document.getElementById('api-key-input').value.trim() !== apiKey
+                    || document.getElementById('web-research-candidate-select').value !== model) {
+                    status.textContent = 'API Key 或待測模型已變更，已丟棄這次測試結果。';
+                    return;
+                }
                 writeWebResearchModelVerification(localStorage, apiKey, model, 'supported');
                 populateGeminiModelSettings(availableGeminiModels, apiKey, model);
                 status.textContent = `${model} 已確認支援 Search；結果會保留 7 天。`;
             } catch (error) {
+                if (document.getElementById('api-key-input').value.trim() !== apiKey
+                    || document.getElementById('web-research-candidate-select').value !== model) {
+                    status.textContent = 'API Key 或待測模型已變更，已丟棄這次測試結果。';
+                    return;
+                }
                 const info = error?.gemini;
                 const unsupported = info?.status === 400
-                    && /google[_ ]search|tool|unsupported|not supported|不支援|invalid argument/i.test(info.message);
+                    && /(?:google[_ ]search|google search).{0,120}(?:not supported|unsupported|not available|does not support|不支援)|(?:not supported|unsupported|not available|不支援).{0,120}(?:google[_ ]search|google search)/i.test(info.message);
                 if (unsupported) {
                     writeWebResearchModelVerification(localStorage, apiKey, model, 'unsupported');
                     populateGeminiModelSettings(availableGeminiModels, apiKey);
@@ -2470,7 +2500,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             toast.className = 'bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transform transition-all duration-300 translate-y-full opacity-0 text-sm font-medium';
-            toast.innerHTML = `<i class="${icon}"></i> <span>${message}</span>`;
+            const iconElement = document.createElement('i');
+            iconElement.className = String(icon);
+            const messageElement = document.createElement('span');
+            messageElement.textContent = String(message);
+            toast.append(iconElement, messageElement);
             container.appendChild(toast);
             
             requestAnimationFrame(() => {
