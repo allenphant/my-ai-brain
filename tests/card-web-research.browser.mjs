@@ -101,13 +101,13 @@ const firebaseFirestoreModule = `
         if (ref.path.endsWith('/inbox')) {
             rows = [
                 { id: 'card-1', data: () => ({ text: '測試文章 https://success.example', tagIds: ['ai', 'design'], createdAt: 3 }) },
-                { id: 'card-2', data: () => ({ text: '冷卻文章 https://cooldown.example', tagIds: ['ai'], createdAt: 2 }) },
-                { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', createdAt: 1 }) },
-                { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', createdAt: 0 }) },
+                { id: 'card-2', data: () => ({ text: '冷卻文章 https://cooldown.example', tagIds: ['ai'], researchSearchText: '完成', createdAt: 2 }) },
+                { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: 1 }) },
+                { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: 0 }) },
                 { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) },
-                { id: 'card-6', data: () => ({ text: '空回傳文章 https://empty.example', createdAt: -2 }) },
-                { id: 'card-7', data: () => ({ text: '影片貼文 https://video.example', createdAt: -3 }) },
-                { id: 'card-8', data: () => ({ text: 'Jina 錯誤 https://jina-error.example', createdAt: -4 }) }
+                { id: 'card-6', data: () => ({ text: '空回傳文章 https://empty.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -2 }) },
+                { id: 'card-7', data: () => ({ text: '影片貼文 https://video.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -3 }) },
+                { id: 'card-8', data: () => ({ text: 'Jina 錯誤 https://jina-error.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -4 }) }
             ];
         } else if (ref.path.endsWith('/categories')) {
             rows = [
@@ -115,9 +115,9 @@ const firebaseFirestoreModule = `
                 { id: 'bookmarks', data: () => ({ name: '稍後閱讀', icon: 'fas fa-bookmark', type: 'bookmark', order: 2 }) }
             ];
         } else if (ref.path.endsWith('/todos')) {
-            rows = [{ id: 'todo-1', data: () => ({ text: '待辦網址 https://todo.example', tagIds: ['design'], createdAt: 1 }) }];
+            rows = [{ id: 'todo-1', data: () => ({ text: '待辦網址 https://todo.example', tagIds: ['design'], researchSearchText: '完成', createdAt: 1 }) }];
         } else if (ref.path.endsWith('/bookmarks')) {
-            rows = [{ id: 'bookmark-1', data: () => ({ text: '書籤網址 https://bookmark.example', tagIds: ['ai', 'design'], createdAt: 1 }) }];
+            rows = [{ id: 'bookmark-1', data: () => ({ text: '書籤網址 https://bookmark.example', tagIds: ['ai', 'design'], researchSearchText: '完成', createdAt: 1 }) }];
         }
         queueMicrotask(() => callback({ forEach: handler => rows.forEach(handler) }));
         return () => {};
@@ -430,6 +430,17 @@ try {
 
     await page.click('#tag-browser-btn');
     await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#tag-backfill-count', element => element.textContent), '1');
+    await page.click('#tag-backfill-toggle-btn');
+    assert.equal(await page.$eval('#tag-backfill-panel', element => element.classList.contains('hidden')), false);
+    assert.deepEqual(
+        await page.$$eval('[data-backfill-card]', cards => cards.map(card => card.getAttribute('data-backfill-card'))),
+        ['inbox/card-1']
+    );
+    assert.equal(await page.$eval('#start-tag-backfill-btn', element => element.disabled), true);
+    await page.click('[data-backfill-select="inbox/card-1"]');
+    assert.equal(await page.$eval('#start-tag-backfill-btn', element => element.disabled), false);
+    await page.click('#tag-backfill-toggle-btn');
     assert.deepEqual(
         await page.$$eval('[data-tag-browser-group]', groups => groups.map(group => group.getAttribute('data-tag-browser-group'))),
         ['inbox', 'todos', 'bookmarks']
@@ -869,6 +880,25 @@ try {
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
 
+    await page.click('#tag-browser-btn');
+    await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.click('#tag-backfill-toggle-btn');
+    await page.click('[data-backfill-select="inbox/card-1"]');
+    await page.evaluate(() => localStorage.removeItem('geminiApiKey'));
+    await page.click('#start-tag-backfill-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('缺少 Gemini API Key'));
+    assert.equal(await page.$eval('#settings-modal', element => element.classList.contains('hidden')), true);
+    await page.evaluate(() => localStorage.setItem('geminiApiKey', 'fake-key'));
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('#start-tag-backfill-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.match(await page.$eval('#tag-backfill-status', element => element.textContent), /1 \/ 1.*等待確認/);
+    await page.click('#cancel-web-research-preview-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('佇列完成'));
+    await page.click('#close-tag-browser-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+
     assert.deepEqual(pageErrors, []);
     console.log(JSON.stringify({
         cardResearchButton: 'visible',
@@ -883,6 +913,7 @@ try {
         todoAndBookmarkRenderers: true,
         tagBrowserGrouped: true,
         tagBrowserBackForward: true,
+        selectiveBackfillQueue: true,
         overlayCloseControls: true,
         stackedBackOrder: true,
         deepLinkOpenedEditor: true,

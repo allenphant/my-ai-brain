@@ -3,7 +3,11 @@
         import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc, setDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { createLayerStack, attachKeyboardManager } from './js/keyboard-layers.js';
         import { attachMdShortcuts } from './js/md-shortcuts.js';
-        import { buildTagUsageCounts, groupCardsByTagFilter } from './tag-filter.mjs';
+        import {
+            buildTagUsageCounts,
+            groupCardsByTagFilter,
+            groupResearchBackfillCandidates
+        } from './tag-filter.mjs';
         import {
             DEFAULT_WEB_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT,
@@ -61,7 +65,16 @@
         let currentInboxItems = []; 
         const currentItemsByCollection = new Map();
         const selectedTagFilterIds = new Set();
+        const selectedResearchBackfillKeys = new Set();
         let tagMatchMode = 'all';
+        let tagBrowserView = 'tags';
+        let researchBackfillQueue = [];
+        let researchBackfillIndex = 0;
+        let activeResearchBackfillKey = null;
+        let researchBackfillWaitTimer = null;
+        let researchBackfillCountdownTimer = null;
+        let researchBackfillStatusMessage = '';
+        let pendingBackfillDisposition = null;
         let currentTodoItems = [];
         let pendingDeleteTarget = null;
         let pendingMoveTarget = null;
@@ -629,6 +642,219 @@
             return card;
         }
 
+        const getResearchBackfillKey = (collectionId, itemId) => `${collectionId}/${itemId}`;
+
+        function getResearchBackfillGroups() {
+            return groupResearchBackfillCandidates({
+                categories: currentCategories,
+                inboxItems: currentInboxItems,
+                itemsByCollection: currentItemsByCollection
+            });
+        }
+
+        function clearResearchBackfillTimers() {
+            if (researchBackfillWaitTimer) clearTimeout(researchBackfillWaitTimer);
+            if (researchBackfillCountdownTimer) clearInterval(researchBackfillCountdownTimer);
+            researchBackfillWaitTimer = null;
+            researchBackfillCountdownTimer = null;
+        }
+
+        function updateResearchBackfillStatus(message) {
+            researchBackfillStatusMessage = message;
+            const status = document.getElementById('tag-backfill-status');
+            if (status) status.textContent = message;
+        }
+
+        function renderResearchBackfillPanel() {
+            const groups = getResearchBackfillGroups();
+            const entries = groups.flatMap(group => group.items.map(item => ({
+                key: getResearchBackfillKey(group.id, item.id),
+                group,
+                item
+            })));
+            const availableKeys = new Set(entries.map(entry => entry.key));
+            [...selectedResearchBackfillKeys].forEach(key => {
+                if (!availableKeys.has(key)) selectedResearchBackfillKeys.delete(key);
+            });
+
+            document.getElementById('tag-backfill-count').textContent = String(entries.length);
+            const results = document.getElementById('tag-backfill-results');
+            results.replaceChildren();
+            groups.forEach(group => {
+                const section = document.createElement('section');
+                section.className = 'rounded-2xl border border-slate-200 bg-white p-4';
+                const header = document.createElement('div');
+                header.className = 'mb-3 flex items-center gap-2 font-bold text-slate-700';
+                const icon = document.createElement('i');
+                icon.className = `${group.icon} text-amber-600`;
+                const name = document.createElement('span');
+                name.textContent = group.name;
+                const count = document.createElement('span');
+                count.className = 'rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800';
+                count.textContent = String(group.items.length);
+                header.append(icon, name, count);
+                const list = document.createElement('div');
+                list.className = 'space-y-2';
+                group.items.forEach(item => {
+                    const key = getResearchBackfillKey(group.id, item.id);
+                    const label = document.createElement('label');
+                    label.className = 'flex min-h-14 cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 transition-colors hover:border-amber-300 hover:bg-amber-50/50';
+                    label.setAttribute('data-backfill-card', key);
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = selectedResearchBackfillKeys.has(key);
+                    checkbox.disabled = researchBackfillQueue.length > 0;
+                    checkbox.className = 'mt-1 h-5 w-5 shrink-0 accent-amber-600';
+                    checkbox.setAttribute('data-backfill-select', key);
+                    checkbox.addEventListener('change', () => {
+                        if (checkbox.checked) selectedResearchBackfillKeys.add(key);
+                        else selectedResearchBackfillKeys.delete(key);
+                        researchBackfillStatusMessage = '';
+                        renderResearchBackfillPanel();
+                    });
+                    const content = document.createElement('span');
+                    content.className = 'min-w-0 flex-1';
+                    const text = document.createElement('span');
+                    text.className = 'block break-all text-sm font-medium leading-relaxed text-slate-700';
+                    text.textContent = item.text || '無標題';
+                    const reasons = document.createElement('span');
+                    reasons.className = 'mt-2 flex flex-wrap gap-1.5';
+                    item.backfillReasons.forEach(reason => {
+                        const badge = document.createElement('span');
+                        badge.className = reason === '無 Tag'
+                            ? 'rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700'
+                            : 'rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800';
+                        badge.textContent = reason;
+                        reasons.appendChild(badge);
+                    });
+                    content.append(text, reasons);
+                    label.append(checkbox, content);
+                    list.appendChild(label);
+                });
+                section.append(header, list);
+                results.appendChild(section);
+            });
+
+            const queueActive = researchBackfillQueue.length > 0;
+            const allSelected = entries.length > 0 && entries.every(entry => selectedResearchBackfillKeys.has(entry.key));
+            const selectAllButton = document.getElementById('select-all-tag-backfill-btn');
+            selectAllButton.textContent = allSelected ? '取消全選' : '全選';
+            selectAllButton.disabled = queueActive || entries.length === 0;
+            const startButton = document.getElementById('start-tag-backfill-btn');
+            startButton.disabled = queueActive || selectedResearchBackfillKeys.size === 0;
+            document.getElementById('cancel-tag-backfill-btn').classList.toggle('hidden', !queueActive);
+            document.getElementById('tag-backfill-empty').classList.toggle('hidden', entries.length > 0);
+            results.classList.toggle('hidden', entries.length === 0);
+            if (!researchBackfillStatusMessage) {
+                updateResearchBackfillStatus(entries.length === 0
+                    ? '所有可研讀的網址卡片目前都有 Tag 與研讀索引。'
+                    : `待回補 ${entries.length} 張，已選 ${selectedResearchBackfillKeys.size} 張。`);
+            }
+        }
+
+        function updateTagBrowserView() {
+            const showingBackfill = tagBrowserView === 'backfill';
+            document.getElementById('tag-filter-controls').classList.toggle('hidden', showingBackfill);
+            document.getElementById('tag-backfill-panel').classList.toggle('hidden', !showingBackfill);
+            document.getElementById('tag-browser-summary').classList.toggle('hidden', showingBackfill);
+            document.getElementById('tag-browser-results').classList.toggle('hidden', showingBackfill);
+            document.getElementById('tag-browser-empty').classList.toggle('hidden', showingBackfill || document.querySelectorAll('[data-tag-browser-group]').length > 0);
+            const toggle = document.getElementById('tag-backfill-toggle-btn');
+            toggle.setAttribute('aria-expanded', String(showingBackfill));
+            document.getElementById('tag-backfill-toggle-label').textContent = showingBackfill ? '返回 Tag' : '待回補';
+        }
+
+        function cancelResearchBackfillQueue(message = '回補佇列已停止。') {
+            clearResearchBackfillTimers();
+            researchBackfillQueue = [];
+            researchBackfillIndex = 0;
+            activeResearchBackfillKey = null;
+            pendingBackfillDisposition = null;
+            updateResearchBackfillStatus(message);
+            renderResearchBackfillPanel();
+        }
+
+        function finishResearchBackfillQueue() {
+            const completed = researchBackfillQueue.length;
+            clearResearchBackfillTimers();
+            researchBackfillQueue = [];
+            researchBackfillIndex = 0;
+            activeResearchBackfillKey = null;
+            selectedResearchBackfillKeys.clear();
+            updateResearchBackfillStatus(`佇列完成：已處理 ${completed} 張卡片。`);
+            renderResearchBackfillPanel();
+        }
+
+        function scheduleResearchBackfillRetry(remaining) {
+            clearResearchBackfillTimers();
+            const retryAt = Date.now() + Math.max(remaining, 1000) + 250;
+            const updateCountdown = () => {
+                const seconds = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+                updateResearchBackfillStatus(`冷卻中，${seconds} 秒後自動研讀第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張。`);
+            };
+            updateCountdown();
+            researchBackfillCountdownTimer = setInterval(updateCountdown, 1000);
+            researchBackfillWaitTimer = setTimeout(() => {
+                clearResearchBackfillTimers();
+                processNextResearchBackfill();
+            }, Math.max(remaining, 1000) + 250);
+        }
+
+        async function processNextResearchBackfill() {
+            if (researchBackfillQueue.length === 0) return;
+            if (researchBackfillIndex >= researchBackfillQueue.length) {
+                finishResearchBackfillQueue();
+                return;
+            }
+            const entry = researchBackfillQueue[researchBackfillIndex];
+            activeResearchBackfillKey = entry.key;
+            updateResearchBackfillStatus(`正在研讀第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張：${getShortText(entry.item.text, 24)}`);
+            const outcome = await runCardWebResearch(entry.item, entry.group.id, null, { fromBackfill: true });
+            if (researchBackfillQueue.length === 0) return;
+            if (outcome?.status === 'preview') {
+                updateResearchBackfillStatus(`${researchBackfillIndex + 1} / ${researchBackfillQueue.length}：等待確認或跳過。`);
+                return;
+            }
+            if (outcome?.status === 'cooldown') {
+                scheduleResearchBackfillRetry(outcome.remaining);
+                return;
+            }
+            if (outcome?.status === 'blocked') {
+                cancelResearchBackfillQueue('缺少 Gemini API Key，請完成設定後重新啟動回補。');
+                return;
+            }
+            activeResearchBackfillKey = null;
+            researchBackfillIndex += 1;
+            updateResearchBackfillStatus(`上一張無法研讀，已跳過；準備下一張。`);
+            setTimeout(processNextResearchBackfill, 400);
+        }
+
+        function advanceResearchBackfillQueue(disposition) {
+            if (!activeResearchBackfillKey || researchBackfillQueue.length === 0) return;
+            const verb = disposition === 'saved' ? '已儲存' : '已跳過';
+            researchBackfillIndex += 1;
+            activeResearchBackfillKey = null;
+            updateResearchBackfillStatus(`${verb}第 ${researchBackfillIndex} 張；準備下一張。`);
+            setTimeout(processNextResearchBackfill, 350);
+        }
+
+        function startResearchBackfillQueue() {
+            const selected = selectedResearchBackfillKeys;
+            researchBackfillQueue = getResearchBackfillGroups().flatMap(group => group.items.flatMap(item => {
+                const key = getResearchBackfillKey(group.id, item.id);
+                return selected.has(key) ? [{ key, group, item }] : [];
+            }));
+            researchBackfillIndex = 0;
+            activeResearchBackfillKey = null;
+            researchBackfillStatusMessage = '';
+            if (researchBackfillQueue.length === 0) {
+                renderResearchBackfillPanel();
+                return;
+            }
+            renderResearchBackfillPanel();
+            processNextResearchBackfill();
+        }
+
         function renderTagBrowser() {
             const knownTagIds = new Set(currentTags.map(tag => tag.id));
             [...selectedTagFilterIds].forEach(id => {
@@ -672,6 +898,8 @@
                 : `${selectedTagFilterIds.size} 個 Tag · ${tagMatchMode === 'all' ? '符合全部' : '符合任一'}`;
             document.getElementById('tag-browser-summary').textContent = `${selectionDescription}｜${total} 張卡片，${groups.length} 個分類`;
             document.getElementById('tag-browser-empty').classList.toggle('hidden', groups.length > 0);
+            renderResearchBackfillPanel();
+            updateTagBrowserView();
         }
 
         function refreshOpenTagBrowser() {
@@ -691,12 +919,33 @@
                 history.back();
                 return;
             }
+            if (researchBackfillQueue.length > 0) {
+                cancelResearchBackfillQueue('已關閉 Tag 瀏覽，回補佇列同步停止。');
+            }
             document.getElementById('tag-browser-modal').classList.add('hidden');
             keyLayers.pop('tag-browser');
         }
 
         document.getElementById('tag-browser-btn').addEventListener('click', () => openTagBrowser());
         document.getElementById('close-tag-browser-btn').addEventListener('click', () => closeTagBrowser());
+        document.getElementById('tag-backfill-toggle-btn').addEventListener('click', () => {
+            tagBrowserView = tagBrowserView === 'backfill' ? 'tags' : 'backfill';
+            renderTagBrowser();
+        });
+        document.getElementById('select-all-tag-backfill-btn').addEventListener('click', () => {
+            const entries = getResearchBackfillGroups().flatMap(group => group.items.map(item => (
+                getResearchBackfillKey(group.id, item.id)
+            )));
+            const allSelected = entries.length > 0 && entries.every(key => selectedResearchBackfillKeys.has(key));
+            entries.forEach(key => {
+                if (allSelected) selectedResearchBackfillKeys.delete(key);
+                else selectedResearchBackfillKeys.add(key);
+            });
+            researchBackfillStatusMessage = '';
+            renderResearchBackfillPanel();
+        });
+        document.getElementById('start-tag-backfill-btn').addEventListener('click', startResearchBackfillQueue);
+        document.getElementById('cancel-tag-backfill-btn').addEventListener('click', () => cancelResearchBackfillQueue());
         document.getElementById('clear-tag-filter-btn').addEventListener('click', () => {
             selectedTagFilterIds.clear();
             renderTagBrowser();
@@ -1677,6 +1926,7 @@
         }
 
         function setButtonLoading(button, loadingHTML, idleHTML) {
+            if (!button) return () => {};
             const originalHTML = idleHTML || button.innerHTML;
             button.disabled = true;
             button.innerHTML = loadingHTML;
@@ -1731,6 +1981,7 @@
 
         function closeWebResearchPreview({ fromHistory = false } = {}) {
             if (!fromHistory && history.state?.overlay === 'web-research-preview') {
+                pendingBackfillDisposition ||= 'skipped';
                 history.back();
                 return;
             }
@@ -1742,16 +1993,20 @@
             webResearchPreviewTagsContainer.classList.add('hidden');
             pendingWebResearch = null;
             keyLayers.pop('web-research-preview');
+            if (activeResearchBackfillKey) {
+                advanceResearchBackfillQueue(pendingBackfillDisposition || 'skipped');
+            }
+            pendingBackfillDisposition = null;
         }
 
-        async function runCardWebResearch(item, collectionName, button) {
+        async function runCardWebResearch(item, collectionName, button, { fromBackfill = false } = {}) {
             const normalizedText = (item?.text || '').trim();
             const eligibility = canUseWebResearch(normalizedText);
             if (!eligibility.ok) {
                 if (eligibility.reason === 'no_url') showToast('沒有偵測到網址，無法執行 AI 研讀。', 'fas fa-link');
                 else if (eligibility.reason === 'multiple_urls') showToast('一次只支援研讀 1 個網址，請先精簡輸入。', 'fas fa-link');
                 else if (eligibility.reason === 'too_long') showToast('這段內容太長，請先縮短後再執行 AI 研讀。', 'fas fa-align-left');
-                return null;
+                return { status: 'ineligible' };
             }
 
             let apiKey = null;
@@ -1767,9 +2022,9 @@
                 console.warn('無法讀取 AI 設定：', error);
             }
             if (!apiKey) {
-                openSettingsModal();
+                if (!fromBackfill) openSettingsModal();
                 showToast('請先設定 Gemini API Key，才能使用 AI 研讀。', 'fas fa-key');
-                return null;
+                return { status: 'blocked', reason: 'missing_api_key' };
             }
 
             const cacheContext = {
@@ -1789,7 +2044,7 @@
                     result: cached
                 });
                 showToast('已載入先前的 AI 研讀結果供預覽。', 'fas fa-clock-rotate-left');
-                return;
+                return { status: 'preview', cached: true };
             }
 
             const cooldownRemaining = getWebResearchCooldownRemaining(localStorage);
@@ -1797,7 +2052,7 @@
                 saveAiStatus('web', '冷卻中', `剩餘 ${formatCooldown(cooldownRemaining)}`);
                 updateAiStatusPanel();
                 showToast(`AI 研讀冷卻中，請 ${formatCooldown(cooldownRemaining)} 後再試。`, 'fas fa-hourglass-half');
-                return;
+                return { status: 'cooldown', remaining: cooldownRemaining };
             }
 
             const restoreButton = setButtonLoading(button, '<div class="loader w-4 h-4 border-2 border-t-transparent mx-auto"></div>');
@@ -1854,6 +2109,7 @@
                     result: polished
                 });
                 showToast('AI 研讀完成，請預覽後確認追加。', 'fas fa-wand-magic-sparkles');
+                return { status: 'preview', cached: false };
             } catch (error) {
                 const rawMessage = error?.message || '未知錯誤';
                 const geminiError = error?.gemini;
@@ -1877,6 +2133,7 @@
                     showToast(`AI 網頁研讀失敗：${geminiError?.message || rawMessage}`, 'fas fa-exclamation-triangle');
                 }
                 updateAiStatusPanel();
+                return { status: 'error', error };
             } finally {
                 restoreButton();
             }
@@ -1987,6 +2244,7 @@
                     }, { merge: true });
                     transaction.set(tagsRef, { items: resolvedTags.catalog, updatedAt: now }, { merge: true });
                 });
+                pendingBackfillDisposition = 'saved';
                 closeWebResearchPreview();
                 showToast('AI 研讀結果與勾選的 tag 已儲存。', 'fas fa-check-circle');
             } catch (error) {
