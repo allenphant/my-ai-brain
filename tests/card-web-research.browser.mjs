@@ -436,7 +436,9 @@ try {
     );
     assert.match(await page.$eval('[data-tag-filter-id="ai"]', element => element.textContent), /3/);
     assert.match(await page.$eval('[data-tag-filter-id="design"]', element => element.textContent), /3/);
+    assert.equal(await page.$eval('#clear-tag-filter-btn', element => element.classList.contains('hidden')), true);
     await page.click('[data-tag-filter-id="ai"]');
+    assert.equal(await page.$eval('#clear-tag-filter-btn', element => element.classList.contains('hidden')), false);
     await page.click('[data-tag-filter-id="design"]');
     assert.deepEqual(
         await page.$$eval('[data-tag-browser-group]', groups => groups.map(group => ({

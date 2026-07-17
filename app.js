@@ -576,7 +576,7 @@
             }
             const clearButton = document.getElementById('clear-tag-filter-btn');
             clearButton.disabled = selectedTagFilterIds.size === 0;
-            clearButton.classList.toggle('opacity-40', clearButton.disabled);
+            clearButton.classList.toggle('hidden', clearButton.disabled);
         }
 
         function renderTagMatchModeButtons() {
