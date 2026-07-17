@@ -3,6 +3,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc, setDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { createLayerStack, attachKeyboardManager } from './js/keyboard-layers.js';
         import { attachMdShortcuts } from './js/md-shortcuts.js';
+        import { buildTagUsageCounts, groupCardsByTagFilter } from './tag-filter.mjs';
         import {
             DEFAULT_WEB_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT,
@@ -58,6 +59,9 @@
         let currentTags = [];
         let draftTags = [];
         let currentInboxItems = []; 
+        const currentItemsByCollection = new Map();
+        const selectedTagFilterIds = new Set();
+        let tagMatchMode = 'all';
         let currentTodoItems = [];
         let pendingDeleteTarget = null;
         let pendingMoveTarget = null;
@@ -199,6 +203,7 @@
             onSnapshot(collection(db, 'artifacts', appId, 'users', currentUser.uid, catId), (snapshot) => {
                 const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
                 items.sort((a, b) => getOrder(b) - getOrder(a));
+                currentItemsByCollection.set(catId, items);
                 
                 const countEl = document.getElementById(`count-${catId}`);
                 if (countEl) {
@@ -212,6 +217,7 @@
                 } else {
                     renderList(items, listEl, catId, `${catIcon} text-slate-400`);
                 }
+                refreshOpenTagBrowser();
             });
         }
 
@@ -476,6 +482,7 @@
 
             // Static: Inbox
             nav.appendChild(createSidebarLink('inbox', 'fas fa-inbox', '收件匣'));
+            nav.appendChild(createTagBrowserSidebarLink());
 
             // Divider
             if (categories.length > 0) {
@@ -513,6 +520,196 @@
             });
             return btn;
         }
+
+        function createTagBrowserSidebarLink() {
+            const btn = document.createElement('button');
+            btn.className = 'sidebar-link';
+            btn.setAttribute('data-target', 'tag-browser');
+            btn.innerHTML = '<i class="fas fa-tags sidebar-link-icon"></i><span class="sidebar-link-text">Tag 瀏覽</span>';
+            btn.addEventListener('click', () => {
+                closeSidebar();
+                openTagBrowser();
+            });
+            return btn;
+        }
+
+        function getTagNameMap() {
+            return new Map(currentTags.map(tag => [tag.id, tag.name]));
+        }
+
+        function renderTagFilterOptions() {
+            const container = document.getElementById('tag-filter-options');
+            const counts = buildTagUsageCounts({
+                inboxItems: currentInboxItems,
+                itemsByCollection: currentItemsByCollection
+            });
+            container.replaceChildren();
+            currentTags.forEach(tag => {
+                const selected = selectedTagFilterIds.has(tag.id);
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.setAttribute('data-tag-filter-id', tag.id);
+                button.setAttribute('aria-pressed', String(selected));
+                button.className = selected
+                    ? 'inline-flex min-h-11 items-center gap-2 rounded-full border border-indigo-600 bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-300'
+                    : 'inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-colors hover:border-indigo-300 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300';
+                const name = document.createElement('span');
+                name.textContent = tag.name;
+                const count = document.createElement('span');
+                count.className = selected
+                    ? 'rounded-full bg-white/20 px-1.5 py-0.5 text-[11px] text-white'
+                    : 'rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500';
+                count.textContent = String(counts.get(tag.id) || 0);
+                button.append(name, count);
+                button.addEventListener('click', () => {
+                    if (selectedTagFilterIds.has(tag.id)) selectedTagFilterIds.delete(tag.id);
+                    else selectedTagFilterIds.add(tag.id);
+                    renderTagBrowser();
+                });
+                container.appendChild(button);
+            });
+            if (currentTags.length === 0) {
+                const message = document.createElement('p');
+                message.className = 'py-2 text-sm text-slate-400';
+                message.textContent = '尚未建立 Tag；完成一次 AI 研讀並確認 Tag 後就會出現在這裡。';
+                container.appendChild(message);
+            }
+            const clearButton = document.getElementById('clear-tag-filter-btn');
+            clearButton.disabled = selectedTagFilterIds.size === 0;
+            clearButton.classList.toggle('opacity-40', clearButton.disabled);
+        }
+
+        function renderTagMatchModeButtons() {
+            document.querySelectorAll('[data-tag-match-mode]').forEach(button => {
+                const active = button.getAttribute('data-tag-match-mode') === tagMatchMode;
+                button.setAttribute('aria-pressed', String(active));
+                button.classList.toggle('bg-white', active);
+                button.classList.toggle('text-indigo-700', active);
+                button.classList.toggle('shadow-sm', active);
+                button.classList.toggle('text-slate-500', !active);
+            });
+        }
+
+        function renderTagBrowserCard(item, group) {
+            const tagNames = getTagNameMap();
+            const { previewHTML, textWithoutUrl } = getLinkPreviewData(item.text);
+            const card = document.createElement('li');
+            card.className = 'group relative flex cursor-pointer flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md';
+            card.setAttribute('data-tag-browser-card', '');
+            card.setAttribute('data-id', item.id);
+            const visibleTags = (Array.isArray(item.tagIds) ? item.tagIds : [])
+                .map(id => tagNames.get(String(id)))
+                .filter(Boolean);
+            const tagsHtml = visibleTags.length > 0
+                ? `<div class="flex flex-wrap gap-1.5">${visibleTags.map(name => `<span class="rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700">${escapeHtml(name)}</span>`).join('')}</div>`
+                : '';
+            const completedHtml = group.type === 'todo' && item.completed
+                ? '<span class="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700"><i class="fas fa-check mr-1"></i>已完成</span>'
+                : '';
+            card.innerHTML = `
+                <div class="flex items-start justify-between gap-3">
+                    <button type="button" data-tag-card-open class="line-clamp-3 min-h-11 flex-1 whitespace-pre-wrap break-all text-left font-medium leading-relaxed hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">${escapeHtml(textWithoutUrl || item.text || '無標題')}</button>
+                    ${completedHtml}
+                </div>
+                ${tagsHtml}
+                ${getImageHTML(item.imageUrl)}
+                ${previewHTML}
+                ${getWebResearchButtonHTML(item)}
+            `;
+            attachItemListeners(card, item, group.id);
+            card.querySelector('[data-tag-card-open]').addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                openEditor(item.id, item.text, group.id);
+            });
+            card.addEventListener('click', event => {
+                if (isInteractiveCardTarget(event.target)) return;
+                openEditor(item.id, item.text, group.id);
+            });
+            return card;
+        }
+
+        function renderTagBrowser() {
+            const knownTagIds = new Set(currentTags.map(tag => tag.id));
+            [...selectedTagFilterIds].forEach(id => {
+                if (!knownTagIds.has(id)) selectedTagFilterIds.delete(id);
+            });
+            renderTagFilterOptions();
+            renderTagMatchModeButtons();
+            const groups = groupCardsByTagFilter({
+                categories: currentCategories,
+                inboxItems: currentInboxItems,
+                itemsByCollection: currentItemsByCollection,
+                selectedTagIds: [...selectedTagFilterIds],
+                matchMode: tagMatchMode
+            });
+            const results = document.getElementById('tag-browser-results');
+            results.replaceChildren();
+            let total = 0;
+            groups.forEach(group => {
+                total += group.items.length;
+                const section = document.createElement('section');
+                section.setAttribute('data-tag-browser-group', group.id);
+                section.className = 'rounded-2xl border border-slate-200 bg-white/60 p-4 md:p-5';
+                const header = document.createElement('div');
+                header.className = 'mb-3 flex items-center gap-2 text-base font-bold text-slate-700';
+                const icon = document.createElement('i');
+                icon.className = `${group.icon} text-indigo-500`;
+                const name = document.createElement('span');
+                name.textContent = group.name;
+                const count = document.createElement('span');
+                count.className = 'rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-bold text-indigo-700';
+                count.textContent = String(group.items.length);
+                header.append(icon, name, count);
+                const list = document.createElement('ul');
+                list.className = 'grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3';
+                group.items.forEach(item => list.appendChild(renderTagBrowserCard(item, group)));
+                section.append(header, list);
+                results.appendChild(section);
+            });
+            const selectionDescription = selectedTagFilterIds.size === 0
+                ? '所有有 Tag 的卡片'
+                : `${selectedTagFilterIds.size} 個 Tag · ${tagMatchMode === 'all' ? '符合全部' : '符合任一'}`;
+            document.getElementById('tag-browser-summary').textContent = `${selectionDescription}｜${total} 張卡片，${groups.length} 個分類`;
+            document.getElementById('tag-browser-empty').classList.toggle('hidden', groups.length > 0);
+        }
+
+        function refreshOpenTagBrowser() {
+            const modal = document.getElementById('tag-browser-modal');
+            if (modal && !modal.classList.contains('hidden')) renderTagBrowser();
+        }
+
+        function openTagBrowser({ fromHistory = false } = {}) {
+            renderTagBrowser();
+            document.getElementById('tag-browser-modal').classList.remove('hidden');
+            keyLayers.push({ name: 'tag-browser', keys: modalKeys(closeTagBrowser) });
+            if (!fromHistory) history.pushState({ overlay: 'tag-browser' }, '', window.location.href);
+        }
+
+        function closeTagBrowser({ fromHistory = false } = {}) {
+            if (!fromHistory && history.state?.overlay === 'tag-browser') {
+                history.back();
+                return;
+            }
+            document.getElementById('tag-browser-modal').classList.add('hidden');
+            keyLayers.pop('tag-browser');
+        }
+
+        document.getElementById('tag-browser-btn').addEventListener('click', () => openTagBrowser());
+        document.getElementById('close-tag-browser-btn').addEventListener('click', () => closeTagBrowser());
+        document.getElementById('clear-tag-filter-btn').addEventListener('click', () => {
+            selectedTagFilterIds.clear();
+            renderTagBrowser();
+        });
+        document.querySelectorAll('[data-tag-match-mode]').forEach(button => {
+            button.addEventListener('click', () => {
+                tagMatchMode = button.getAttribute('data-tag-match-mode') === 'any' ? 'any' : 'all';
+                renderTagBrowser();
+            });
+        });
+        document.getElementById('tag-browser-modal').addEventListener('click', event => {
+            if (event.target === event.currentTarget) closeTagBrowser();
+        });
 
         function openSidebar() {
             document.getElementById('sidebar')?.classList.add('is-open');
@@ -900,6 +1097,7 @@
                 currentTags = Array.isArray(tags)
                     ? tags.filter(tag => tag?.id && tag?.name).map(tag => ({ id: String(tag.id), name: String(tag.name) }))
                     : [];
+                refreshOpenTagBrowser();
             });
 
             onSnapshot(getCol('inbox'), (snapshot) => {
@@ -909,6 +1107,7 @@
                 document.getElementById('ai-sort-btn').disabled = currentInboxItems.length === 0;
                 if (isInitialInboxLoad) { isInitialInboxLoad = false; setTimeout(checkAutoSortCondition, 800); }
                 setTimeout(initSidebarObserver, 100);
+                refreshOpenTagBrowser();
             });
 
             onSnapshot(getCol('categories'), async (snapshot) => {
@@ -926,12 +1125,17 @@
                 }
 
                 currentCategories.sort((a, b) => a.order - b.order);
+                const categoryIds = new Set(currentCategories.map(category => category.id));
+                [...currentItemsByCollection.keys()].forEach(id => {
+                    if (!categoryIds.has(id)) currentItemsByCollection.delete(id);
+                });
                 
                 renderCategoryManagerList(currentCategories);
                 renderMainGrid(currentCategories);
                 updateCategorySelectOptions(currentCategories);
                 renderSidebar(currentCategories);
                 setTimeout(initSidebarObserver, 100);
+                refreshOpenTagBrowser();
             });
         }
 
@@ -2736,6 +2940,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 closeEditor({ fromHistory: true });
                 return;
             }
+            const tagBrowserModal = document.getElementById('tag-browser-modal');
+            if (!tagBrowserModal.classList.contains('hidden') && targetOverlay !== 'tag-browser') {
+                closeTagBrowser({ fromHistory: true });
+                return;
+            }
 
             if (targetOverlay === 'editor' && !activeEditorCardId && currentUser) {
                 const itemId = event.state?.itemId;
@@ -2775,6 +2984,10 @@ ${JSON.stringify(inboxData, null, 2)}`;
             if (targetOverlay === 'web-research-preview' && webResearchPreviewModal.classList.contains('hidden')) {
                 // Preview content is intentionally ephemeral; discard unusable Forward state.
                 history.replaceState({ overlay: null }, '', window.location.pathname);
+                return;
+            }
+            if (targetOverlay === 'tag-browser' && tagBrowserModal.classList.contains('hidden')) {
+                openTagBrowser({ fromHistory: true });
             }
         });
         document.getElementById('editor-title').addEventListener('input', (e) => {

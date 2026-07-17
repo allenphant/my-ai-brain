@@ -100,8 +100,8 @@ const firebaseFirestoreModule = `
         let rows = [];
         if (ref.path.endsWith('/inbox')) {
             rows = [
-                { id: 'card-1', data: () => ({ text: '測試文章 https://success.example', createdAt: 3 }) },
-                { id: 'card-2', data: () => ({ text: '冷卻文章 https://cooldown.example', createdAt: 2 }) },
+                { id: 'card-1', data: () => ({ text: '測試文章 https://success.example', tagIds: ['ai', 'design'], createdAt: 3 }) },
+                { id: 'card-2', data: () => ({ text: '冷卻文章 https://cooldown.example', tagIds: ['ai'], createdAt: 2 }) },
                 { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', createdAt: 1 }) },
                 { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', createdAt: 0 }) },
                 { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) },
@@ -115,9 +115,9 @@ const firebaseFirestoreModule = `
                 { id: 'bookmarks', data: () => ({ name: '稍後閱讀', icon: 'fas fa-bookmark', type: 'bookmark', order: 2 }) }
             ];
         } else if (ref.path.endsWith('/todos')) {
-            rows = [{ id: 'todo-1', data: () => ({ text: '待辦網址 https://todo.example', createdAt: 1 }) }];
+            rows = [{ id: 'todo-1', data: () => ({ text: '待辦網址 https://todo.example', tagIds: ['design'], createdAt: 1 }) }];
         } else if (ref.path.endsWith('/bookmarks')) {
-            rows = [{ id: 'bookmark-1', data: () => ({ text: '書籤網址 https://bookmark.example', createdAt: 1 }) }];
+            rows = [{ id: 'bookmark-1', data: () => ({ text: '書籤網址 https://bookmark.example', tagIds: ['ai', 'design'], createdAt: 1 }) }];
         }
         queueMicrotask(() => callback({ forEach: handler => rows.forEach(handler) }));
         return () => {};
@@ -427,6 +427,44 @@ try {
     assert.equal(await page.$('li[data-id="card-5"] .web-research-btn'), null);
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
+
+    await page.click('#tag-browser-btn');
+    await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    assert.deepEqual(
+        await page.$$eval('[data-tag-browser-group]', groups => groups.map(group => group.getAttribute('data-tag-browser-group'))),
+        ['inbox', 'todos', 'bookmarks']
+    );
+    assert.match(await page.$eval('[data-tag-filter-id="ai"]', element => element.textContent), /3/);
+    assert.match(await page.$eval('[data-tag-filter-id="design"]', element => element.textContent), /3/);
+    await page.click('[data-tag-filter-id="ai"]');
+    await page.click('[data-tag-filter-id="design"]');
+    assert.deepEqual(
+        await page.$$eval('[data-tag-browser-group]', groups => groups.map(group => ({
+            id: group.getAttribute('data-tag-browser-group'),
+            cards: [...group.querySelectorAll('[data-tag-browser-card]')].map(card => card.getAttribute('data-id'))
+        }))),
+        [
+            { id: 'inbox', cards: ['card-1'] },
+            { id: 'bookmarks', cards: ['bookmark-1'] }
+        ]
+    );
+    await page.click('[data-tag-match-mode="any"]');
+    assert.deepEqual(
+        await page.$$eval('[data-tag-browser-group]', groups => groups.map(group => group.getAttribute('data-tag-browser-group'))),
+        ['inbox', 'todos', 'bookmarks']
+    );
+    await page.screenshot({ path: '/tmp/my-ai-brain-tag-browser.png', fullPage: false });
+    await page.click('[data-tag-browser-group="inbox"] [data-tag-browser-card][data-id="card-1"] [data-tag-card-open]');
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    assert.equal(await page.$eval('#tag-browser-modal', element => element.classList.contains('hidden')), false);
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.click('#close-tag-browser-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
 
     await page.$eval('#settings-btn', button => button.click());
     assert.match(await page.$eval('#web-research-system-prompt', element => element.value), /TL;DR/);
@@ -841,6 +879,8 @@ try {
         genericErrorPreservedCard: true,
         appendFailureRetried: true,
         todoAndBookmarkRenderers: true,
+        tagBrowserGrouped: true,
+        tagBrowserBackForward: true,
         overlayCloseControls: true,
         stackedBackOrder: true,
         deepLinkOpenedEditor: true,

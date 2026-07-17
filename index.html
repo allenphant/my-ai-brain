@@ -226,6 +226,9 @@
             </div>
             
             <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm w-full md:w-auto justify-between md:justify-end">
+                <button id="tag-browser-btn" type="button" class="min-h-9 shrink-0 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 transition-colors hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-300" aria-haspopup="dialog" aria-controls="tag-browser-modal">
+                    <i class="fas fa-tags mr-1"></i><span class="hidden sm:inline">Tag 瀏覽</span>
+                </button>
                 <div class="flex items-center gap-2">
                     <span id="auth-status" class="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-inner shrink-0"></span>
                     <span id="auth-text" class="text-slate-600 text-sm font-medium truncate max-w-[150px]">等待登入...</span>
@@ -306,6 +309,44 @@
     </div><!-- end #page-wrapper -->
 
     <!-- Modals -->
+    <div id="tag-browser-modal" class="hidden fixed inset-0 z-[80] bg-slate-900/50 backdrop-blur-sm md:p-4" role="dialog" aria-modal="true" aria-labelledby="tag-browser-title">
+        <div id="tag-browser-panel" class="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden bg-slate-50 shadow-2xl md:h-[calc(100vh-2rem)] md:rounded-2xl">
+            <div class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:px-6 md:py-4">
+                <div class="min-w-0">
+                    <h2 id="tag-browser-title" class="flex items-center gap-2 text-lg font-bold text-slate-800 md:text-xl"><i class="fas fa-tags text-indigo-500"></i>跨分類 Tag 瀏覽</h2>
+                    <p class="mt-0.5 text-xs text-slate-500">結果依原分類分組，選擇多個 Tag 可查看交集或聯集。</p>
+                </div>
+                <button id="close-tag-browser-btn" type="button" class="ml-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300" aria-label="關閉 Tag 瀏覽"><i class="fas fa-times text-lg"></i></button>
+            </div>
+            <div class="border-b border-slate-200 bg-white px-4 py-4 md:px-6">
+                <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                    <div class="min-w-0 flex-1">
+                        <div class="mb-2 flex items-center justify-between gap-3">
+                            <span class="text-xs font-bold uppercase tracking-wider text-slate-500">選擇 Tag</span>
+                            <button id="clear-tag-filter-btn" type="button" class="min-h-9 rounded-lg px-3 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-300">清除選取</button>
+                        </div>
+                        <div id="tag-filter-options" class="flex max-h-32 flex-wrap gap-2 overflow-y-auto custom-scrollbar" aria-live="polite"></div>
+                    </div>
+                    <div class="shrink-0">
+                        <div class="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">多選條件</div>
+                        <div class="inline-flex rounded-xl bg-slate-100 p-1" role="group" aria-label="Tag 多選條件">
+                            <button type="button" data-tag-match-mode="all" class="min-h-10 rounded-lg px-4 text-sm font-semibold transition-colors">符合全部</button>
+                            <button type="button" data-tag-match-mode="any" class="min-h-10 rounded-lg px-4 text-sm font-semibold transition-colors">符合任一</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="flex-1 overflow-y-auto custom-scrollbar px-4 py-5 md:px-6">
+                <div id="tag-browser-summary" class="mb-4 text-sm font-medium text-slate-500" aria-live="polite"></div>
+                <div id="tag-browser-results" class="space-y-6"></div>
+                <div id="tag-browser-empty" class="hidden rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+                    <i class="fas fa-tags mb-3 text-3xl text-slate-300"></i>
+                    <p class="font-semibold text-slate-600">沒有符合條件的卡片</p>
+                    <p class="mt-1 text-sm text-slate-400">請調整 Tag 或切換「符合任一」。</p>
+                </div>
+            </div>
+        </div>
+    </div>
     <div id="category-manager-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl w-full max-w-3xl p-6 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col md:flex-row gap-6 relative">
             <!-- List View -->
