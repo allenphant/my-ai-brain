@@ -889,13 +889,37 @@ try {
     await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('缺少 Gemini API Key'));
     assert.equal(await page.$eval('#settings-modal', element => element.classList.contains('hidden')), true);
     await page.evaluate(() => localStorage.setItem('geminiApiKey', 'fake-key'));
-    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.evaluate(() => {
+        localStorage.removeItem('lastWebPolishTime');
+        Object.keys(localStorage)
+            .filter(key => key.startsWith('webPolishCache:'))
+            .forEach(key => localStorage.removeItem(key));
+    });
     await page.click('#start-tag-backfill-btn');
+    await page.click('#close-tag-browser-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.waitForFunction(() => {
+        const key = Object.keys(localStorage).find(item => item.startsWith('aiResearchReviews:v1:'));
+        return key && JSON.parse(localStorage.getItem(key) || '[]').length === 1;
+    });
+    await page.click('#tag-browser-btn');
+    await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('佇列完成'));
+    assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '1');
+    await page.click('#tag-review-toggle-btn');
+    assert.equal(await page.$$eval('[data-research-review]', elements => elements.length), 1);
+    await page.click('[data-review-open="inbox/card-1"]');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
-    assert.match(await page.$eval('#tag-backfill-status', element => element.textContent), /1 \/ 1.*等待確認/);
     await page.click('#cancel-web-research-preview-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
-    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('佇列完成'));
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '1');
+    await page.click('[data-review-open="inbox/card-1"]');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '0');
+    assert.equal(await page.$$eval('[data-research-review]', elements => elements.length), 0);
     await page.click('#close-tag-browser-btn');
     await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
 

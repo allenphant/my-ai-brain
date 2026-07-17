@@ -500,8 +500,12 @@ test('production markup exposes only the per-card research preview flow', async 
     assert.match(html, /id="reset-web-research-prompt-btn"/);
     assert.match(html, /id="tag-manager-list"/);
     assert.match(html, /id="web-research-preview-tags"/);
+    assert.match(html, /id="tag-review-panel"/);
+    assert.match(html, /id="tag-review-count"/);
     assert.match(appSource, /function getWebResearchButtonHTML\(item\)/);
     assert.match(appSource, /runCardWebResearch/);
+    assert.match(appSource, /deferPreview: true/);
+    assert.match(appSource, /saveResearchReview\(outcome\.payload\)/);
     assert.match(appSource, /runTransaction/);
 });
 

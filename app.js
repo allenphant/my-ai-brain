@@ -9,6 +9,11 @@
             groupResearchBackfillCandidates
         } from './tag-filter.mjs';
         import {
+            readResearchReviews,
+            removeResearchReview,
+            upsertResearchReview
+        } from './research-review.mjs';
+        import {
             DEFAULT_WEB_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT,
             buildWebResearchAppendData,
@@ -73,8 +78,11 @@
         let activeResearchBackfillKey = null;
         let researchBackfillWaitTimer = null;
         let researchBackfillCountdownTimer = null;
+        let researchBackfillWakeLock = null;
         let researchBackfillStatusMessage = '';
-        let pendingBackfillDisposition = null;
+        let researchBackfillCompleted = 0;
+        let researchBackfillFailed = 0;
+        let researchReviewItems = [];
         let currentTodoItems = [];
         let pendingDeleteTarget = null;
         let pendingMoveTarget = null;
@@ -645,11 +653,99 @@
         const getResearchBackfillKey = (collectionId, itemId) => `${collectionId}/${itemId}`;
 
         function getResearchBackfillGroups() {
+            const pendingKeys = new Set(researchReviewItems.map(item => item.id));
             return groupResearchBackfillCandidates({
                 categories: currentCategories,
                 inboxItems: currentInboxItems,
                 itemsByCollection: currentItemsByCollection
+            }).map(group => ({
+                ...group,
+                items: group.items.filter(item => !pendingKeys.has(getResearchBackfillKey(group.id, item.id)))
+            })).filter(group => group.items.length > 0);
+        }
+
+        function loadResearchReviews() {
+            researchReviewItems = currentUser
+                ? readResearchReviews(localStorage, currentUser.uid)
+                : [];
+        }
+
+        function saveResearchReview(payload) {
+            if (!currentUser) throw new Error('使用者尚未登入');
+            const reviewId = getResearchBackfillKey(payload.collectionName, payload.itemId);
+            researchReviewItems = upsertResearchReview(localStorage, currentUser.uid, {
+                id: reviewId,
+                ...payload,
+                createdAt: Date.now()
             });
+            return reviewId;
+        }
+
+        function deleteResearchReview(reviewId) {
+            if (!currentUser) return false;
+            try {
+                researchReviewItems = removeResearchReview(localStorage, currentUser.uid, reviewId);
+                renderResearchReviewPanel();
+                renderResearchBackfillPanel();
+                return true;
+            } catch (error) {
+                console.error('無法移除待審核研讀結果：', error);
+                showToast('無法更新待審核清單，請確認瀏覽器允許儲存資料。', 'fas fa-exclamation-triangle');
+                return false;
+            }
+        }
+
+        function renderResearchReviewPanel() {
+            const count = document.getElementById('tag-review-count');
+            const results = document.getElementById('tag-review-results');
+            const empty = document.getElementById('tag-review-empty');
+            if (!count || !results || !empty) return;
+            count.textContent = String(researchReviewItems.length);
+            results.replaceChildren();
+            researchReviewItems.forEach(review => {
+                const card = document.createElement('article');
+                card.className = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
+                card.setAttribute('data-research-review', review.id);
+                const row = document.createElement('div');
+                row.className = 'flex flex-col gap-3 md:flex-row md:items-start md:justify-between';
+                const content = document.createElement('div');
+                content.className = 'min-w-0 flex-1';
+                const source = document.createElement('div');
+                source.className = 'break-all text-sm font-bold text-slate-800';
+                source.textContent = review.sourceText;
+                const preview = document.createElement('p');
+                preview.className = 'mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-600';
+                preview.textContent = review.result.note;
+                const meta = document.createElement('div');
+                meta.className = 'mt-2 text-xs text-slate-400';
+                meta.textContent = `${getCollectionName(review.collectionName)} · ${new Date(review.createdAt).toLocaleString('zh-TW')}`;
+                content.append(source, preview, meta);
+                const actions = document.createElement('div');
+                actions.className = 'flex shrink-0 gap-2';
+                const reviewButton = document.createElement('button');
+                reviewButton.type = 'button';
+                reviewButton.className = 'min-h-10 rounded-lg bg-indigo-600 px-4 text-sm font-bold text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300';
+                reviewButton.textContent = '審核';
+                reviewButton.setAttribute('data-review-open', review.id);
+                reviewButton.addEventListener('click', () => {
+                    openWebResearchPreview({ ...review, reviewId: review.id });
+                });
+                const discardButton = document.createElement('button');
+                discardButton.type = 'button';
+                discardButton.className = 'min-h-10 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-600 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-300';
+                discardButton.textContent = '捨棄';
+                discardButton.setAttribute('data-review-discard', review.id);
+                discardButton.addEventListener('click', () => {
+                    if (!window.confirm('確定捨棄這筆待審核研讀結果？卡片不會被修改。')) return;
+                    deleteResearchReview(review.id);
+                });
+                actions.append(reviewButton, discardButton);
+                row.append(content, actions);
+                card.appendChild(row);
+                results.appendChild(card);
+            });
+            results.classList.toggle('hidden', researchReviewItems.length === 0);
+            empty.classList.toggle('hidden', researchReviewItems.length > 0);
         }
 
         function clearResearchBackfillTimers() {
@@ -657,6 +753,23 @@
             if (researchBackfillCountdownTimer) clearInterval(researchBackfillCountdownTimer);
             researchBackfillWaitTimer = null;
             researchBackfillCountdownTimer = null;
+        }
+
+        async function requestResearchBackfillWakeLock() {
+            if (!('wakeLock' in navigator) || researchBackfillQueue.length === 0 || document.visibilityState !== 'visible') return;
+            try {
+                researchBackfillWakeLock = await navigator.wakeLock.request('screen');
+                researchBackfillWakeLock.addEventListener('release', () => {
+                    researchBackfillWakeLock = null;
+                });
+            } catch (error) {
+                console.warn('無法啟用回補期間的螢幕喚醒鎖定：', error);
+            }
+        }
+
+        function releaseResearchBackfillWakeLock() {
+            if (researchBackfillWakeLock) void researchBackfillWakeLock.release();
+            researchBackfillWakeLock = null;
         }
 
         function updateResearchBackfillStatus(message) {
@@ -754,35 +867,40 @@
 
         function updateTagBrowserView() {
             const showingBackfill = tagBrowserView === 'backfill';
-            document.getElementById('tag-filter-controls').classList.toggle('hidden', showingBackfill);
+            const showingReviews = tagBrowserView === 'reviews';
+            const showingTags = tagBrowserView === 'tags';
+            document.getElementById('tag-filter-controls').classList.toggle('hidden', !showingTags);
             document.getElementById('tag-backfill-panel').classList.toggle('hidden', !showingBackfill);
-            document.getElementById('tag-browser-summary').classList.toggle('hidden', showingBackfill);
-            document.getElementById('tag-browser-results').classList.toggle('hidden', showingBackfill);
-            document.getElementById('tag-browser-empty').classList.toggle('hidden', showingBackfill || document.querySelectorAll('[data-tag-browser-group]').length > 0);
-            const toggle = document.getElementById('tag-backfill-toggle-btn');
-            toggle.setAttribute('aria-expanded', String(showingBackfill));
-            document.getElementById('tag-backfill-toggle-label').textContent = showingBackfill ? '返回 Tag' : '待回補';
+            document.getElementById('tag-review-panel').classList.toggle('hidden', !showingReviews);
+            document.getElementById('tag-browser-summary').classList.toggle('hidden', !showingTags);
+            document.getElementById('tag-browser-results').classList.toggle('hidden', !showingTags);
+            document.getElementById('tag-browser-empty').classList.toggle('hidden', !showingTags || document.querySelectorAll('[data-tag-browser-group]').length > 0);
+            document.getElementById('tag-backfill-toggle-btn').setAttribute('aria-expanded', String(showingBackfill));
+            document.getElementById('tag-review-toggle-btn').setAttribute('aria-expanded', String(showingReviews));
         }
 
         function cancelResearchBackfillQueue(message = '回補佇列已停止。') {
             clearResearchBackfillTimers();
+            releaseResearchBackfillWakeLock();
             researchBackfillQueue = [];
             researchBackfillIndex = 0;
             activeResearchBackfillKey = null;
-            pendingBackfillDisposition = null;
             updateResearchBackfillStatus(message);
             renderResearchBackfillPanel();
         }
 
         function finishResearchBackfillQueue() {
-            const completed = researchBackfillQueue.length;
+            const completed = researchBackfillCompleted;
+            const failed = researchBackfillFailed;
             clearResearchBackfillTimers();
+            releaseResearchBackfillWakeLock();
             researchBackfillQueue = [];
             researchBackfillIndex = 0;
             activeResearchBackfillKey = null;
             selectedResearchBackfillKeys.clear();
-            updateResearchBackfillStatus(`佇列完成：已處理 ${completed} 張卡片。`);
+            updateResearchBackfillStatus(`佇列完成：${completed} 筆已送往待審核${failed ? `，${failed} 筆失敗或跳過` : ''}。`);
             renderResearchBackfillPanel();
+            renderResearchReviewPanel();
         }
 
         function scheduleResearchBackfillRetry(remaining) {
@@ -809,10 +927,26 @@
             const entry = researchBackfillQueue[researchBackfillIndex];
             activeResearchBackfillKey = entry.key;
             updateResearchBackfillStatus(`正在研讀第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張：${getShortText(entry.item.text, 24)}`);
-            const outcome = await runCardWebResearch(entry.item, entry.group.id, null, { fromBackfill: true });
+            const outcome = await runCardWebResearch(entry.item, entry.group.id, null, {
+                fromBackfill: true,
+                deferPreview: true
+            });
             if (researchBackfillQueue.length === 0) return;
-            if (outcome?.status === 'preview') {
-                updateResearchBackfillStatus(`${researchBackfillIndex + 1} / ${researchBackfillQueue.length}：等待確認或跳過。`);
+            if (outcome?.status === 'ready') {
+                try {
+                    saveResearchReview(outcome.payload);
+                } catch (error) {
+                    console.error('無法保存待審核研讀結果：', error);
+                    cancelResearchBackfillQueue('瀏覽器無法保存待審核結果，佇列已停止以避免遺失資料。');
+                    return;
+                }
+                researchBackfillCompleted += 1;
+                activeResearchBackfillKey = null;
+                researchBackfillIndex += 1;
+                updateResearchBackfillStatus(`已完成 ${researchBackfillCompleted} / ${researchBackfillQueue.length}，結果已送往待審核；準備下一張。`);
+                renderResearchReviewPanel();
+                renderResearchBackfillPanel();
+                setTimeout(processNextResearchBackfill, 350);
                 return;
             }
             if (outcome?.status === 'cooldown') {
@@ -823,19 +957,11 @@
                 cancelResearchBackfillQueue('缺少 Gemini API Key，請完成設定後重新啟動回補。');
                 return;
             }
+            researchBackfillFailed += 1;
             activeResearchBackfillKey = null;
             researchBackfillIndex += 1;
             updateResearchBackfillStatus(`上一張無法研讀，已跳過；準備下一張。`);
             setTimeout(processNextResearchBackfill, 400);
-        }
-
-        function advanceResearchBackfillQueue(disposition) {
-            if (!activeResearchBackfillKey || researchBackfillQueue.length === 0) return;
-            const verb = disposition === 'saved' ? '已儲存' : '已跳過';
-            researchBackfillIndex += 1;
-            activeResearchBackfillKey = null;
-            updateResearchBackfillStatus(`${verb}第 ${researchBackfillIndex} 張；準備下一張。`);
-            setTimeout(processNextResearchBackfill, 350);
         }
 
         function startResearchBackfillQueue() {
@@ -846,14 +972,23 @@
             }));
             researchBackfillIndex = 0;
             activeResearchBackfillKey = null;
+            researchBackfillCompleted = 0;
+            researchBackfillFailed = 0;
             researchBackfillStatusMessage = '';
             if (researchBackfillQueue.length === 0) {
                 renderResearchBackfillPanel();
                 return;
             }
             renderResearchBackfillPanel();
+            void requestResearchBackfillWakeLock();
             processNextResearchBackfill();
         }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && researchBackfillQueue.length > 0 && !researchBackfillWakeLock) {
+                void requestResearchBackfillWakeLock();
+            }
+        });
 
         function renderTagBrowser() {
             const knownTagIds = new Set(currentTags.map(tag => tag.id));
@@ -900,6 +1035,7 @@
             document.getElementById('tag-browser-empty').classList.toggle('hidden', groups.length > 0);
             renderResearchBackfillPanel();
             updateTagBrowserView();
+            renderResearchReviewPanel();
         }
 
         function refreshOpenTagBrowser() {
@@ -919,9 +1055,6 @@
                 history.back();
                 return;
             }
-            if (researchBackfillQueue.length > 0) {
-                cancelResearchBackfillQueue('已關閉 Tag 瀏覽，回補佇列同步停止。');
-            }
             document.getElementById('tag-browser-modal').classList.add('hidden');
             keyLayers.pop('tag-browser');
         }
@@ -930,6 +1063,10 @@
         document.getElementById('close-tag-browser-btn').addEventListener('click', () => closeTagBrowser());
         document.getElementById('tag-backfill-toggle-btn').addEventListener('click', () => {
             tagBrowserView = tagBrowserView === 'backfill' ? 'tags' : 'backfill';
+            renderTagBrowser();
+        });
+        document.getElementById('tag-review-toggle-btn').addEventListener('click', () => {
+            tagBrowserView = tagBrowserView === 'reviews' ? 'tags' : 'reviews';
             renderTagBrowser();
         });
         document.getElementById('select-all-tag-backfill-btn').addEventListener('click', () => {
@@ -1284,6 +1421,7 @@
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 currentUser = user;
+                loadResearchReviews();
                 document.getElementById('auth-status').classList.replace('bg-amber-500', 'bg-emerald-500');
                 document.getElementById('auth-text').innerText = user.displayName ? `嗨，${user.displayName}` : "已登入";
                 document.getElementById('login-btn').classList.add('hidden'); document.getElementById('logout-btn').classList.remove('hidden');
@@ -1310,6 +1448,7 @@
                 processPendingShare();
             } else {
                 currentUser = null;
+                researchReviewItems = [];
                 document.getElementById('auth-status').classList.replace('bg-emerald-500', 'bg-amber-500');
                 document.getElementById('auth-text').innerText = "請先登入";
                 document.getElementById('login-btn').classList.remove('hidden'); document.getElementById('logout-btn').classList.add('hidden');
@@ -1981,7 +2120,6 @@
 
         function closeWebResearchPreview({ fromHistory = false } = {}) {
             if (!fromHistory && history.state?.overlay === 'web-research-preview') {
-                pendingBackfillDisposition ||= 'skipped';
                 history.back();
                 return;
             }
@@ -1993,13 +2131,12 @@
             webResearchPreviewTagsContainer.classList.add('hidden');
             pendingWebResearch = null;
             keyLayers.pop('web-research-preview');
-            if (activeResearchBackfillKey) {
-                advanceResearchBackfillQueue(pendingBackfillDisposition || 'skipped');
-            }
-            pendingBackfillDisposition = null;
         }
 
-        async function runCardWebResearch(item, collectionName, button, { fromBackfill = false } = {}) {
+        async function runCardWebResearch(item, collectionName, button, {
+            fromBackfill = false,
+            deferPreview = false
+        } = {}) {
             const normalizedText = (item?.text || '').trim();
             const eligibility = canUseWebResearch(normalizedText);
             if (!eligibility.ok) {
@@ -2036,15 +2173,17 @@
             if (cached) {
                 saveAiStatus('web', '使用快取', '相同內容直接套用快取結果');
                 updateAiStatusPanel();
-                openWebResearchPreview({
+                const payload = {
                     itemId: item.id,
                     collectionName,
                     sourceText: normalizedText,
                     cardTagIds: Array.isArray(item.tagIds) ? item.tagIds : [],
                     result: cached
-                });
+                };
+                if (deferPreview) return { status: 'ready', cached: true, payload };
+                openWebResearchPreview(payload);
                 showToast('已載入先前的 AI 研讀結果供預覽。', 'fas fa-clock-rotate-left');
-                return { status: 'preview', cached: true };
+                return { status: 'preview', cached: true, payload };
             }
 
             const cooldownRemaining = getWebResearchCooldownRemaining(localStorage);
@@ -2101,15 +2240,17 @@
                     cacheWritten ? '已完成網址研讀並寫入快取' : '已完成網址研讀（瀏覽器未允許寫入快取）'
                 );
                 updateAiStatusPanel();
-                openWebResearchPreview({
+                const payload = {
                     itemId: item.id,
                     collectionName,
                     sourceText: normalizedText,
                     cardTagIds: Array.isArray(item.tagIds) ? item.tagIds : [],
                     result: polished
-                });
+                };
+                if (deferPreview) return { status: 'ready', cached: false, payload };
+                openWebResearchPreview(payload);
                 showToast('AI 研讀完成，請預覽後確認追加。', 'fas fa-wand-magic-sparkles');
-                return { status: 'preview', cached: false };
+                return { status: 'preview', cached: false, payload };
             } catch (error) {
                 const rawMessage = error?.message || '未知錯誤';
                 const geminiError = error?.gemini;
@@ -2244,9 +2385,15 @@
                     }, { merge: true });
                     transaction.set(tagsRef, { items: resolvedTags.catalog, updatedAt: now }, { merge: true });
                 });
-                pendingBackfillDisposition = 'saved';
+                const completedReviewId = payload.reviewId;
                 closeWebResearchPreview();
-                showToast('AI 研讀結果與勾選的 tag 已儲存。', 'fas fa-check-circle');
+                const reviewRemoved = !completedReviewId || deleteResearchReview(completedReviewId);
+                showToast(
+                    reviewRemoved
+                        ? 'AI 研讀結果與勾選的 tag 已儲存。'
+                        : 'AI 研讀已儲存，但待審核清單清理失敗。',
+                    reviewRemoved ? 'fas fa-check-circle' : 'fas fa-exclamation-triangle'
+                );
             } catch (error) {
                 console.error('追加 AI 研讀結果失敗：', error);
                 showToast(`追加失敗：${error?.message || '未知錯誤'}`, 'fas fa-exclamation-triangle');
@@ -3256,7 +3403,7 @@ ${JSON.stringify(inboxData, null, 2)}`;
             editorSaveTimeout = setTimeout(flushPendingEditorChanges, 1000);
         });
         window.addEventListener('beforeunload', (e) => {
-            if (editorSaveTimeout) {
+            if (editorSaveTimeout || researchBackfillQueue.length > 0) {
                 e.preventDefault();
                 e.returnValue = ''; // Trigger browser warning
             }
