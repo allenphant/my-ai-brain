@@ -2840,22 +2840,30 @@
             }
             draftTags.forEach(tag => {
                 const pill = document.createElement('span');
-                pill.className = 'inline-flex min-h-10 items-center gap-1 rounded-full border border-slate-200 bg-white pl-3 pr-1 text-sm text-slate-700 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100';
+                pill.className = 'inline-flex min-h-10 max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white pl-3 pr-1 text-sm text-slate-700 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100';
                 const name = document.createElement('input');
                 name.type = 'text';
                 name.maxLength = 40;
                 name.value = tag.name;
-                name.size = Math.max(2, Math.min(16, [...tag.name].length));
-                name.className = 'min-w-8 max-w-40 bg-transparent outline-none';
+                name.className = 'min-w-16 max-w-[min(20rem,calc(100vw-9rem))] bg-transparent outline-none';
+                const resizeNameInput = () => {
+                    const displayUnits = [...name.value].reduce(
+                        (total, character) => total + (/[\u3000-\u9fff\uff01-\uff60]/u.test(character) ? 2 : 1),
+                        0
+                    );
+                    name.style.width = `${Math.max(8, Math.min(40, displayUnits + 2))}ch`;
+                };
+                resizeNameInput();
                 name.setAttribute('aria-label', `重新命名 tag ${tag.name}`);
                 name.addEventListener('input', () => {
                     const nextName = name.value.replace(/\s+/g, ' ').slice(0, 40);
                     tag.name = nextName;
-                    name.size = Math.max(2, Math.min(16, [...nextName].length));
+                    resizeNameInput();
                 });
                 name.addEventListener('blur', () => {
                     tag.name = tag.name.trim() || '未命名';
                     name.value = tag.name;
+                    resizeNameInput();
                 });
                 const remove = document.createElement('button');
                 remove.type = 'button';

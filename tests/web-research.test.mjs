@@ -523,8 +523,10 @@ test('production markup exposes only the per-card research preview flow', async 
     assert.match(html, /id="tag-review-count"/);
     assert.match(html, /id="web-research-preview-source-title"/);
     assert.match(html, /data-backfill-approval-mode="auto"/);
+    assert.equal((html.match(/data-backfill-approval-mode="auto"/g) || []).length, 2);
     assert.match(html, /id="research-queue-floating-status"/);
     assert.match(appSource, /function getWebResearchButtonHTML\(item\)/);
+    assert.match(appSource, /displayUnits/);
     assert.match(appSource, /runCardWebResearch/);
     assert.match(appSource, /deferPreview: true/);
     assert.match(appSource, /saveResearchReview\(outcome\.payload\)/);
