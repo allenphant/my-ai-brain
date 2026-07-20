@@ -499,6 +499,38 @@ try {
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
 
+    await page.click('#global-search-btn');
+    await page.waitForFunction(() => !document.querySelector('#global-search-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#global-search-input', input => document.activeElement === input), true);
+    await page.type('#global-search-input', '完成 配額');
+    await page.waitForFunction(() => document.querySelectorAll('[data-search-card]').length === 1);
+    assert.deepEqual(
+        await page.$$eval('[data-search-group]', groups => groups.map(group => group.getAttribute('data-search-group'))),
+        ['inbox']
+    );
+    assert.equal(await page.$eval('[data-search-card]', card => card.getAttribute('data-id')), 'card-3');
+    assert.match(await page.$eval('[data-search-card]', card => card.textContent), /符合：AI 詳細筆記/);
+    await page.click('#clear-global-search-btn');
+    await page.type('#global-search-input', '設計');
+    await page.waitForFunction(() => document.querySelectorAll('[data-search-card]').length === 3);
+    assert.deepEqual(
+        await page.$$eval('[data-search-group]', groups => groups.map(group => group.getAttribute('data-search-group'))),
+        ['inbox', 'todos', 'bookmarks']
+    );
+    await page.screenshot({ path: '/tmp/my-ai-brain-global-search.png', fullPage: false });
+    await page.click('[data-search-group="inbox"] [data-search-card] [data-tag-card-open]');
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    assert.equal(await page.$eval('#global-search-modal', element => element.classList.contains('hidden')), false);
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => document.querySelector('#global-search-modal').classList.contains('hidden'));
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => !document.querySelector('#global-search-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#global-search-input', input => input.value), '設計');
+    await page.click('#close-global-search-btn');
+    await page.waitForFunction(() => document.querySelector('#global-search-modal').classList.contains('hidden'));
+
     await page.click('#tag-browser-btn');
     await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
     assert.equal(await page.$eval('#tag-backfill-count', element => element.textContent), '2');
@@ -552,6 +584,7 @@ try {
 
     await page.$eval('#settings-btn', button => button.click());
     assert.match(await page.$eval('#web-research-system-prompt', element => element.value), /TL;DR/);
+    assert.equal(await page.$eval('#mistral-settings-container', element => element.classList.contains('hidden')), false);
     assert.deepEqual(
         await page.$$eval('#tag-manager-list input', inputs => inputs.map(input => input.value)),
         ['AI', '設計']
@@ -1128,6 +1161,8 @@ try {
         genericErrorPreservedCard: true,
         appendFailureRetried: true,
         todoAndBookmarkRenderers: true,
+        globalSearchGroupedAndIndexed: true,
+        globalSearchBackForward: true,
         tagBrowserGrouped: true,
         tagBrowserBackForward: true,
         selectiveBackfillQueue: true,

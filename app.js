@@ -3,6 +3,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc, setDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { createLayerStack, attachKeyboardManager } from './js/keyboard-layers.js';
         import { attachMdShortcuts } from './js/md-shortcuts.js';
+        import { groupCardsBySearch } from './card-search.mjs';
         import {
             buildTagUsageCounts,
             groupCardsByTagFilter,
@@ -78,6 +79,7 @@
         const selectedResearchBackfillKeys = new Set();
         let tagMatchMode = 'all';
         let tagBrowserView = 'tags';
+        let globalSearchQuery = '';
         let researchBackfillQueue = [];
         let researchBackfillIndex = 0;
         let activeResearchBackfillKey = null;
@@ -149,7 +151,8 @@
             keys: {
                 'mod+z': (e, ctx) => { if (!ctx.editableFocus) { e.preventDefault(); historyManager.undo(); } },
                 'mod+y': (e, ctx) => { if (!ctx.editableFocus) { e.preventDefault(); historyManager.redo(); } },
-                'mod+shift+z': (e, ctx) => { if (!ctx.editableFocus) { e.preventDefault(); historyManager.redo(); } }
+                'mod+shift+z': (e, ctx) => { if (!ctx.editableFocus) { e.preventDefault(); historyManager.redo(); } },
+                'mod+k': (e) => { e.preventDefault(); openGlobalSearch(); }
             }
         });
 
@@ -510,6 +513,7 @@
 
             // Static: Inbox
             nav.appendChild(createSidebarLink('inbox', 'fas fa-inbox', '收件匣'));
+            nav.appendChild(createSearchSidebarLink());
             nav.appendChild(createTagBrowserSidebarLink());
 
             // Divider
@@ -557,6 +561,18 @@
             btn.addEventListener('click', () => {
                 closeSidebar();
                 openTagBrowser();
+            });
+            return btn;
+        }
+
+        function createSearchSidebarLink() {
+            const btn = document.createElement('button');
+            btn.className = 'sidebar-link';
+            btn.setAttribute('data-target', 'global-search');
+            btn.innerHTML = '<i class="fas fa-search sidebar-link-icon"></i><span class="sidebar-link-text">搜尋</span>';
+            btn.addEventListener('click', () => {
+                closeSidebar();
+                openGlobalSearch();
             });
             return btn;
         }
@@ -655,6 +671,106 @@
                 openEditor(item.id, item.text, group.id);
             });
             return card;
+        }
+
+        function renderSearchCard(item, group) {
+            const card = renderTagBrowserCard(item, group);
+            card.removeAttribute('data-tag-browser-card');
+            card.setAttribute('data-search-card', '');
+            const matchLabels = { title: '卡片文字', research: 'AI 詳細筆記', tag: 'Tag' };
+            const matches = document.createElement('div');
+            matches.className = 'flex flex-wrap items-center gap-1.5';
+            (item.searchMatchTypes || []).forEach(type => {
+                const badge = document.createElement('span');
+                badge.className = type === 'research'
+                    ? 'rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700'
+                    : type === 'tag'
+                        ? 'rounded-full bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-700'
+                        : 'rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700';
+                badge.textContent = `符合：${matchLabels[type] || type}`;
+                matches.appendChild(badge);
+            });
+            const firstRow = card.firstElementChild;
+            if (firstRow) firstRow.after(matches);
+            if (item.searchSnippet) {
+                const snippet = document.createElement('p');
+                snippet.className = 'line-clamp-3 whitespace-pre-wrap break-words rounded-lg bg-emerald-50/60 px-3 py-2 text-xs leading-relaxed text-slate-600';
+                snippet.textContent = item.searchSnippet;
+                matches.after(snippet);
+            }
+            return card;
+        }
+
+        function renderGlobalSearch() {
+            const input = document.getElementById('global-search-input');
+            globalSearchQuery = input ? input.value : globalSearchQuery;
+            const groups = groupCardsBySearch({
+                categories: currentCategories,
+                inboxItems: currentInboxItems,
+                itemsByCollection: currentItemsByCollection,
+                tags: currentTags,
+                query: globalSearchQuery
+            });
+            const results = document.getElementById('global-search-results');
+            results.replaceChildren();
+            let total = 0;
+            groups.forEach(group => {
+                total += group.items.length;
+                const section = document.createElement('section');
+                section.setAttribute('data-search-group', group.id);
+                section.className = 'rounded-2xl border border-slate-200 bg-white/70 p-4 md:p-5';
+                const header = document.createElement('div');
+                header.className = 'mb-3 flex items-center gap-2 text-base font-bold text-slate-700';
+                const icon = document.createElement('i');
+                icon.className = `${group.icon} text-indigo-500`;
+                const name = document.createElement('span');
+                name.textContent = group.name;
+                const count = document.createElement('span');
+                count.className = 'rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-bold text-indigo-700';
+                count.textContent = String(group.items.length);
+                header.append(icon, name, count);
+                const list = document.createElement('ul');
+                list.className = 'grid grid-cols-1 gap-3 md:grid-cols-2';
+                group.items.forEach(item => list.appendChild(renderSearchCard(item, group)));
+                section.append(header, list);
+                results.appendChild(section);
+            });
+
+            const hasQuery = globalSearchQuery.trim().length > 0;
+            document.getElementById('clear-global-search-btn').classList.toggle('hidden', !hasQuery);
+            document.getElementById('global-search-summary').textContent = !hasQuery
+                ? '輸入關鍵字開始搜尋。'
+                : `找到 ${total} 張卡片，分布在 ${groups.length} 個分類。`;
+            document.getElementById('global-search-empty').classList.toggle('hidden', groups.length > 0);
+            document.getElementById('global-search-empty-icon').className = hasQuery
+                ? 'fas fa-search-minus mb-3 text-3xl text-slate-300'
+                : 'fas fa-magnifying-glass mb-3 text-3xl text-slate-300';
+            document.getElementById('global-search-empty-title').textContent = hasQuery
+                ? '找不到符合的卡片'
+                : '開始搜尋你的知識庫';
+            document.getElementById('global-search-empty-detail').textContent = hasQuery
+                ? '試著縮短關鍵字，或改用 Tag 名稱搜尋。'
+                : '可搜尋網址、標題、AI 研讀內容與 Tag 名稱。';
+        }
+
+        function openGlobalSearch({ fromHistory = false } = {}) {
+            const modal = document.getElementById('global-search-modal');
+            const input = document.getElementById('global-search-input');
+            input.value = globalSearchQuery;
+            renderGlobalSearch();
+            modal.classList.remove('hidden');
+            keyLayers.push({ name: 'global-search', keys: modalKeys(closeGlobalSearch) });
+            if (!fromHistory) history.pushState({ overlay: 'global-search' }, '', window.location.href);
+            setTimeout(() => input.focus(), 0);
+        }
+
+        function closeGlobalSearch({ fromHistory = false } = {}) {
+            if (!fromHistory && history.state?.overlay === 'global-search') {
+                history.back();
+                return;
+            }
+            document.getElementById('global-search-modal').classList.add('hidden');
+            keyLayers.pop('global-search');
         }
 
         const getResearchBackfillKey = (collectionId, itemId) => `${collectionId}/${itemId}`;
@@ -1119,6 +1235,8 @@
         function refreshOpenTagBrowser() {
             const modal = document.getElementById('tag-browser-modal');
             if (modal && !modal.classList.contains('hidden')) renderTagBrowser();
+            const searchModal = document.getElementById('global-search-modal');
+            if (searchModal && !searchModal.classList.contains('hidden')) renderGlobalSearch();
         }
 
         function openTagBrowser({ fromHistory = false } = {}) {
@@ -1137,6 +1255,18 @@
             keyLayers.pop('tag-browser');
         }
 
+        document.getElementById('global-search-btn').addEventListener('click', () => openGlobalSearch());
+        document.getElementById('close-global-search-btn').addEventListener('click', () => closeGlobalSearch());
+        document.getElementById('global-search-input').addEventListener('input', renderGlobalSearch);
+        document.getElementById('clear-global-search-btn').addEventListener('click', () => {
+            const input = document.getElementById('global-search-input');
+            input.value = '';
+            renderGlobalSearch();
+            input.focus();
+        });
+        document.getElementById('global-search-modal').addEventListener('click', event => {
+            if (event.target === event.currentTarget) closeGlobalSearch();
+        });
         document.getElementById('tag-browser-btn').addEventListener('click', () => openTagBrowser());
         document.getElementById('close-tag-browser-btn').addEventListener('click', () => closeTagBrowser());
         document.getElementById('tag-backfill-toggle-btn').addEventListener('click', () => {
@@ -2985,7 +3115,7 @@
                 'hidden',
                 provider !== 'gemini' || !geminiReady
             );
-            document.getElementById('mistral-settings-container').classList.toggle('hidden', provider !== 'mistral');
+            document.getElementById('mistral-settings-container').classList.remove('hidden');
         }
 
         async function probeWebResearchModel(apiKey, model) {
@@ -3732,6 +3862,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 closeEditor({ fromHistory: true });
                 return;
             }
+            const globalSearchModal = document.getElementById('global-search-modal');
+            if (!globalSearchModal.classList.contains('hidden') && targetOverlay !== 'global-search') {
+                closeGlobalSearch({ fromHistory: true });
+                return;
+            }
             const tagBrowserModal = document.getElementById('tag-browser-modal');
             if (!tagBrowserModal.classList.contains('hidden') && targetOverlay !== 'tag-browser') {
                 closeTagBrowser({ fromHistory: true });
@@ -3776,6 +3911,10 @@ ${JSON.stringify(inboxData, null, 2)}`;
             if (targetOverlay === 'web-research-preview' && webResearchPreviewModal.classList.contains('hidden')) {
                 // Preview content is intentionally ephemeral; discard unusable Forward state.
                 history.replaceState({ overlay: null }, '', window.location.pathname);
+                return;
+            }
+            if (targetOverlay === 'global-search' && globalSearchModal.classList.contains('hidden')) {
+                openGlobalSearch({ fromHistory: true });
                 return;
             }
             if (targetOverlay === 'tag-browser' && tagBrowserModal.classList.contains('hidden')) {
