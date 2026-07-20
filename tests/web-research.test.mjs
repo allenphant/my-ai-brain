@@ -8,6 +8,7 @@ import {
     WEB_RESEARCH_CACHE_TTL_MS,
     WEB_RESEARCH_COOLDOWN_MS,
     WEB_RESEARCH_MODEL_VERIFICATION_TTL_MS,
+    buildUnparsedVideoResearchResult,
     buildWebResearchAppendData,
     buildGeminiResearchRequest,
     buildCardMoveData,
@@ -23,6 +24,7 @@ import {
     getWebResearchCacheKey,
     getWebResearchCooldownRemaining,
     isInteractiveCardTarget,
+    isDirectVideoPageUrl,
     normalizeHttpUrl,
     parseGeminiResearchResult,
     parseJinaReaderResponse,
@@ -290,6 +292,23 @@ test('Jina response parsing distinguishes text, mixed video, and video-only sour
     assert.throws(() => parseJinaReaderResponse({ data: { content: '' } }, 'https://social.example/post/4'), /沒有取得可研讀內容/);
 });
 
+test('direct video pages produce one concise result and one dedicated tag', () => {
+    assert.equal(isDirectVideoPageUrl('https://youtu.be/DTKR9d0GpYs'), true);
+    assert.equal(isDirectVideoPageUrl('https://www.youtube.com/watch?v=DTKR9d0GpYs'), true);
+    assert.equal(isDirectVideoPageUrl('https://example.com/article-with-video'), false);
+
+    assert.deepEqual(buildUnparsedVideoResearchResult([]), {
+        note: '影片無法解析。',
+        matchedTags: [],
+        suggestedTags: [{ id: 'new:尚未解析的影片', name: '尚未解析的影片', isNew: true }],
+        mediaNotice: '影片無法解析。'
+    });
+    assert.deepEqual(
+        buildUnparsedVideoResearchResult([{ id: 'video-pending', name: '尚未解析的影片' }]).matchedTags,
+        [{ id: 'video-pending', name: '尚未解析的影片', isNew: false }]
+    );
+});
+
 test('Gemini request treats Jina text as untrusted data and asks for structured tag suggestions', () => {
     const request = buildGeminiResearchRequest({
         source: {
@@ -502,10 +521,14 @@ test('production markup exposes only the per-card research preview flow', async 
     assert.match(html, /id="web-research-preview-tags"/);
     assert.match(html, /id="tag-review-panel"/);
     assert.match(html, /id="tag-review-count"/);
+    assert.match(html, /id="web-research-preview-source-title"/);
+    assert.match(html, /data-backfill-approval-mode="auto"/);
+    assert.match(html, /id="research-queue-floating-status"/);
     assert.match(appSource, /function getWebResearchButtonHTML\(item\)/);
     assert.match(appSource, /runCardWebResearch/);
     assert.match(appSource, /deferPreview: true/);
     assert.match(appSource, /saveResearchReview\(outcome\.payload\)/);
+    assert.match(appSource, /persistWebResearchPayload\(outcome\.payload, allSuggestionIds\)/);
     assert.match(appSource, /runTransaction/);
 });
 

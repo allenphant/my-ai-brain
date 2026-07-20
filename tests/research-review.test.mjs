@@ -20,6 +20,8 @@ const review = {
     itemId: 'card-1',
     collectionName: 'inbox',
     sourceText: 'https://example.com',
+    sourceTitle: '原始標題',
+    sourceUrl: 'https://example.com',
     cardTagIds: ['existing'],
     result: {
         note: 'TL;DR：測試',
@@ -38,6 +40,8 @@ test('research reviews persist per user and survive malformed storage', () => {
     const saved = upsertResearchReview(storage, 'user-a', review);
     assert.equal(saved.length, 1);
     assert.deepEqual(readResearchReviews(storage, 'user-b'), []);
+    assert.equal(readResearchReviews(storage, 'user-a')[0].sourceTitle, '原始標題');
+    assert.equal(readResearchReviews(storage, 'user-a')[0].sourceUrl, 'https://example.com');
     assert.equal(readResearchReviews(storage, 'user-a')[0].result.suggestedTags[0].isNew, true);
 });
 

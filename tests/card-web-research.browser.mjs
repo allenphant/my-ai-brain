@@ -72,7 +72,9 @@ const firebaseFirestoreModule = `
             'card-5': '沒有網址的普通卡片',
             'card-6': '空回傳文章 https://empty.example',
             'card-7': '影片貼文 https://video.example',
-            'card-8': 'Jina 錯誤 https://jina-error.example'
+            'card-8': 'Jina 錯誤 https://jina-error.example',
+            'card-9': '原始影片 https://youtu.be/DTKR9d0GpYs',
+            'card-10': '待回補影片 https://youtu.be/ABCDEFGHIJK'
         };
         const cardId = Object.keys(cardTexts).find(id => ref.path.endsWith('/inbox/' + id));
         if (cardId) {
@@ -107,7 +109,9 @@ const firebaseFirestoreModule = `
                 { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) },
                 { id: 'card-6', data: () => ({ text: '空回傳文章 https://empty.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -2 }) },
                 { id: 'card-7', data: () => ({ text: '影片貼文 https://video.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -3 }) },
-                { id: 'card-8', data: () => ({ text: 'Jina 錯誤 https://jina-error.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -4 }) }
+                { id: 'card-8', data: () => ({ text: 'Jina 錯誤 https://jina-error.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -4 }) },
+                { id: 'card-9', data: () => ({ text: '原始影片 https://youtu.be/DTKR9d0GpYs', tagIds: ['archived'], researchSearchText: '完成', createdAt: -5 }) },
+                { id: 'card-10', data: () => ({ text: '待回補影片 https://youtu.be/ABCDEFGHIJK', createdAt: -6 }) }
             ];
         } else if (ref.path.endsWith('/categories')) {
             rows = [
@@ -136,6 +140,8 @@ const firebaseFirestoreModule = `
                     }
                     const storedText = ref.path.endsWith('/bookmarks/bookmark-1')
                         ? '書籤網址 https://bookmark.example'
+                        : ref.path.endsWith('/inbox/card-10')
+                        ? '待回補影片 https://youtu.be/ABCDEFGHIJK'
                         : '測試文章 https://success.example';
                     return { exists: () => true, data: () => ({
                         text: globalThis.__mockTransactionCardText || storedText,
@@ -258,6 +264,15 @@ try {
                         ? '[Video 1](https://cdn.example/clip.mp4)'
                         : `這是由 Jina Reader 從 ${sourceUrl} 擷取的公開文字，內容足夠讓 Gemini 整理。`
                 } })
+            });
+            return;
+        }
+        if (url.startsWith('https://www.youtube.com/oembed?')) {
+            request.respond({
+                status: 200,
+                headers: { 'Access-Control-Allow-Origin': '*' },
+                contentType: 'application/json',
+                body: JSON.stringify({ title: '測試 YouTube 原始標題' })
             });
             return;
         }
@@ -423,19 +438,19 @@ try {
 
     assert.equal(await page.$('#polish-link-btn'), null);
     assert.equal(await page.$('#polish-add-card-btn'), null);
-    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 9);
+    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 11);
     assert.equal(await page.$('li[data-id="card-5"] .web-research-btn'), null);
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
 
     await page.click('#tag-browser-btn');
     await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
-    assert.equal(await page.$eval('#tag-backfill-count', element => element.textContent), '1');
+    assert.equal(await page.$eval('#tag-backfill-count', element => element.textContent), '2');
     await page.click('#tag-backfill-toggle-btn');
     assert.equal(await page.$eval('#tag-backfill-panel', element => element.classList.contains('hidden')), false);
     assert.deepEqual(
         await page.$$eval('[data-backfill-card]', cards => cards.map(card => card.getAttribute('data-backfill-card'))),
-        ['inbox/card-1']
+        ['inbox/card-1', 'inbox/card-10']
     );
     assert.equal(await page.$eval('#start-tag-backfill-btn', element => element.disabled), true);
     await page.click('[data-backfill-select="inbox/card-1"]');
@@ -605,6 +620,9 @@ try {
 
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#web-research-preview-source-title', element => element.textContent), 'Jina 擷取的公開頁面');
+    assert.match(await page.$eval('#web-research-preview-source-text', element => element.textContent), /測試文章 https:\/\/success\.example/);
+    assert.equal(await page.$eval('#web-research-preview-source-url', element => element.getAttribute('href')), 'https://success.example/');
     assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /^TL;DR：這是一篇設計工具介紹。/);
     assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /一句話評價：適合作為設計工作流程參考。/);
     assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /來源：https:\/\/success\.example\/$/);
@@ -741,9 +759,24 @@ try {
     await page.click('li[data-id="card-7"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     assert.match(await page.$eval('#web-research-preview-media-notice', element => element.textContent), /影片內容未解析/);
-    assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /沒有足夠文字可供研讀/);
+    assert.equal(await page.$eval('#web-research-preview-content', element => element.textContent), '頁面沒有可供解析的文字。');
     assert.equal(await page.$eval('#web-research-preview-tags-container', element => element.classList.contains('hidden')), true);
     assert.equal(webResearchPosts, 6, 'video-only sources must not ask Gemini to invent a summary');
+    await page.click('#cancel-web-research-preview-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+
+    const jinaGetsBeforeYoutube = jinaGets;
+    await page.click('li[data-id="card-9"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#web-research-preview-source-title', element => element.textContent), '測試 YouTube 原始標題');
+    assert.equal(await page.$eval('#web-research-preview-source-url', element => element.getAttribute('href')), 'https://youtu.be/DTKR9d0GpYs');
+    assert.equal(await page.$eval('#web-research-preview-content', element => element.textContent), '影片無法解析。');
+    assert.deepEqual(
+        await page.$$eval('#web-research-preview-tags input', inputs => inputs.map(input => input.value)),
+        ['new:尚未解析的影片']
+    );
+    assert.equal(jinaGets, jinaGetsBeforeYoutube, 'direct video pages should not call Jina Reader');
+    assert.equal(webResearchPosts, 6, 'direct video pages should not call Gemini');
     await page.click('#cancel-web-research-preview-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
 
@@ -884,6 +917,7 @@ try {
     await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
     await page.click('#tag-backfill-toggle-btn');
     await page.click('[data-backfill-select="inbox/card-1"]');
+    await page.click('[data-backfill-select="inbox/card-10"]');
     await page.evaluate(() => localStorage.removeItem('geminiApiKey'));
     await page.click('#start-tag-backfill-btn');
     await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('缺少 Gemini API Key'));
@@ -900,26 +934,50 @@ try {
     await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
     await page.waitForFunction(() => {
         const key = Object.keys(localStorage).find(item => item.startsWith('aiResearchReviews:v1:'));
-        return key && JSON.parse(localStorage.getItem(key) || '[]').length === 1;
+        return key && JSON.parse(localStorage.getItem(key) || '[]').length === 2;
     });
     await page.click('#tag-browser-btn');
     await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
     await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('佇列完成'));
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
-    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '1');
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '2');
     await page.click('#tag-review-toggle-btn');
-    assert.equal(await page.$$eval('[data-research-review]', elements => elements.length), 1);
+    assert.equal(await page.$$eval('[data-research-review]', elements => elements.length), 2);
     await page.click('[data-review-open="inbox/card-1"]');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     await page.click('#cancel-web-research-preview-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
-    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '1');
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '2');
     await page.click('[data-review-open="inbox/card-1"]');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     await page.click('#append-web-research-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '1');
+    await page.click('[data-review-open="inbox/card-10"]');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#web-research-preview-content', element => element.textContent), '影片無法解析。');
+    assert.deepEqual(
+        await page.$$eval('#web-research-preview-tags input', inputs => inputs.map(input => input.value)),
+        ['new:尚未解析的影片']
+    );
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '0');
     assert.equal(await page.$$eval('[data-research-review]', elements => elements.length), 0);
+    const writesBeforeAutoApproval = await page.evaluate(() => globalThis.__mockTransactionWrites.length);
+    await page.click('#tag-backfill-toggle-btn');
+    await page.click('[data-backfill-select="inbox/card-1"]');
+    await page.click('[data-backfill-approval-mode="auto"]');
+    await page.evaluate(() => {
+        localStorage.removeItem('lastWebPolishTime');
+        Object.keys(localStorage)
+            .filter(key => key.startsWith('webPolishCache:'))
+            .forEach(key => localStorage.removeItem(key));
+    });
+    await page.click('#start-tag-backfill-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('已自動通過'));
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '0');
+    assert.equal(await page.evaluate(() => globalThis.__mockTransactionWrites.length), writesBeforeAutoApproval + 3);
     await page.click('#close-tag-browser-btn');
     await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
 

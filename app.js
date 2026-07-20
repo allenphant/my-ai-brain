@@ -16,6 +16,7 @@
         import {
             DEFAULT_WEB_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT,
+            buildUnparsedVideoResearchResult,
             buildWebResearchAppendData,
             buildGeminiResearchRequest,
             buildCardMoveData,
@@ -30,6 +31,7 @@
             getWebResearchCooldownRemaining,
             getWebResearchModelOptions,
             isInteractiveCardTarget,
+            isDirectVideoPageUrl,
             normalizeHttpUrl,
             normalizeSourceText,
             parseGeminiResearchResult,
@@ -83,6 +85,7 @@
         let researchBackfillCompleted = 0;
         let researchBackfillFailed = 0;
         let researchReviewItems = [];
+        let researchBackfillApprovalMode = localStorage.getItem('researchBackfillApprovalMode') === 'auto' ? 'auto' : 'manual';
         let currentTodoItems = [];
         let pendingDeleteTarget = null;
         let pendingMoveTarget = null;
@@ -712,14 +715,22 @@
                 content.className = 'min-w-0 flex-1';
                 const source = document.createElement('div');
                 source.className = 'break-all text-sm font-bold text-slate-800';
-                source.textContent = review.sourceText;
+                source.textContent = review.sourceTitle || review.sourceText;
+                const sourceUrl = document.createElement('a');
+                sourceUrl.className = 'mt-1 block break-all text-xs font-semibold text-blue-600 hover:underline';
+                const normalizedSourceUrl = normalizeHttpUrl(review.sourceUrl || extractUrls(review.sourceText)[0]);
+                sourceUrl.href = normalizedSourceUrl || '#';
+                sourceUrl.target = '_blank';
+                sourceUrl.rel = 'noopener noreferrer';
+                sourceUrl.textContent = normalizedSourceUrl || '原網址無法辨識';
+                sourceUrl.addEventListener('click', event => event.stopPropagation());
                 const preview = document.createElement('p');
                 preview.className = 'mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-600';
                 preview.textContent = review.result.note;
                 const meta = document.createElement('div');
                 meta.className = 'mt-2 text-xs text-slate-400';
                 meta.textContent = `${getCollectionName(review.collectionName)} · ${new Date(review.createdAt).toLocaleString('zh-TW')}`;
-                content.append(source, preview, meta);
+                content.append(source, sourceUrl, preview, meta);
                 const actions = document.createElement('div');
                 actions.className = 'flex shrink-0 gap-2';
                 const reviewButton = document.createElement('button');
@@ -776,6 +787,21 @@
             researchBackfillStatusMessage = message;
             const status = document.getElementById('tag-backfill-status');
             if (status) status.textContent = message;
+            const floatingText = document.getElementById('research-queue-floating-text');
+            if (floatingText) floatingText.textContent = message;
+            document.getElementById('research-queue-floating-status')?.classList.toggle('hidden', researchBackfillQueue.length === 0);
+        }
+
+        function renderResearchBackfillApprovalMode() {
+            document.querySelectorAll('[data-backfill-approval-mode]').forEach(button => {
+                const active = button.dataset.backfillApprovalMode === researchBackfillApprovalMode;
+                button.classList.toggle('bg-amber-600', active);
+                button.classList.toggle('text-white', active);
+                button.classList.toggle('shadow-sm', active);
+                button.classList.toggle('text-amber-800', !active);
+                button.setAttribute('aria-pressed', String(active));
+                button.disabled = researchBackfillQueue.length > 0;
+            });
         }
 
         function renderResearchBackfillPanel() {
@@ -849,6 +875,7 @@
             });
 
             const queueActive = researchBackfillQueue.length > 0;
+            renderResearchBackfillApprovalMode();
             const allSelected = entries.length > 0 && entries.every(entry => selectedResearchBackfillKeys.has(entry.key));
             const selectAllButton = document.getElementById('select-all-tag-backfill-btn');
             selectAllButton.textContent = allSelected ? '取消全選' : '全選';
@@ -887,6 +914,7 @@
             activeResearchBackfillKey = null;
             updateResearchBackfillStatus(message);
             renderResearchBackfillPanel();
+            document.getElementById('research-queue-floating-status')?.classList.add('hidden');
         }
 
         function finishResearchBackfillQueue() {
@@ -898,9 +926,11 @@
             researchBackfillIndex = 0;
             activeResearchBackfillKey = null;
             selectedResearchBackfillKeys.clear();
-            updateResearchBackfillStatus(`佇列完成：${completed} 筆已送往待審核${failed ? `，${failed} 筆失敗或跳過` : ''}。`);
+            const destination = researchBackfillApprovalMode === 'auto' ? '筆已自動通過' : '筆已送往待審核';
+            updateResearchBackfillStatus(`佇列完成：${completed} ${destination}${failed ? `，${failed} 筆失敗或轉待審` : ''}。`);
             renderResearchBackfillPanel();
             renderResearchReviewPanel();
+            document.getElementById('research-queue-floating-status')?.classList.add('hidden');
         }
 
         function scheduleResearchBackfillRetry(remaining) {
@@ -933,17 +963,42 @@
             });
             if (researchBackfillQueue.length === 0) return;
             if (outcome?.status === 'ready') {
-                try {
-                    saveResearchReview(outcome.payload);
-                } catch (error) {
-                    console.error('無法保存待審核研讀結果：', error);
-                    cancelResearchBackfillQueue('瀏覽器無法保存待審核結果，佇列已停止以避免遺失資料。');
-                    return;
+                let completionMessage = '';
+                if (researchBackfillApprovalMode === 'auto') {
+                    const allSuggestionIds = [
+                        ...(outcome.payload.result.matchedTags || []),
+                        ...(outcome.payload.result.suggestedTags || [])
+                    ].map(tag => tag.id);
+                    try {
+                        await persistWebResearchPayload(outcome.payload, allSuggestionIds);
+                        researchBackfillCompleted += 1;
+                        completionMessage = `已自動通過 ${researchBackfillCompleted} / ${researchBackfillQueue.length}；準備下一張。`;
+                    } catch (error) {
+                        console.error('自動通過研讀結果失敗：', error);
+                        researchBackfillFailed += 1;
+                        try {
+                            saveResearchReview(outcome.payload);
+                            completionMessage = '自動寫入失敗，結果已送往待審核；準備下一張。';
+                        } catch (storageError) {
+                            console.error('無法保存待審核研讀結果：', storageError);
+                            cancelResearchBackfillQueue('自動寫入與待審保存皆失敗，佇列已停止以避免遺失資料。');
+                            return;
+                        }
+                    }
+                } else {
+                    try {
+                        saveResearchReview(outcome.payload);
+                        researchBackfillCompleted += 1;
+                        completionMessage = `已完成 ${researchBackfillCompleted} / ${researchBackfillQueue.length}，結果已送往待審核；準備下一張。`;
+                    } catch (error) {
+                        console.error('無法保存待審核研讀結果：', error);
+                        cancelResearchBackfillQueue('瀏覽器無法保存待審核結果，佇列已停止以避免遺失資料。');
+                        return;
+                    }
                 }
-                researchBackfillCompleted += 1;
                 activeResearchBackfillKey = null;
                 researchBackfillIndex += 1;
-                updateResearchBackfillStatus(`已完成 ${researchBackfillCompleted} / ${researchBackfillQueue.length}，結果已送往待審核；準備下一張。`);
+                updateResearchBackfillStatus(completionMessage);
                 renderResearchReviewPanel();
                 renderResearchBackfillPanel();
                 setTimeout(processNextResearchBackfill, 350);
@@ -1083,6 +1138,19 @@
         });
         document.getElementById('start-tag-backfill-btn').addEventListener('click', startResearchBackfillQueue);
         document.getElementById('cancel-tag-backfill-btn').addEventListener('click', () => cancelResearchBackfillQueue());
+        document.querySelectorAll('[data-backfill-approval-mode]').forEach(button => {
+            button.addEventListener('click', () => {
+                if (researchBackfillQueue.length > 0) return;
+                researchBackfillApprovalMode = button.dataset.backfillApprovalMode === 'auto' ? 'auto' : 'manual';
+                localStorage.setItem('researchBackfillApprovalMode', researchBackfillApprovalMode);
+                renderResearchBackfillApprovalMode();
+            });
+        });
+        document.getElementById('research-queue-floating-status').addEventListener('click', () => {
+            tagBrowserView = 'backfill';
+            if (document.getElementById('tag-browser-modal').classList.contains('hidden')) openTagBrowser();
+            else renderTagBrowser();
+        });
         document.getElementById('clear-tag-filter-btn').addEventListener('click', () => {
             selectedTagFilterIds.clear();
             renderTagBrowser();
@@ -2006,6 +2074,9 @@
         const aiSortStatusEl = document.getElementById('ai-sort-status');
         const webResearchPreviewModal = document.getElementById('web-research-preview-modal');
         const webResearchPreviewContent = document.getElementById('web-research-preview-content');
+        const webResearchPreviewSourceTitle = document.getElementById('web-research-preview-source-title');
+        const webResearchPreviewSourceText = document.getElementById('web-research-preview-source-text');
+        const webResearchPreviewSourceUrl = document.getElementById('web-research-preview-source-url');
         const webResearchPreviewMediaNotice = document.getElementById('web-research-preview-media-notice');
         const webResearchPreviewTagsContainer = document.getElementById('web-research-preview-tags-container');
         const webResearchPreviewTags = document.getElementById('web-research-preview-tags');
@@ -2081,6 +2152,12 @@
                 ? { note: payload.result, matchedTags: [], suggestedTags: [] }
                 : payload.result;
             pendingWebResearch.result = result;
+            const sourceUrl = normalizeHttpUrl(payload.sourceUrl || extractUrls(payload.sourceText)[0]);
+            webResearchPreviewSourceTitle.textContent = payload.sourceTitle || '未取得網頁標題';
+            webResearchPreviewSourceText.textContent = payload.sourceText || '未保留原始卡片內容';
+            webResearchPreviewSourceUrl.textContent = sourceUrl || '原網址無法辨識';
+            if (sourceUrl) webResearchPreviewSourceUrl.href = sourceUrl;
+            else webResearchPreviewSourceUrl.removeAttribute('href');
             webResearchPreviewContent.textContent = result.note;
             const mediaNotice = result.mediaNotice || '';
             webResearchPreviewMediaNotice.textContent = mediaNotice;
@@ -2125,6 +2202,10 @@
             }
             webResearchPreviewModal.classList.add('hidden');
             webResearchPreviewContent.textContent = '';
+            webResearchPreviewSourceTitle.textContent = '';
+            webResearchPreviewSourceText.textContent = '';
+            webResearchPreviewSourceUrl.textContent = '';
+            webResearchPreviewSourceUrl.removeAttribute('href');
             webResearchPreviewMediaNotice.textContent = '';
             webResearchPreviewMediaNotice.classList.add('hidden');
             webResearchPreviewTags.replaceChildren();
@@ -2145,6 +2226,9 @@
                 else if (eligibility.reason === 'too_long') showToast('這段內容太長，請先縮短後再執行 AI 研讀。', 'fas fa-align-left');
                 return { status: 'ineligible' };
             }
+            const sourceUrl = extractUrls(normalizedText)[0];
+            const userNote = normalizedText.replace(sourceUrl, '').trim();
+            const directVideoPage = isDirectVideoPageUrl(sourceUrl);
 
             let apiKey = null;
             let targetModel = DEFAULT_WEB_RESEARCH_MODEL;
@@ -2158,7 +2242,7 @@
             } catch (error) {
                 console.warn('無法讀取 AI 設定：', error);
             }
-            if (!apiKey) {
+            if (!apiKey && !directVideoPage) {
                 if (!fromBackfill) openSettingsModal();
                 showToast('請先設定 Gemini API Key，才能使用 AI 研讀。', 'fas fa-key');
                 return { status: 'blocked', reason: 'missing_api_key' };
@@ -2167,7 +2251,8 @@
             const cacheContext = {
                 model: targetModel,
                 prompt: systemPrompt,
-                tags: currentTags.map(tag => `${tag.id}:${tag.name}`)
+                tags: currentTags.map(tag => `${tag.id}:${tag.name}`),
+                pipeline: 'source-metadata-video-v2'
             };
             const cached = readWebResearchCache(localStorage, normalizedText, Date.now(), cacheContext);
             if (cached) {
@@ -2177,6 +2262,8 @@
                     itemId: item.id,
                     collectionName,
                     sourceText: normalizedText,
+                    sourceTitle: cached.sourceTitle || userNote || new URL(sourceUrl).hostname,
+                    sourceUrl,
                     cardTagIds: Array.isArray(item.tagIds) ? item.tagIds : [],
                     result: cached
                 };
@@ -2187,7 +2274,7 @@
             }
 
             const cooldownRemaining = getWebResearchCooldownRemaining(localStorage);
-            if (cooldownRemaining > 0) {
+            if (!directVideoPage && cooldownRemaining > 0) {
                 saveAiStatus('web', '冷卻中', `剩餘 ${formatCooldown(cooldownRemaining)}`);
                 updateAiStatusPanel();
                 showToast(`AI 研讀冷卻中，請 ${formatCooldown(cooldownRemaining)} 後再試。`, 'fas fa-hourglass-half');
@@ -2197,22 +2284,31 @@
             const restoreButton = setButtonLoading(button, '<div class="loader w-4 h-4 border-2 border-t-transparent mx-auto"></div>');
 
             try {
-                try {
-                    localStorage.setItem('lastWebPolishTime', Date.now().toString());
-                } catch (storageError) {
-                    console.warn('無法儲存 AI 研讀冷卻時間：', storageError);
+                if (!directVideoPage) {
+                    try {
+                        localStorage.setItem('lastWebPolishTime', Date.now().toString());
+                    } catch (storageError) {
+                        console.warn('無法儲存 AI 研讀冷卻時間：', storageError);
+                    }
                 }
-                showToast('正在用 Jina Reader 擷取原文，再交給 Gemini 整理...', 'fas fa-robot');
-                const sourceUrl = extractUrls(normalizedText)[0];
-                const userNote = normalizedText.replace(sourceUrl, '').trim();
-                const source = await readUrlWithJina(sourceUrl, jinaApiKey);
-                const media = classifyJinaResearchSource(source);
+                showToast(
+                    directVideoPage ? '正在辨識影片網址...' : '正在用 Jina Reader 擷取原文，再交給 Gemini 整理...',
+                    'fas fa-robot'
+                );
+                const source = directVideoPage
+                    ? { url: sourceUrl, title: '', description: '', content: '' }
+                    : await readUrlWithJina(sourceUrl, jinaApiKey);
+                const media = directVideoPage
+                    ? { status: 'video_only', canSummarize: false, notice: '影片無法解析。' }
+                    : classifyJinaResearchSource(source);
                 const researchSource = {
                     ...source,
                     mediaStatus: media.status,
                     mediaNotice: media.notice
                 };
-                const polished = media.canSummarize
+                const polished = directVideoPage
+                    ? buildUnparsedVideoResearchResult(currentTags)
+                    : media.canSummarize
                     ? await polishJinaContentWithGemini({
                         source: researchSource,
                         userNote,
@@ -2221,11 +2317,9 @@
                         model: targetModel,
                         systemPrompt
                     })
-                    : {
-                        note: `${media.notice}\n\n來源：${source.url || sourceUrl}`,
-                        matchedTags: [],
-                        suggestedTags: []
-                    };
+                    : { note: '頁面沒有可供解析的文字。', matchedTags: [], suggestedTags: [], mediaNotice: media.notice };
+                polished.sourceTitle = await resolveResearchSourceTitle(sourceUrl, source, userNote);
+                polished.sourceUrl = sourceUrl;
                 polished.mediaNotice = media.notice;
                 let cacheWritten = true;
                 try {
@@ -2244,6 +2338,8 @@
                     itemId: item.id,
                     collectionName,
                     sourceText: normalizedText,
+                    sourceTitle: polished.sourceTitle,
+                    sourceUrl,
                     cardTagIds: Array.isArray(item.tagIds) ? item.tagIds : [],
                     result: polished
                 };
@@ -2311,14 +2407,31 @@
             }
         }
 
-        async function appendPendingWebResearch() {
-            if (!currentUser || !pendingWebResearch) return;
-            const payload = pendingWebResearch;
-            const restoreButton = setButtonLoading(
-                appendWebResearchBtn,
-                '<div class="loader w-4 h-4 border-2 border-t-transparent mx-auto"></div>',
-                '追加到詳細筆記'
-            );
+        async function resolveResearchSourceTitle(sourceUrl, source, userNote = '') {
+            if (isDirectVideoPageUrl(sourceUrl) && /(?:youtube\.com|youtu\.be)/i.test(sourceUrl)) {
+                try {
+                    const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(sourceUrl)}&format=json`);
+                    if (response.ok) {
+                        const metadata = await response.json();
+                        if (String(metadata?.title || '').trim()) return String(metadata.title).trim();
+                    }
+                } catch (error) {
+                    console.warn('無法取得 YouTube 影片標題：', error);
+                }
+            }
+            const sourceTitle = String(source?.title || '').trim();
+            if (sourceTitle) return sourceTitle;
+            const noteTitle = String(userNote || '').trim();
+            if (noteTitle) return noteTitle;
+            try {
+                return new URL(sourceUrl).hostname;
+            } catch {
+                return sourceUrl;
+            }
+        }
+
+        async function persistWebResearchPayload(payload, selectedSuggestionIds) {
+            if (!currentUser || !payload) throw new Error('沒有可儲存的研讀結果');
             const noteRef = doc(
                 db,
                 'artifacts',
@@ -2340,51 +2453,62 @@
                 payload.itemId
             );
             const tagsRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'tags');
+            const suggestions = [...(payload.result.matchedTags || []), ...(payload.result.suggestedTags || [])];
+            await runTransaction(db, async transaction => {
+                const [noteSnapshot, cardSnapshot, tagsSnapshot] = await Promise.all([
+                    transaction.get(noteRef),
+                    transaction.get(cardRef),
+                    transaction.get(tagsRef)
+                ]);
+                const existingData = noteSnapshot.exists() ? noteSnapshot.data().data : null;
+                if (!cardSnapshot.exists()) {
+                    throw new Error('卡片已被刪除或移動，請重新研讀。');
+                }
+                const cardData = cardSnapshot.data();
+                if (normalizeSourceText(cardData.text) !== normalizeSourceText(payload.sourceText)) {
+                    throw new Error('卡片內容已在其他地方變更，請重新研讀。');
+                }
+                const serverTags = tagsSnapshot.exists() && Array.isArray(tagsSnapshot.data().items)
+                    ? tagsSnapshot.data().items
+                    : currentTags;
+                const resolvedTags = resolveSelectedTags({
+                    catalog: serverTags,
+                    existingCardTagIds: Array.isArray(cardData.tagIds) ? cardData.tagIds : payload.cardTagIds,
+                    suggestions,
+                    selectedSuggestionIds
+                });
+                const now = Date.now();
+                const searchFields = buildCardSearchFields({
+                    cardText: cardData.text || payload.sourceText,
+                    previousResearchText: cardData.researchSearchText,
+                    newResearchText: payload.result.note
+                });
+                transaction.set(noteRef, {
+                    data: buildWebResearchAppendData(existingData, payload.result.note, now),
+                    updatedAt: now
+                }, { merge: true });
+                transaction.set(cardRef, {
+                    tagIds: resolvedTags.cardTagIds,
+                    ...searchFields,
+                    updatedAt: now
+                }, { merge: true });
+                transaction.set(tagsRef, { items: resolvedTags.catalog, updatedAt: now }, { merge: true });
+            });
+        }
+
+        async function appendPendingWebResearch() {
+            if (!currentUser || !pendingWebResearch) return;
+            const payload = pendingWebResearch;
+            const restoreButton = setButtonLoading(
+                appendWebResearchBtn,
+                '<div class="loader w-4 h-4 border-2 border-t-transparent mx-auto"></div>',
+                '追加到詳細筆記'
+            );
             const selectedSuggestionIds = [...webResearchPreviewTags.querySelectorAll('input[data-web-research-tag]:checked')]
                 .map(input => input.value);
-            const suggestions = [...(payload.result.matchedTags || []), ...(payload.result.suggestedTags || [])];
 
             try {
-                await runTransaction(db, async transaction => {
-                    const [noteSnapshot, cardSnapshot, tagsSnapshot] = await Promise.all([
-                        transaction.get(noteRef),
-                        transaction.get(cardRef),
-                        transaction.get(tagsRef)
-                    ]);
-                    const existingData = noteSnapshot.exists() ? noteSnapshot.data().data : null;
-                    if (!cardSnapshot.exists()) {
-                        throw new Error('卡片已被刪除或移動，請關閉預覽後重新研讀。');
-                    }
-                    const cardData = cardSnapshot.data();
-                    if (normalizeSourceText(cardData.text) !== normalizeSourceText(payload.sourceText)) {
-                        throw new Error('卡片內容已在其他地方變更，請關閉預覽後重新研讀。');
-                    }
-                    const serverTags = tagsSnapshot.exists() && Array.isArray(tagsSnapshot.data().items)
-                        ? tagsSnapshot.data().items
-                        : currentTags;
-                    const resolvedTags = resolveSelectedTags({
-                        catalog: serverTags,
-                        existingCardTagIds: Array.isArray(cardData.tagIds) ? cardData.tagIds : payload.cardTagIds,
-                        suggestions,
-                        selectedSuggestionIds
-                    });
-                    const now = Date.now();
-                    const searchFields = buildCardSearchFields({
-                        cardText: cardData.text || payload.sourceText,
-                        previousResearchText: cardData.researchSearchText,
-                        newResearchText: payload.result.note
-                    });
-                    transaction.set(noteRef, {
-                        data: buildWebResearchAppendData(existingData, payload.result.note, now),
-                        updatedAt: now
-                    }, { merge: true });
-                    transaction.set(cardRef, {
-                        tagIds: resolvedTags.cardTagIds,
-                        ...searchFields,
-                        updatedAt: now
-                    }, { merge: true });
-                    transaction.set(tagsRef, { items: resolvedTags.catalog, updatedAt: now }, { merge: true });
-                });
+                await persistWebResearchPayload(payload, selectedSuggestionIds);
                 const completedReviewId = payload.reviewId;
                 closeWebResearchPreview();
                 const reviewRemoved = !completedReviewId || deleteResearchReview(completedReviewId);

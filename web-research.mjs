@@ -185,6 +185,35 @@ export function classifyJinaResearchSource(source) {
     return { status: 'text', canSummarize: readableText.length > 0, notice: '' };
 }
 
+export function isDirectVideoPageUrl(value) {
+    try {
+        const url = new URL(String(value || ''));
+        const host = url.hostname.toLowerCase().replace(/^www\./, '');
+        return host === 'youtu.be'
+            || host === 'youtube.com'
+            || host.endsWith('.youtube.com')
+            || host === 'vimeo.com'
+            || host.endsWith('.vimeo.com');
+    } catch {
+        return false;
+    }
+}
+
+export function buildUnparsedVideoResearchResult(tags = []) {
+    const existing = (Array.isArray(tags) ? tags : []).find(tag => (
+        normalizeTagName(tag?.name) === '尚未解析的影片' && String(tag?.id || '').trim()
+    ));
+    const videoTag = existing
+        ? { id: String(existing.id), name: '尚未解析的影片', isNew: false }
+        : { id: 'new:尚未解析的影片', name: '尚未解析的影片', isNew: true };
+    return {
+        note: '影片無法解析。',
+        matchedTags: existing ? [videoTag] : [],
+        suggestedTags: existing ? [] : [videoTag],
+        mediaNotice: '影片無法解析。'
+    };
+}
+
 export function buildGeminiResearchRequest({ source, userNote = '', tags = [], systemPrompt = DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT }) {
     const tagCatalog = (Array.isArray(tags) ? tags : [])
         .map(tag => ({ id: String(tag?.id || '').trim(), name: normalizeTagName(tag?.name) }))

@@ -23,6 +23,8 @@ function normalizeReviewItem(item) {
         itemId: String(item.itemId),
         collectionName: String(item.collectionName),
         sourceText: String(item.sourceText),
+        sourceTitle: String(item.sourceTitle || ''),
+        sourceUrl: String(item.sourceUrl || ''),
         cardTagIds: Array.isArray(item.cardTagIds) ? item.cardTagIds.map(String) : [],
         result: {
             note: String(item.result.note),
