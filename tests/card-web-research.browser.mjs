@@ -210,6 +210,8 @@ try {
     let geminiPosts = 0;
     let webResearchPosts = 0;
     let verificationPosts = 0;
+    let mistralPosts = 0;
+    let mistralModelGets = 0;
     let jinaGets = 0;
     const jinaRequests = [];
     const requestedGeminiModels = [];
@@ -264,6 +266,60 @@ try {
                         ? '[Video 1](https://cdn.example/clip.mp4)'
                         : `這是由 Jina Reader 從 ${sourceUrl} 擷取的公開文字，內容足夠讓 Gemini 整理。`
                 } })
+            });
+            return;
+        }
+        if (url.startsWith('https://api.mistral.ai/v1/')) {
+            const mistralCorsHeaders = {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+            };
+            if (request.method() === 'OPTIONS') {
+                request.respond({ status: 204, headers: mistralCorsHeaders });
+                return;
+            }
+            if (request.method() === 'GET' && url.endsWith('/models')) {
+                mistralModelGets += 1;
+                request.respond({
+                    status: 200,
+                    headers: mistralCorsHeaders,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ data: [
+                        { id: 'mistral-small-2603', archived: false, capabilities: { completion_chat: true } },
+                        { id: 'mistral-future-2701', archived: false, capabilities: { completion_chat: true } },
+                        { id: 'mistral-embedding', archived: false, capabilities: { completion_chat: false } }
+                    ] })
+                });
+                return;
+            }
+            mistralPosts += 1;
+            const postData = request.postData() || '';
+            if (postData.includes('quota.example') || postData.includes('"model":"mistral-quota-test"')) {
+                request.respond({
+                    status: 429,
+                    headers: { ...mistralCorsHeaders, 'Retry-After': '23' },
+                    contentType: 'application/json',
+                    body: JSON.stringify({ message: 'Mistral rate limit exceeded' })
+                });
+                return;
+            }
+            request.respond({
+                status: 200,
+                headers: mistralCorsHeaders,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    choices: [{
+                        finish_reason: 'stop',
+                        message: { content: JSON.stringify({
+                            tldr: '這是一篇由 Mistral 整理的設計工具介紹。',
+                            evaluation: '可作為設計工作流程參考。',
+                            details: '文章說明工具用途與適合的使用情境。',
+                            matchedTagIds: ['design'],
+                            suggestedTags: ['Mistral 整理']
+                        }) }
+                    }]
+                })
             });
             return;
         }
@@ -527,6 +583,19 @@ try {
     assert.equal(await page.$$eval('#tag-manager-list input', inputs => inputs.some(input => input.value === '研究')), true);
     await page.$eval('#web-research-system-prompt', input => { input.value = '自訂研讀提示：只根據來源輸出繁體中文。'; });
     await page.screenshot({ path: '/tmp/my-ai-brain-jina-settings.png', fullPage: false });
+    await page.$eval('#mistral-api-key-input', input => {
+        input.value = 'fake-mistral-key';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.click('#verify-mistral-key-btn');
+    await page.waitForFunction(() => !document.querySelector('#mistral-web-research-model-select-container').classList.contains('hidden'));
+    assert.equal(mistralModelGets, 1);
+    assert.deepEqual(
+        await page.$$eval('#mistral-web-research-model-select option', options => options.map(option => option.value)),
+        ['mistral-small-2603', 'mistral-future-2701']
+    );
+    assert.equal(await page.$eval('#web-research-provider-select', select => select.value), 'mistral');
+    await page.select('#web-research-provider-select', 'gemini');
     await page.click('#verify-key-btn');
     await page.waitForFunction(() => !document.querySelector('#model-select-container').classList.contains('hidden'));
     await page.waitForFunction(() => !document.querySelector('#web-research-model-select-container').classList.contains('hidden'));
@@ -608,10 +677,16 @@ try {
     assert.deepEqual(await page.evaluate(() => ({
         general: localStorage.getItem('geminiModel'),
         web: localStorage.getItem('geminiWebResearchModel'),
+        provider: localStorage.getItem('webResearchProvider'),
+        mistralKey: localStorage.getItem('mistralApiKey'),
+        mistralModel: localStorage.getItem('mistralWebResearchModel'),
         prompt: localStorage.getItem('webResearchSystemPrompt')
     })), {
         general: 'gemini-3.1-flash-lite',
         web: 'gemini-9.0-flash',
+        provider: 'gemini',
+        mistralKey: 'fake-mistral-key',
+        mistralModel: 'mistral-small-2603',
         prompt: '自訂研讀提示：只根據來源輸出繁體中文。'
     });
     assert.equal(
@@ -640,6 +715,24 @@ try {
     assert.equal(await page.$eval('#web-research-model-select', select => select.value), 'gemini-9.0-flash');
     await page.click('#save-settings-btn');
 
+    await page.evaluate(() => {
+        localStorage.setItem('webResearchProvider', 'mistral');
+        localStorage.removeItem('lastWebPolishTime');
+    });
+    await page.click('li[data-id="card-1"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.match(
+        await page.$eval('#web-research-preview-content', element => element.textContent),
+        /由 Mistral 整理/
+    );
+    assert.equal(mistralPosts, 1);
+    await page.click('#cancel-web-research-preview-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.evaluate(() => {
+        localStorage.setItem('webResearchProvider', 'gemini');
+        localStorage.removeItem('lastWebPolishTime');
+    });
+
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     assert.equal(await page.$eval('#web-research-preview-source-title', element => element.textContent), 'Jina 擷取的公開頁面');
@@ -654,7 +747,7 @@ try {
     );
     await page.screenshot({ path: '/tmp/my-ai-brain-jina-preview.png', fullPage: false });
     assert.equal(webResearchPosts, 1);
-    assert.equal(jinaGets, 1);
+    assert.equal(jinaGets, 2);
     assert.match(researchPostBodies[0], /自訂研讀提示/);
     assert.match(researchPostBodies[0], /Jina Reader/);
     assert.equal(jinaRequests[0].headers.accept, 'application/json');
@@ -667,7 +760,7 @@ try {
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     assert.equal(webResearchPosts, 1, 'cache hit must not make a second Gemini POST');
-    assert.equal(jinaGets, 1, 'cache hit must not make a second Jina request');
+    assert.equal(jinaGets, 2, 'cache hit must not make a second Jina request');
     await page.$eval('#web-research-preview-tags input[value="design"]', input => { input.checked = false; });
 
     await page.evaluate(() => { globalThis.__mockTransactionCardMissing = true; });
@@ -998,8 +1091,26 @@ try {
     });
     await page.click('#start-tag-backfill-btn');
     await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('已自動通過'));
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('佇列完成'));
     assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '0');
     assert.equal(await page.evaluate(() => globalThis.__mockTransactionWrites.length), writesBeforeAutoApproval + 3);
+    await page.evaluate(() => {
+        localStorage.setItem('webResearchProvider', 'mistral');
+        localStorage.setItem('mistralWebResearchModel', 'mistral-quota-test');
+        localStorage.removeItem('lastWebPolishTime');
+        Object.keys(localStorage)
+            .filter(key => key.startsWith('webPolishCache:'))
+            .forEach(key => localStorage.removeItem(key));
+    });
+    await page.click('[data-backfill-select="inbox/card-1"]');
+    const mistralPostsBeforeQuotaQueue = mistralPosts;
+    await page.click('#start-tag-backfill-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('Mistral 配額暫停'));
+    assert.match(await page.$eval('#tag-backfill-status', element => element.textContent), /保留第 1/);
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert.equal(mistralPosts, mistralPostsBeforeQuotaQueue + 1, 'quota pause must not keep sending requests');
+    await page.click('#cancel-tag-backfill-btn');
+    await page.evaluate(() => localStorage.setItem('webResearchProvider', 'gemini'));
     await page.click('#close-tag-browser-btn');
     await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
 
@@ -1009,6 +1120,8 @@ try {
         geminiPosts,
         webResearchPosts,
         verificationPosts,
+        mistralPosts,
+        mistralModelGets,
         cacheHit: true,
         cooldownBlockedSecondCard: true,
         quotaErrorPreservedCard: true,
@@ -1018,6 +1131,7 @@ try {
         tagBrowserGrouped: true,
         tagBrowserBackForward: true,
         selectiveBackfillQueue: true,
+        quotaBackfillPausedOnSameCard: true,
         overlayCloseControls: true,
         stackedBackOrder: true,
         deepLinkOpenedEditor: true,

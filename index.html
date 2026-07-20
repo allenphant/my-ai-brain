@@ -467,8 +467,17 @@
                 <select id="model-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer"></select>
             </div>
 
+            <div class="mb-4 pt-4 border-t border-slate-100">
+                <label class="block text-sm font-semibold text-slate-700 mb-2" for="web-research-provider-select">網址研讀整理服務</label>
+                <select id="web-research-provider-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer">
+                    <option value="mistral">Mistral（建議）</option>
+                    <option value="gemini">Google Gemini</option>
+                </select>
+                <p class="mt-1 text-xs text-slate-500">Jina Reader 仍負責擷取原文；這裡只決定由哪個模型整理筆記與 tag。</p>
+            </div>
+
             <div class="mb-4 hidden" id="web-research-model-select-container">
-                <label class="block text-sm font-semibold text-slate-700 mb-2">網址研讀模型</label>
+                <label class="block text-sm font-semibold text-slate-700 mb-2">Gemini 網址研讀模型</label>
                 <select id="web-research-model-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer"></select>
                 <p class="mt-1 text-xs text-slate-500">Jina Reader 負責讀取原文；這個 Gemini 模型只負責整理筆記與建議 tag。</p>
 
@@ -483,10 +492,24 @@
                 </details>
             </div>
 
+            <div class="mb-4" id="mistral-settings-container">
+                <label class="block text-sm font-semibold text-slate-700 mb-2">Mistral API Key</label>
+                <div class="flex flex-col sm:flex-row gap-2 mb-1">
+                    <input type="password" id="mistral-api-key-input" placeholder="Mistral API Key" autocomplete="off" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm font-mono">
+                    <button id="verify-mistral-key-btn" type="button" class="w-full sm:w-auto bg-orange-100 text-orange-800 px-3 py-2 rounded-lg text-sm font-bold hover:bg-orange-200 transition-colors shrink-0 whitespace-nowrap">查詢可用模型</button>
+                </div>
+                <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" class="text-xs text-indigo-500 hover:underline"><i class="fas fa-external-link-alt"></i> 前往 Mistral Console 建立 Key</a>
+                <div class="mt-3 hidden" id="mistral-web-research-model-select-container">
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">Mistral 網址研讀模型</label>
+                    <select id="mistral-web-research-model-select" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm bg-white cursor-pointer"></select>
+                </div>
+                <div id="mistral-model-status" class="mt-2 text-xs text-slate-600" aria-live="polite"></div>
+            </div>
+
             <div class="mb-4 pt-4 border-t border-slate-100">
                 <label class="block text-sm font-semibold text-slate-700 mb-2">Jina Reader API Key <span class="font-normal text-slate-400">（選填）</span></label>
                 <input type="password" id="jina-api-key-input" placeholder="jina_...；留空可使用匿名額度" autocomplete="off" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-sm font-mono">
-                <p class="mt-1 text-xs text-slate-500">網址會先送至 Jina 擷取公開文字，再將擷取結果交給 Gemini。Jina 不會解析影片內容。</p>
+                <p class="mt-1 text-xs text-slate-500">網址會先送至 Jina 擷取公開文字，再將擷取結果交給你選擇的整理服務。Jina 不會解析影片內容。</p>
             </div>
 
             <div class="mb-4">
@@ -510,7 +533,7 @@
             <div class="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div class="mb-2">
                     <div class="text-sm font-semibold text-slate-700">管理 Tag</div>
-                    <p class="mt-1 text-xs text-slate-500">Gemini 優先選擇這裡的 tag；新 tag 只會在研讀預覽勾選並確認後建立。</p>
+                    <p class="mt-1 text-xs text-slate-500">網址研讀模型會優先選擇這裡的 tag；新 tag 只會在研讀預覽勾選並確認後建立。</p>
                 </div>
                 <div id="tag-manager-list" class="mb-3 flex flex-wrap gap-2" aria-live="polite"></div>
                 <div class="flex gap-2">
@@ -521,7 +544,7 @@
 
             <div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-800">
                 <div class="font-semibold mb-1">AI 使用提醒</div>
-                <div>公開網址會送至 Jina Reader，擷取文字再送至 Gemini。登入限定、私人貼文與影片內容可能無法解析；系統會明確標示而不猜測。</div>
+                <div>公開網址會送至 Jina Reader，擷取文字再送至你選擇的整理服務。登入限定、私人貼文與影片內容可能無法解析；系統會明確標示而不猜測。</div>
             </div>
 
             <!-- ImgBB API Key 設定區塊 -->

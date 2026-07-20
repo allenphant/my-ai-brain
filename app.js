@@ -14,8 +14,10 @@
             upsertResearchReview
         } from './research-review.mjs';
         import {
+            DEFAULT_MISTRAL_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT,
+            buildMistralResearchRequest,
             buildUnparsedVideoResearchResult,
             buildWebResearchAppendData,
             buildGeminiResearchRequest,
@@ -26,6 +28,7 @@
             classifyJinaResearchSource,
             describeGeminiApiError,
             describeGeminiResponseIssue,
+            describeMistralApiError,
             extractGeminiResponseText,
             extractUrls,
             getWebResearchCooldownRemaining,
@@ -84,6 +87,7 @@
         let researchBackfillStatusMessage = '';
         let researchBackfillCompleted = 0;
         let researchBackfillFailed = 0;
+        let researchBackfillQuotaFailures = 0;
         let researchReviewItems = [];
         let researchBackfillApprovalMode = localStorage.getItem('researchBackfillApprovalMode') === 'auto' ? 'auto' : 'manual';
         let currentTodoItems = [];
@@ -912,6 +916,7 @@
             researchBackfillQueue = [];
             researchBackfillIndex = 0;
             activeResearchBackfillKey = null;
+            researchBackfillQuotaFailures = 0;
             updateResearchBackfillStatus(message);
             renderResearchBackfillPanel();
             document.getElementById('research-queue-floating-status')?.classList.add('hidden');
@@ -925,6 +930,7 @@
             researchBackfillQueue = [];
             researchBackfillIndex = 0;
             activeResearchBackfillKey = null;
+            researchBackfillQuotaFailures = 0;
             selectedResearchBackfillKeys.clear();
             const destination = researchBackfillApprovalMode === 'auto' ? '筆已自動通過' : '筆已送往待審核';
             updateResearchBackfillStatus(`佇列完成：${completed} ${destination}${failed ? `，${failed} 筆失敗或轉待審` : ''}。`);
@@ -933,12 +939,17 @@
             document.getElementById('research-queue-floating-status')?.classList.add('hidden');
         }
 
-        function scheduleResearchBackfillRetry(remaining) {
+        function scheduleResearchBackfillRetry(remaining, { quota = false, provider = '' } = {}) {
             clearResearchBackfillTimers();
             const retryAt = Date.now() + Math.max(remaining, 1000) + 250;
             const updateCountdown = () => {
                 const seconds = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
-                updateResearchBackfillStatus(`冷卻中，${seconds} 秒後自動研讀第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張。`);
+                const waitText = seconds >= 60
+                    ? `${Math.ceil(seconds / 60)} 分鐘`
+                    : `${seconds} 秒`;
+                updateResearchBackfillStatus(quota
+                    ? `${provider || '模型'} 配額暫停；保留第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張，${waitText}後重試。`
+                    : `冷卻中，${waitText}後自動研讀第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張。`);
             };
             updateCountdown();
             researchBackfillCountdownTimer = setInterval(updateCountdown, 1000);
@@ -963,6 +974,7 @@
             });
             if (researchBackfillQueue.length === 0) return;
             if (outcome?.status === 'ready') {
+                researchBackfillQuotaFailures = 0;
                 let completionMessage = '';
                 if (researchBackfillApprovalMode === 'auto') {
                     const allSuggestionIds = [
@@ -1009,7 +1021,17 @@
                 return;
             }
             if (outcome?.status === 'blocked') {
-                cancelResearchBackfillQueue('缺少 Gemini API Key，請完成設定後重新啟動回補。');
+                cancelResearchBackfillQueue(`缺少 ${outcome.provider || '網址研讀服務'} API Key，請完成設定後重新啟動回補。`);
+                return;
+            }
+            if (outcome?.status === 'quota') {
+                researchBackfillQuotaFailures += 1;
+                const backoffSchedule = [5 * 60_000, 15 * 60_000, 60 * 60_000];
+                const backoff = backoffSchedule[Math.min(researchBackfillQuotaFailures - 1, backoffSchedule.length - 1)];
+                scheduleResearchBackfillRetry(Math.max(outcome.remaining || 0, backoff), {
+                    quota: true,
+                    provider: outcome.provider
+                });
                 return;
             }
             researchBackfillFailed += 1;
@@ -1029,6 +1051,7 @@
             activeResearchBackfillKey = null;
             researchBackfillCompleted = 0;
             researchBackfillFailed = 0;
+            researchBackfillQuotaFailures = 0;
             researchBackfillStatusMessage = '';
             if (researchBackfillQueue.length === 0) {
                 renderResearchBackfillPanel();
@@ -2230,13 +2253,23 @@
             const userNote = normalizedText.replace(sourceUrl, '').trim();
             const directVideoPage = isDirectVideoPageUrl(sourceUrl);
 
+            let providerName = 'gemini';
             let apiKey = null;
             let targetModel = DEFAULT_WEB_RESEARCH_MODEL;
             let jinaApiKey = '';
             let systemPrompt = DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
             try {
-                apiKey = localStorage.getItem('geminiApiKey');
-                targetModel = localStorage.getItem('geminiWebResearchModel') || targetModel;
+                const savedProvider = localStorage.getItem('webResearchProvider');
+                const mistralApiKey = localStorage.getItem('mistralApiKey') || '';
+                providerName = savedProvider === 'mistral' || savedProvider === 'gemini'
+                    ? savedProvider
+                    : mistralApiKey ? 'mistral' : 'gemini';
+                apiKey = providerName === 'mistral'
+                    ? mistralApiKey
+                    : localStorage.getItem('geminiApiKey');
+                targetModel = providerName === 'mistral'
+                    ? localStorage.getItem('mistralWebResearchModel') || DEFAULT_MISTRAL_RESEARCH_MODEL
+                    : localStorage.getItem('geminiWebResearchModel') || DEFAULT_WEB_RESEARCH_MODEL;
                 jinaApiKey = localStorage.getItem('jinaApiKey') || '';
                 systemPrompt = localStorage.getItem('webResearchSystemPrompt') || systemPrompt;
             } catch (error) {
@@ -2244,15 +2277,17 @@
             }
             if (!apiKey && !directVideoPage) {
                 if (!fromBackfill) openSettingsModal();
-                showToast('請先設定 Gemini API Key，才能使用 AI 研讀。', 'fas fa-key');
-                return { status: 'blocked', reason: 'missing_api_key' };
+                const providerLabel = providerName === 'mistral' ? 'Mistral' : 'Gemini';
+                showToast(`請先設定 ${providerLabel} API Key，才能使用 AI 研讀。`, 'fas fa-key');
+                return { status: 'blocked', reason: 'missing_api_key', provider: providerLabel };
             }
 
             const cacheContext = {
+                provider: providerName,
                 model: targetModel,
                 prompt: systemPrompt,
                 tags: currentTags.map(tag => `${tag.id}:${tag.name}`),
-                pipeline: 'source-metadata-video-v2'
+                pipeline: 'source-metadata-provider-json-v3'
             };
             const cached = readWebResearchCache(localStorage, normalizedText, Date.now(), cacheContext);
             if (cached) {
@@ -2292,7 +2327,9 @@
                     }
                 }
                 showToast(
-                    directVideoPage ? '正在辨識影片網址...' : '正在用 Jina Reader 擷取原文，再交給 Gemini 整理...',
+                    directVideoPage
+                        ? '正在辨識影片網址...'
+                        : `正在用 Jina Reader 擷取原文，再交給 ${providerName === 'mistral' ? 'Mistral' : 'Gemini'} 整理...`,
                     'fas fa-robot'
                 );
                 const source = directVideoPage
@@ -2309,7 +2346,8 @@
                 const polished = directVideoPage
                     ? buildUnparsedVideoResearchResult(currentTags)
                     : media.canSummarize
-                    ? await polishJinaContentWithGemini({
+                    ? await polishJinaContent({
+                        provider: providerName,
                         source: researchSource,
                         userNote,
                         tags: currentTags,
@@ -2349,27 +2387,37 @@
                 return { status: 'preview', cached: false, payload };
             } catch (error) {
                 const rawMessage = error?.message || '未知錯誤';
-                const geminiError = error?.gemini;
+                const providerError = error?.providerInfo || error?.mistral || error?.gemini;
                 const jinaError = error?.jina;
-                console.error('AI 網頁研讀潤飾失敗', geminiError ? {
-                    model: geminiError.model,
-                    status: geminiError.status,
-                    quotaId: geminiError.quotaId,
-                    retryDelay: geminiError.retryDelay
+                console.error('AI 網頁研讀潤飾失敗', providerError ? {
+                    provider: providerError.provider || providerName,
+                    model: providerError.model,
+                    status: providerError.status,
+                    quotaId: providerError.quotaId,
+                    retryDelay: providerError.retryDelay
                 } : { stage: jinaError ? 'jina' : 'unknown', message: rawMessage });
                 if (jinaError) {
                     saveAiStatus('web', '來源擷取失敗', jinaError.detail);
                     showToast(`Jina Reader 擷取失敗：${jinaError.message}`, 'fas fa-file-circle-xmark');
-                } else if (geminiError?.isQuota) {
-                    saveAiStatus('web', '配額不足', geminiError.detail);
-                    const retryText = geminiError.retryDelay ? `，約 ${geminiError.retryDelay} 後可重試` : '';
-                    showToast(`網址研讀模型 ${geminiError.model} 配額不足${retryText}。`, 'fas fa-gauge-high');
+                } else if (providerError?.isQuota) {
+                    saveAiStatus('web', '配額不足', providerError.detail);
+                    const retryText = providerError.retryDelay ? `，約 ${providerError.retryDelay} 後可重試` : '';
+                    showToast(`網址研讀模型 ${providerError.model} 配額不足${retryText}。`, 'fas fa-gauge-high');
                 } else {
-                    const detail = geminiError?.detail || `模型 ${targetModel}｜${rawMessage}`;
+                    const detail = providerError?.detail || `模型 ${targetModel}｜${rawMessage}`;
                     saveAiStatus('web', '失敗', detail);
-                    showToast(`AI 網頁研讀失敗：${geminiError?.message || rawMessage}`, 'fas fa-exclamation-triangle');
+                    showToast(`AI 網頁研讀失敗：${providerError?.message || rawMessage}`, 'fas fa-exclamation-triangle');
                 }
                 updateAiStatusPanel();
+                if (providerError?.isQuota) {
+                    return {
+                        status: 'quota',
+                        provider: providerName === 'mistral' ? 'Mistral' : 'Gemini',
+                        model: targetModel,
+                        remaining: providerError.retryAfterMs || 0,
+                        error
+                    };
+                }
                 return { status: 'error', error };
             } finally {
                 restoreButton();
@@ -2640,6 +2688,12 @@
             imagePreviewContainer.classList.add('hidden'); imagePreviewImg.src = '';
         });
 
+        async function polishJinaContent({ provider, ...options }) {
+            return provider === 'mistral'
+                ? polishJinaContentWithMistral(options)
+                : polishJinaContentWithGemini(options);
+        }
+
         async function polishJinaContentWithGemini({ source, userNote, tags, apiKey, model, systemPrompt }) {
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
                 method: 'POST',
@@ -2650,42 +2704,100 @@
             if (!response.ok) {
                 const errData = await response.json().catch(() => ({}));
                 const info = describeGeminiApiError(errData, response.status, model);
+                info.provider = 'gemini';
                 const requestError = new Error(info.message);
                 requestError.gemini = info;
+                requestError.providerInfo = info;
                 throw requestError;
             }
             
             const data = await response.json();
             if (data.error) {
                 const info = describeGeminiApiError(data, data.error.code, model);
+                info.provider = 'gemini';
                 const requestError = new Error(info.message);
                 requestError.gemini = info;
+                requestError.providerInfo = info;
                 throw requestError;
             }
             
             const candidate = data.candidates?.[0];
             if (!candidate) {
                 const info = describeGeminiResponseIssue(data, model);
+                info.provider = 'gemini';
                 const responseError = new Error(info.message);
                 responseError.gemini = info;
+                responseError.providerInfo = info;
                 throw responseError;
             }
             
             if (candidate.finishReason && candidate.finishReason !== 'STOP') {
                 const info = describeGeminiResponseIssue(data, model);
+                info.provider = 'gemini';
                 const responseError = new Error(`生成中斷，原因: ${candidate.finishReason}`);
                 responseError.gemini = info;
+                responseError.providerInfo = info;
                 throw responseError;
             }
             
             const partText = extractGeminiResponseText(data);
             if (!partText) {
                 const info = describeGeminiResponseIssue(data, model);
+                info.provider = 'gemini';
                 const responseError = new Error(info.message);
                 responseError.gemini = info;
+                responseError.providerInfo = info;
                 throw responseError;
             }
             
+            return parseGeminiResearchResult(partText, tags, source);
+        }
+
+        async function polishJinaContentWithMistral({ source, userNote, tags, apiKey, model, systemPrompt }) {
+            const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(buildMistralResearchRequest({
+                    source,
+                    userNote,
+                    tags,
+                    model,
+                    systemPrompt
+                }))
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.error) {
+                const info = describeMistralApiError(
+                    data,
+                    response.status || data?.status,
+                    model,
+                    response.headers.get('retry-after')
+                );
+                const requestError = new Error(info.message);
+                requestError.mistral = info;
+                requestError.providerInfo = info;
+                throw requestError;
+            }
+            const content = data?.choices?.[0]?.message?.content;
+            const partText = typeof content === 'string'
+                ? content.trim()
+                : Array.isArray(content)
+                    ? content.filter(part => part?.type === 'text' && part?.text).map(part => part.text).join('\n').trim()
+                    : '';
+            if (!partText) {
+                const info = describeMistralApiError(
+                    { message: '模型未回傳可顯示文字' },
+                    200,
+                    model
+                );
+                const responseError = new Error(info.message);
+                responseError.mistral = info;
+                responseError.providerInfo = info;
+                throw responseError;
+            }
             return parseGeminiResearchResult(partText, tags, source);
         }
 
@@ -2758,6 +2870,8 @@
         // ==========================================
         let availableGeminiModels = [];
         let modelSettingsApiKey = '';
+        let availableMistralModels = [];
+        let mistralModelSettingsApiKey = '';
 
         function replaceSelectOptions(select, models, selectedValue, emptyLabel = '目前沒有可用模型') {
             select.innerHTML = '';
@@ -2816,7 +2930,7 @@
             );
             document.getElementById('verify-web-research-model-btn').disabled = researchModels.unknown.length === 0;
             document.getElementById('model-select-container').classList.remove('hidden');
-            document.getElementById('web-research-model-select-container').classList.remove('hidden');
+            renderWebResearchProviderSettings();
             return researchModels;
         }
 
@@ -2830,6 +2944,48 @@
                 throw error;
             }
             return Array.isArray(data.models) ? data.models : [];
+        }
+
+        async function loadMistralModels(key) {
+            const response = await fetch('https://api.mistral.ai/v1/models', {
+                headers: { Authorization: `Bearer ${key}` }
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const info = describeMistralApiError(data, response.status, 'models.list', response.headers.get('retry-after'));
+                const error = new Error(info.message);
+                error.mistral = info;
+                throw error;
+            }
+            return (Array.isArray(data.data) ? data.data : [])
+                .filter(model => !model?.archived && model?.capabilities?.completion_chat !== false)
+                .map(model => ({ id: String(model?.id || '').trim(), label: String(model?.id || '').trim() }))
+                .filter(model => model.id);
+        }
+
+        function populateMistralModelSettings(models, apiKey) {
+            availableMistralModels = Array.isArray(models) ? models : [];
+            mistralModelSettingsApiKey = apiKey;
+            const savedModel = document.getElementById('mistral-web-research-model-select').value
+                || localStorage.getItem('mistralWebResearchModel')
+                || DEFAULT_MISTRAL_RESEARCH_MODEL;
+            replaceSelectOptions(
+                document.getElementById('mistral-web-research-model-select'),
+                availableMistralModels,
+                savedModel,
+                '這把 Key 目前沒有可用的對話模型'
+            );
+            document.getElementById('mistral-web-research-model-select-container').classList.remove('hidden');
+        }
+
+        function renderWebResearchProviderSettings() {
+            const provider = document.getElementById('web-research-provider-select').value;
+            const geminiReady = modelSettingsApiKey && availableGeminiModels.length > 0;
+            document.getElementById('web-research-model-select-container').classList.toggle(
+                'hidden',
+                provider !== 'gemini' || !geminiReady
+            );
+            document.getElementById('mistral-settings-container').classList.toggle('hidden', provider !== 'mistral');
         }
 
         async function probeWebResearchModel(apiKey, model) {
@@ -2929,6 +3085,19 @@
 
         function openSettingsModal() {
             document.getElementById('api-key-input').value = localStorage.getItem('geminiApiKey') || '';
+            const mistralKey = localStorage.getItem('mistralApiKey') || '';
+            document.getElementById('mistral-api-key-input').value = mistralKey;
+            const savedProvider = localStorage.getItem('webResearchProvider');
+            document.getElementById('web-research-provider-select').value = savedProvider === 'gemini' || savedProvider === 'mistral'
+                ? savedProvider
+                : mistralKey ? 'mistral' : 'gemini';
+            const savedMistralModel = localStorage.getItem('mistralWebResearchModel') || DEFAULT_MISTRAL_RESEARCH_MODEL;
+            replaceSelectOptions(
+                document.getElementById('mistral-web-research-model-select'),
+                [{ id: savedMistralModel, label: savedMistralModel }],
+                savedMistralModel
+            );
+            document.getElementById('mistral-web-research-model-select-container').classList.toggle('hidden', !mistralKey);
             document.getElementById('jina-api-key-input').value = localStorage.getItem('jinaApiKey') || '';
             document.getElementById('imgbb-key-input').value = localStorage.getItem('imgbbApiKey') || '';
             document.getElementById('web-research-system-prompt').value = localStorage.getItem('webResearchSystemPrompt') || DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
@@ -2936,6 +3105,7 @@
             document.getElementById('auto-newline-toggle').checked = localStorage.getItem('autoNewlineAfterUrl') !== 'off';
             draftTags = currentTags.map(tag => ({ ...tag }));
             renderTagManager();
+            renderWebResearchProviderSettings();
             updateAiStatusPanel();
             document.getElementById('settings-modal').classList.remove('hidden');
             keyLayers.push({ name: 'settings', keys: modalKeys(closeSettingsModal) });
@@ -2970,6 +3140,14 @@
             document.getElementById('web-research-model-select-container').classList.add('hidden');
             document.getElementById('web-research-model-verification-status').textContent = 'API Key 已變更，請重新查詢這把 Key 的可用模型。';
         });
+        document.getElementById('web-research-provider-select').addEventListener('change', renderWebResearchProviderSettings);
+        document.getElementById('mistral-api-key-input').addEventListener('input', (event) => {
+            if (!mistralModelSettingsApiKey || event.target.value.trim() === mistralModelSettingsApiKey) return;
+            mistralModelSettingsApiKey = '';
+            availableMistralModels = [];
+            document.getElementById('mistral-web-research-model-select-container').classList.add('hidden');
+            document.getElementById('mistral-model-status').textContent = 'API Key 已變更，請重新查詢這把 Key 的可用模型。';
+        });
         
         document.getElementById('verify-key-btn').addEventListener('click', async () => {
             const key = document.getElementById('api-key-input').value.trim(); if(!key) return;
@@ -2991,6 +3169,36 @@
                 document.getElementById('web-research-model-verification-status').textContent = detail;
                 showToast(`查詢模型失敗：${error?.gemini?.message || error?.message}`, 'fas fa-exclamation-triangle');
             } finally { btn.disabled = false; btn.innerText = '重新查詢可用模型'; }
+        });
+
+        document.getElementById('verify-mistral-key-btn').addEventListener('click', async () => {
+            const key = document.getElementById('mistral-api-key-input').value.trim();
+            if (!key) return;
+            const button = document.getElementById('verify-mistral-key-btn');
+            const status = document.getElementById('mistral-model-status');
+            button.disabled = true;
+            button.innerHTML = '<div class="loader w-4 h-4 border-2 border-t-orange-700 mx-auto"></div>';
+            try {
+                const models = await loadMistralModels(key);
+                if (document.getElementById('mistral-api-key-input').value.trim() !== key) {
+                    status.textContent = 'API Key 已變更，已丟棄舊 Key 的模型查詢結果。';
+                    return;
+                }
+                populateMistralModelSettings(models, key);
+                document.getElementById('web-research-provider-select').value = 'mistral';
+                renderWebResearchProviderSettings();
+                status.textContent = `已即時取得 ${models.length} 個 Mistral 對話模型。`;
+            } catch (error) {
+                if (document.getElementById('mistral-api-key-input').value.trim() !== key) {
+                    status.textContent = 'API Key 已變更，已丟棄舊 Key 的模型查詢錯誤。';
+                    return;
+                }
+                status.textContent = error?.mistral?.detail || error?.message || '無法取得模型清單';
+                showToast(`查詢 Mistral 模型失敗：${error?.mistral?.message || error?.message}`, 'fas fa-exclamation-triangle');
+            } finally {
+                button.disabled = false;
+                button.textContent = '重新查詢可用模型';
+            }
         });
 
         document.getElementById('verify-web-research-model-btn').addEventListener('click', async () => {
@@ -3038,6 +3246,8 @@
 
         document.getElementById('save-settings-btn').addEventListener('click', async () => {
             const geminiKey = document.getElementById('api-key-input').value.trim();
+            const mistralKey = document.getElementById('mistral-api-key-input').value.trim();
+            const webResearchProvider = document.getElementById('web-research-provider-select').value;
             const jinaKey = document.getElementById('jina-api-key-input').value.trim();
             const imgbbKey = document.getElementById('imgbb-key-input').value.trim();
             const cleanedTags = draftTags
@@ -3066,6 +3276,26 @@
                     if (document.getElementById('web-research-model-select').value) localStorage.setItem('geminiWebResearchModel', document.getElementById('web-research-model-select').value);
                 }
             }
+            if (webResearchProvider === 'mistral') {
+                const storedMistralKey = localStorage.getItem('mistralApiKey') || '';
+                if (!mistralKey) {
+                    showToast('請先填入 Mistral API Key。', 'fas fa-key');
+                    return;
+                }
+                if (mistralKey !== storedMistralKey && mistralModelSettingsApiKey !== mistralKey) {
+                    showToast('Mistral API Key 已變更，請先查詢這把 Key 的可用模型。', 'fas fa-key');
+                    return;
+                }
+            }
+            if (mistralKey) {
+                localStorage.setItem('mistralApiKey', mistralKey);
+                const selectedMistralModel = document.getElementById('mistral-web-research-model-select').value;
+                if (selectedMistralModel) localStorage.setItem('mistralWebResearchModel', selectedMistralModel);
+            } else {
+                localStorage.removeItem('mistralApiKey');
+                localStorage.removeItem('mistralWebResearchModel');
+            }
+            localStorage.setItem('webResearchProvider', webResearchProvider);
             if (jinaKey) localStorage.setItem('jinaApiKey', jinaKey);
             else localStorage.removeItem('jinaApiKey');
             if(imgbbKey) { localStorage.setItem('imgbbApiKey', imgbbKey); }
