@@ -508,6 +508,20 @@ try {
         await page.$$eval('[data-backfill-approval-mode="auto"]', buttons => buttons.length),
         2
     );
+    await page.evaluate(() => {
+        const input = document.querySelector('#idea-input');
+        input.value = 'https://example.com/mobile-paste手機說明';
+        input.selectionStart = input.selectionEnd = input.value.length;
+        input.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertFromPaste'
+        }));
+    });
+    assert.equal(
+        await page.$eval('#idea-input', input => input.value),
+        'https://example.com/mobile-paste\n手機說明'
+    );
+    await page.$eval('#idea-input', input => { input.value = ''; });
     await page.$eval('#new-tag-input', input => { input.value = '研究'; });
     await page.click('#add-tag-btn');
     assert.equal(await page.$$eval('#tag-manager-list input', inputs => inputs.some(input => input.value === '研究')), true);

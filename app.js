@@ -2537,11 +2537,31 @@
             this.style.height = '40px';
             this.style.height = (this.scrollHeight) + 'px';
         });
+        function normalizeAutoNewlineTextarea(textareaEl) {
+            if (localStorage.getItem('autoNewlineAfterUrl') === 'off') return false;
+            const original = textareaEl.value;
+            const processed = insertNewlineAfterGluedUrls(original);
+            if (processed === original) return false;
+            const start = textareaEl.selectionStart ?? original.length;
+            const end = textareaEl.selectionEnd ?? start;
+            const addedBeforeStart = insertNewlineAfterGluedUrls(original.slice(0, start)).length - start;
+            const addedBeforeEnd = insertNewlineAfterGluedUrls(original.slice(0, end)).length - end;
+            textareaEl.value = processed;
+            textareaEl.selectionStart = start + addedBeforeStart;
+            textareaEl.selectionEnd = end + addedBeforeEnd;
+            textareaEl.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        }
         function attachAutoNewlinePaste(textareaEl) {
             textareaEl.addEventListener('paste', (e) => {
                 if (localStorage.getItem('autoNewlineAfterUrl') === 'off') return;
                 const clipboardText = (e.clipboardData || window.clipboardData)?.getData('text');
-                if (!clipboardText) return;
+                if (!clipboardText) {
+                    // Some Android/iOS browsers do not expose clipboardData.
+                    // Let the native paste finish, then normalize the resulting value.
+                    setTimeout(() => normalizeAutoNewlineTextarea(textareaEl), 0);
+                    return;
+                }
                 const processed = insertNewlineAfterGluedUrls(clipboardText);
                 if (processed === clipboardText) return;
                 e.preventDefault();
@@ -2552,6 +2572,11 @@
                 const newCursor = start + processed.length;
                 textareaEl.selectionStart = textareaEl.selectionEnd = newCursor;
                 textareaEl.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+            textareaEl.addEventListener('input', (e) => {
+                if (e.inputType === 'insertFromPaste') {
+                    normalizeAutoNewlineTextarea(textareaEl);
+                }
             });
         }
         attachAutoNewlinePaste(ideaInput);
