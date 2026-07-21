@@ -79,7 +79,12 @@ test('production markup exposes the accessible global search and visible Mistral
     assert.match(html, /id="global-search-modal"[^>]+role="dialog"/);
     assert.match(html, /id="global-search-input"/);
     assert.match(html, /id="mistral-settings-container"/);
+    assert.match(html, /id="save-gemini-key-btn"/);
+    assert.match(html, /id="save-mistral-key-btn"/);
+    assert.match(html, /id="save-jina-key-btn"/);
+    assert.match(html, /id="mistral-key-save-status"[^>]+aria-live="polite"/);
     assert.match(appSource, /groupCardsBySearch/);
+    assert.match(appSource, /localStorage\.setItem\(config\.storageKey, value\)/);
     assert.match(appSource, /history\.pushState\(\{ overlay: 'global-search'/);
     assert.match(appSource, /getElementById\('mistral-settings-container'\)\.classList\.remove\('hidden'\)/);
 });

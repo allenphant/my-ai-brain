@@ -1,10 +1,11 @@
 # AI 網址研讀已支援 Gemini／Mistral 與配額暫停
 
-> **更新時間**：2026-07-20
+> **更新時間**：2026-07-21
 > **專案核心**：以 Vanilla JS 與 Firebase 打造的類似 Notion 的個人 AI 大腦/知識庫工具。
 
 ## 2026-07-20 最新狀態
 
+* **API Key 明確保存**：Gemini、Mistral、Jina 三組 Key 各自提供「儲存 Key」按鈕與即時狀態；保存成功會明確顯示只儲存在目前瀏覽器，關閉設定再開仍會載入。輸入內容若與已保存值不同，會提示尚未保存，避免誤以為模型查詢等同保存。
 * **Gemini／Mistral 可切換**：一般 AI 整理仍使用 Gemini；網址研讀整理服務可獨立選擇 Gemini 或 Mistral。Mistral API Key 與網址研讀模型在設定頁分開保存，預設建議模型為 `mistral-small-2603`。
 * **Mistral 動態模型清單**：設定頁會用使用者的 Mistral Key 即時查詢 `/v1/models`，列出可用的 chat completion 模型，因此未來新增模型不需要改版才能選取。
 * **資料流維持不變**：Jina Reader 仍只負責擷取公開文字；選定的 Gemini 或 Mistral 模型負責輸出相同的結構化 TL;DR、評價、詳細筆記與 Tag 建議。快取 context 已加入 provider，切換服務不會誤用另一家的舊結果。

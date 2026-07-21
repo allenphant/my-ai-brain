@@ -3229,6 +3229,7 @@
             );
             document.getElementById('mistral-web-research-model-select-container').classList.toggle('hidden', !mistralKey);
             document.getElementById('jina-api-key-input').value = localStorage.getItem('jinaApiKey') || '';
+            updateApiKeySaveStatuses();
             document.getElementById('imgbb-key-input').value = localStorage.getItem('imgbbApiKey') || '';
             document.getElementById('web-research-system-prompt').value = localStorage.getItem('webResearchSystemPrompt') || DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
             document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off';
@@ -3262,7 +3263,81 @@
         });
         document.getElementById('close-modal-btn').addEventListener('click', () => closeSettingsModal());
 
+        const API_KEY_SETTINGS = {
+            gemini: {
+                inputId: 'api-key-input',
+                storageKey: 'geminiApiKey',
+                statusId: 'gemini-key-save-status',
+                emptyMessage: '請先輸入 Gemini API Key。',
+                savedMessage: 'Gemini Key 已儲存於此瀏覽器。'
+            },
+            mistral: {
+                inputId: 'mistral-api-key-input',
+                storageKey: 'mistralApiKey',
+                statusId: 'mistral-key-save-status',
+                emptyMessage: '請先輸入 Mistral API Key。',
+                savedMessage: 'Mistral Key 已儲存於此瀏覽器。'
+            },
+            jina: {
+                inputId: 'jina-api-key-input',
+                storageKey: 'jinaApiKey',
+                statusId: 'jina-key-save-status',
+                emptyMessage: '請先輸入 Jina API Key；若要使用匿名額度，可保持空白。',
+                savedMessage: 'Jina Key 已儲存於此瀏覽器。'
+            }
+        };
+
+        function setApiKeySaveStatus(type, message, state = 'idle') {
+            const status = document.getElementById(API_KEY_SETTINGS[type].statusId);
+            status.textContent = message;
+            status.classList.remove('text-slate-500', 'text-slate-600', 'text-emerald-700', 'text-amber-700', 'font-semibold');
+            if (state === 'saved') status.classList.add('text-emerald-700', 'font-semibold');
+            else if (state === 'dirty') status.classList.add('text-amber-700');
+            else status.classList.add(type === 'mistral' ? 'text-slate-600' : 'text-slate-500');
+        }
+
+        function updateApiKeySaveStatuses() {
+            Object.entries(API_KEY_SETTINGS).forEach(([type, config]) => {
+                const hasSavedKey = Boolean(localStorage.getItem(config.storageKey));
+                setApiKeySaveStatus(
+                    type,
+                    hasSavedKey ? `${config.savedMessage} 關閉設定後仍會保留。` : '尚未儲存 Key。',
+                    hasSavedKey ? 'saved' : 'idle'
+                );
+            });
+        }
+
+        function saveApiKey(type) {
+            const config = API_KEY_SETTINGS[type];
+            const value = document.getElementById(config.inputId).value.trim();
+            if (!value) {
+                setApiKeySaveStatus(type, config.emptyMessage, 'dirty');
+                showToast(config.emptyMessage, 'fas fa-key');
+                return false;
+            }
+            try {
+                localStorage.setItem(config.storageKey, value);
+                setApiKeySaveStatus(type, config.savedMessage, 'saved');
+                showToast(config.savedMessage, 'fas fa-check-circle');
+                return true;
+            } catch (error) {
+                console.error(`儲存 ${type} API Key 失敗：`, error);
+                setApiKeySaveStatus(type, '儲存失敗：瀏覽器可能禁止使用本機儲存空間。', 'dirty');
+                showToast('Key 儲存失敗，請檢查瀏覽器儲存權限。', 'fas fa-exclamation-triangle');
+                return false;
+            }
+        }
+
+        document.getElementById('save-gemini-key-btn').addEventListener('click', () => saveApiKey('gemini'));
+        document.getElementById('save-mistral-key-btn').addEventListener('click', () => saveApiKey('mistral'));
+        document.getElementById('save-jina-key-btn').addEventListener('click', () => saveApiKey('jina'));
+
         document.getElementById('api-key-input').addEventListener('input', (event) => {
+            const savedKey = localStorage.getItem('geminiApiKey') || '';
+            const isSaved = Boolean(savedKey) && event.target.value.trim() === savedKey;
+            setApiKeySaveStatus('gemini', isSaved
+                ? API_KEY_SETTINGS.gemini.savedMessage
+                : '尚未儲存目前輸入的 Gemini Key。', isSaved ? 'saved' : 'dirty');
             if (!modelSettingsApiKey || event.target.value.trim() === modelSettingsApiKey) return;
             modelSettingsApiKey = '';
             availableGeminiModels = [];
@@ -3272,11 +3347,23 @@
         });
         document.getElementById('web-research-provider-select').addEventListener('change', renderWebResearchProviderSettings);
         document.getElementById('mistral-api-key-input').addEventListener('input', (event) => {
+            const savedKey = localStorage.getItem('mistralApiKey') || '';
+            const isSaved = Boolean(savedKey) && event.target.value.trim() === savedKey;
+            setApiKeySaveStatus('mistral', isSaved
+                ? API_KEY_SETTINGS.mistral.savedMessage
+                : '尚未儲存目前輸入的 Mistral Key。', isSaved ? 'saved' : 'dirty');
             if (!mistralModelSettingsApiKey || event.target.value.trim() === mistralModelSettingsApiKey) return;
             mistralModelSettingsApiKey = '';
             availableMistralModels = [];
             document.getElementById('mistral-web-research-model-select-container').classList.add('hidden');
             document.getElementById('mistral-model-status').textContent = 'API Key 已變更，請重新查詢這把 Key 的可用模型。';
+        });
+        document.getElementById('jina-api-key-input').addEventListener('input', (event) => {
+            const savedKey = localStorage.getItem('jinaApiKey') || '';
+            const isSaved = Boolean(savedKey) && event.target.value.trim() === savedKey;
+            setApiKeySaveStatus('jina', isSaved
+                ? API_KEY_SETTINGS.jina.savedMessage
+                : '尚未儲存目前輸入的 Jina Key。', isSaved ? 'saved' : 'dirty');
         });
         
         document.getElementById('verify-key-btn').addEventListener('click', async () => {

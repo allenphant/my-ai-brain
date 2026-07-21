@@ -620,8 +620,40 @@ try {
         input.value = 'fake-mistral-key';
         input.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    await page.$eval('#jina-api-key-input', input => {
+        input.value = 'fake-jina-key';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.click('#save-gemini-key-btn');
+    await page.click('#save-mistral-key-btn');
+    await page.click('#save-jina-key-btn');
+    assert.deepEqual(await page.evaluate(() => ({
+        gemini: localStorage.getItem('geminiApiKey'),
+        mistral: localStorage.getItem('mistralApiKey'),
+        jina: localStorage.getItem('jinaApiKey')
+    })), {
+        gemini: 'fake-key',
+        mistral: 'fake-mistral-key',
+        jina: 'fake-jina-key'
+    });
+    await page.click('#close-modal-btn');
+    await page.$eval('#settings-btn', button => button.click());
+    assert.deepEqual(await page.evaluate(() => ({
+        gemini: document.querySelector('#api-key-input').value,
+        mistral: document.querySelector('#mistral-api-key-input').value,
+        jina: document.querySelector('#jina-api-key-input').value,
+        mistralStatus: document.querySelector('#mistral-key-save-status').textContent
+    })), {
+        gemini: 'fake-key',
+        mistral: 'fake-mistral-key',
+        jina: 'fake-jina-key',
+        mistralStatus: 'Mistral Key 已儲存於此瀏覽器。 關閉設定後仍會保留。'
+    });
+    await page.$eval('#new-tag-input', input => { input.value = '研究'; });
+    await page.click('#add-tag-btn');
+    await page.$eval('#web-research-system-prompt', input => { input.value = '自訂研讀提示：只根據來源輸出繁體中文。'; });
     await page.click('#verify-mistral-key-btn');
-    await page.waitForFunction(() => !document.querySelector('#mistral-web-research-model-select-container').classList.contains('hidden'));
+    await page.waitForFunction(() => document.querySelectorAll('#mistral-web-research-model-select option').length === 2);
     assert.equal(mistralModelGets, 1);
     assert.deepEqual(
         await page.$$eval('#mistral-web-research-model-select option', options => options.map(option => option.value)),

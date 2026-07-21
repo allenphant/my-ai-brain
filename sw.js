@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ai-brain-v7';
+const CACHE_NAME = 'ai-brain-v8';
 const ASSETS = [
   './',
   './index.html',
