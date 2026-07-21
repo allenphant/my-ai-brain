@@ -499,6 +499,26 @@ try {
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
 
+    await page.click('#help-center-btn');
+    await page.waitForFunction(() => !document.querySelector('#help-center-modal').classList.contains('hidden'));
+    assert.equal(await page.$$eval('[data-help-target]', buttons => buttons.length), 7);
+    assert.match(await page.$eval('#help-center-content', element => element.textContent), /收集 → 研讀 → 整理 → 找回/);
+    assert.equal(
+        await page.$eval('#help-deployment a', link => link.href),
+        'https://allenphant.github.io/my-ai-brain/'
+    );
+    await page.click('[data-help-target="help-deployment"]');
+    assert.equal(
+        await page.$eval('[data-help-target="help-deployment"]', button => button.classList.contains('text-emerald-700')),
+        true
+    );
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => document.querySelector('#help-center-modal').classList.contains('hidden'));
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => !document.querySelector('#help-center-modal').classList.contains('hidden'));
+    await page.click('#close-help-center-btn');
+    await page.waitForFunction(() => document.querySelector('#help-center-modal').classList.contains('hidden'));
+
     await page.click('#global-search-btn');
     await page.waitForFunction(() => !document.querySelector('#global-search-modal').classList.contains('hidden'));
     assert.equal(await page.$eval('#global-search-input', input => document.activeElement === input), true);
@@ -1193,6 +1213,7 @@ try {
         genericErrorPreservedCard: true,
         appendFailureRetried: true,
         todoAndBookmarkRenderers: true,
+        helpCenterDocumentedAndNavigable: true,
         globalSearchGroupedAndIndexed: true,
         globalSearchBackForward: true,
         tagBrowserGrouped: true,

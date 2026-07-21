@@ -515,6 +515,7 @@
             nav.appendChild(createSidebarLink('inbox', 'fas fa-inbox', '收件匣'));
             nav.appendChild(createSearchSidebarLink());
             nav.appendChild(createTagBrowserSidebarLink());
+            nav.appendChild(createHelpSidebarLink());
 
             // Divider
             if (categories.length > 0) {
@@ -573,6 +574,18 @@
             btn.addEventListener('click', () => {
                 closeSidebar();
                 openGlobalSearch();
+            });
+            return btn;
+        }
+
+        function createHelpSidebarLink() {
+            const btn = document.createElement('button');
+            btn.className = 'sidebar-link';
+            btn.setAttribute('data-target', 'help-center');
+            btn.innerHTML = '<i class="fas fa-circle-question sidebar-link-icon"></i><span class="sidebar-link-text">使用說明</span>';
+            btn.addEventListener('click', () => {
+                closeSidebar();
+                openHelpCenter();
             });
             return btn;
         }
@@ -771,6 +784,38 @@
             }
             document.getElementById('global-search-modal').classList.add('hidden');
             keyLayers.pop('global-search');
+        }
+
+        function setActiveHelpSection(targetId) {
+            document.querySelectorAll('[data-help-target]').forEach(button => {
+                const active = button.dataset.helpTarget === targetId;
+                button.classList.toggle('bg-emerald-50', active);
+                button.classList.toggle('text-emerald-700', active);
+                button.classList.toggle('font-bold', active);
+                button.classList.toggle('text-slate-600', !active);
+                button.classList.toggle('font-semibold', !active);
+            });
+        }
+
+        function openHelpCenter({ fromHistory = false } = {}) {
+            const modal = document.getElementById('help-center-modal');
+            modal.classList.remove('hidden');
+            keyLayers.push({ name: 'help-center', keys: modalKeys(closeHelpCenter) });
+            setActiveHelpSection('help-overview');
+            if (!fromHistory) {
+                document.getElementById('help-center-content').scrollTop = 0;
+                history.pushState({ overlay: 'help-center' }, '', window.location.href);
+            }
+            setTimeout(() => document.getElementById('close-help-center-btn').focus(), 0);
+        }
+
+        function closeHelpCenter({ fromHistory = false } = {}) {
+            if (!fromHistory && history.state?.overlay === 'help-center') {
+                history.back();
+                return;
+            }
+            document.getElementById('help-center-modal').classList.add('hidden');
+            keyLayers.pop('help-center');
         }
 
         const getResearchBackfillKey = (collectionId, itemId) => `${collectionId}/${itemId}`;
@@ -1269,6 +1314,18 @@
         });
         document.getElementById('tag-browser-btn').addEventListener('click', () => openTagBrowser());
         document.getElementById('close-tag-browser-btn').addEventListener('click', () => closeTagBrowser());
+        document.getElementById('help-center-btn').addEventListener('click', () => openHelpCenter());
+        document.getElementById('close-help-center-btn').addEventListener('click', () => closeHelpCenter());
+        document.getElementById('help-center-modal').addEventListener('click', event => {
+            if (event.target === event.currentTarget) closeHelpCenter();
+        });
+        document.querySelectorAll('[data-help-target]').forEach(button => {
+            button.addEventListener('click', () => {
+                const targetId = button.dataset.helpTarget;
+                document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                setActiveHelpSection(targetId);
+            });
+        });
         document.getElementById('tag-backfill-toggle-btn').addEventListener('click', () => {
             tagBrowserView = tagBrowserView === 'backfill' ? 'tags' : 'backfill';
             renderTagBrowser();
@@ -3949,6 +4006,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 closeEditor({ fromHistory: true });
                 return;
             }
+            const helpCenterModal = document.getElementById('help-center-modal');
+            if (!helpCenterModal.classList.contains('hidden') && targetOverlay !== 'help-center') {
+                closeHelpCenter({ fromHistory: true });
+                return;
+            }
             const globalSearchModal = document.getElementById('global-search-modal');
             if (!globalSearchModal.classList.contains('hidden') && targetOverlay !== 'global-search') {
                 closeGlobalSearch({ fromHistory: true });
@@ -3998,6 +4060,10 @@ ${JSON.stringify(inboxData, null, 2)}`;
             if (targetOverlay === 'web-research-preview' && webResearchPreviewModal.classList.contains('hidden')) {
                 // Preview content is intentionally ephemeral; discard unusable Forward state.
                 history.replaceState({ overlay: null }, '', window.location.pathname);
+                return;
+            }
+            if (targetOverlay === 'help-center' && helpCenterModal.classList.contains('hidden')) {
+                openHelpCenter({ fromHistory: true });
                 return;
             }
             if (targetOverlay === 'global-search' && globalSearchModal.classList.contains('hidden')) {

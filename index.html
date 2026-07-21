@@ -232,6 +232,9 @@
                 <button id="tag-browser-btn" type="button" class="min-h-9 shrink-0 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 transition-colors hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-300" aria-haspopup="dialog" aria-controls="tag-browser-modal">
                     <i class="fas fa-tags mr-1"></i><span class="hidden sm:inline">Tag 瀏覽</span>
                 </button>
+                <button id="help-center-btn" type="button" class="min-h-9 shrink-0 rounded-lg bg-emerald-50 px-3 text-xs font-bold text-emerald-700 transition-colors hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300" aria-haspopup="dialog" aria-controls="help-center-modal">
+                    <i class="fas fa-circle-question mr-1"></i><span class="hidden sm:inline">使用說明</span>
+                </button>
                 <div class="flex items-center gap-2">
                     <span id="auth-status" class="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-inner shrink-0"></span>
                     <span id="auth-text" class="text-slate-600 text-sm font-medium truncate max-w-[150px]">等待登入...</span>
@@ -336,6 +339,107 @@
                     <p id="global-search-empty-title" class="font-bold text-slate-700">開始搜尋你的知識庫</p>
                     <p id="global-search-empty-detail" class="mt-1 text-sm text-slate-400">可搜尋網址、標題、AI 研讀內容與 Tag 名稱。</p>
                 </div>
+            </div>
+        </div>
+    </div>
+    <div id="help-center-modal" class="hidden fixed inset-0 z-[90] bg-slate-900/55 backdrop-blur-sm md:p-4" role="dialog" aria-modal="true" aria-labelledby="help-center-title">
+        <div id="help-center-panel" class="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden bg-slate-50 shadow-2xl md:h-[calc(100vh-2rem)] md:rounded-2xl">
+            <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 md:px-6 md:py-4">
+                <div class="min-w-0">
+                    <div class="mb-1 text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-600">My AI Brain Guide</div>
+                    <h2 id="help-center-title" class="flex items-center gap-2 text-lg font-bold text-slate-800 md:text-xl"><i class="fas fa-book-open text-emerald-500"></i>使用說明與系統資訊</h2>
+                </div>
+                <button id="close-help-center-btn" type="button" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-300" aria-label="關閉使用說明"><i class="fas fa-times text-lg"></i></button>
+            </div>
+
+            <div class="flex min-h-0 flex-1 flex-col md:flex-row">
+                <nav class="flex shrink-0 gap-2 overflow-x-auto border-b border-slate-200 bg-white px-4 py-3 custom-scrollbar md:w-56 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r md:px-3 md:py-5" aria-label="使用說明章節">
+                    <button type="button" data-help-target="help-overview" class="help-nav-btn min-h-10 shrink-0 rounded-xl bg-emerald-50 px-3 text-left text-sm font-bold text-emerald-700 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"><i class="fas fa-sparkles mr-2 w-4"></i>特色總覽</button>
+                    <button type="button" data-help-target="help-quick-start" class="help-nav-btn min-h-10 shrink-0 rounded-xl px-3 text-left text-sm font-semibold text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"><i class="fas fa-route mr-2 w-4"></i>快速開始</button>
+                    <button type="button" data-help-target="help-research" class="help-nav-btn min-h-10 shrink-0 rounded-xl px-3 text-left text-sm font-semibold text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"><i class="fas fa-wand-magic-sparkles mr-2 w-4"></i>AI 網址研讀</button>
+                    <button type="button" data-help-target="help-find" class="help-nav-btn min-h-10 shrink-0 rounded-xl px-3 text-left text-sm font-semibold text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"><i class="fas fa-search mr-2 w-4"></i>搜尋與 Tag</button>
+                    <button type="button" data-help-target="help-settings" class="help-nav-btn min-h-10 shrink-0 rounded-xl px-3 text-left text-sm font-semibold text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"><i class="fas fa-key mr-2 w-4"></i>設定與 Key</button>
+                    <button type="button" data-help-target="help-deployment" class="help-nav-btn min-h-10 shrink-0 rounded-xl px-3 text-left text-sm font-semibold text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"><i class="fas fa-cloud mr-2 w-4"></i>部署與資料</button>
+                    <button type="button" data-help-target="help-limits" class="help-nav-btn min-h-10 shrink-0 rounded-xl px-3 text-left text-sm font-semibold text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"><i class="fas fa-circle-info mr-2 w-4"></i>快捷鍵與限制</button>
+                </nav>
+
+                <main id="help-center-content" class="min-w-0 flex-1 overflow-y-auto px-4 py-5 custom-scrollbar md:px-8 md:py-7">
+                    <section id="help-overview" class="scroll-mt-4">
+                        <div class="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900 p-6 text-white shadow-xl md:p-8">
+                            <div class="max-w-3xl">
+                                <span class="inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-emerald-200 ring-1 ring-white/15">收集 → 研讀 → 整理 → 找回</span>
+                                <h3 class="mt-4 text-2xl font-black tracking-tight md:text-4xl">把散落的網址與想法，變成找得回來的個人知識庫。</h3>
+                                <p class="mt-3 max-w-2xl text-sm leading-7 text-slate-200 md:text-base">快速記錄保持簡潔；需要時再由 AI 讀取公開網頁、提出 Tag 與詳細筆記。所有研讀內容採追加方式，不會覆寫你的原始卡片。</p>
+                            </div>
+                        </div>
+                        <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            <article class="rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm"><i class="fas fa-inbox text-indigo-500"></i><h4 class="mt-3 font-bold text-slate-800">低摩擦收集</h4><p class="mt-1 text-sm leading-6 text-slate-500">貼文字、網址或從手機分享進來；可先進收件匣，之後再整理。</p></article>
+                            <article class="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm"><i class="fas fa-wand-magic-sparkles text-emerald-500"></i><h4 class="mt-3 font-bold text-slate-800">人機協作研讀</h4><p class="mt-1 text-sm leading-6 text-slate-500">Jina 擷取原文，Gemini 或 Mistral 整理；先預覽，再決定筆記與 Tag。</p></article>
+                            <article class="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm"><i class="fas fa-layer-group text-violet-500"></i><h4 class="mt-3 font-bold text-slate-800">跨分類找回</h4><p class="mt-1 text-sm leading-6 text-slate-500">全文搜尋卡片、AI 筆記與 Tag，也能用 Tag 交集／聯集瀏覽。</p></article>
+                            <article class="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm"><i class="fas fa-list-check text-amber-500"></i><h4 class="mt-3 font-bold text-slate-800">背景回補佇列</h4><p class="mt-1 text-sm leading-6 text-slate-500">批次處理舊網址，可選手動審核或自動通過；配額不足會暫停退避。</p></article>
+                            <article class="rounded-2xl border border-sky-100 bg-white p-4 shadow-sm"><i class="fas fa-mobile-screen text-sky-500"></i><h4 class="mt-3 font-bold text-slate-800">手機優先 UX</h4><p class="mt-1 text-sm leading-6 text-slate-500">支援 PWA、分享目標與返回鍵分層關閉，不會誤退出整個程式。</p></article>
+                            <article class="rounded-2xl border border-rose-100 bg-white p-4 shadow-sm"><i class="fas fa-shield-halved text-rose-500"></i><h4 class="mt-3 font-bold text-slate-800">原文與筆記分離</h4><p class="mt-1 text-sm leading-6 text-slate-500">主卡片保留原標題與網址；AI 內容只追加到「詳細筆記」。</p></article>
+                        </div>
+                    </section>
+
+                    <section id="help-quick-start" class="scroll-mt-4 pt-10">
+                        <div class="mb-4"><div class="text-xs font-bold uppercase tracking-widest text-indigo-500">01 · Start here</div><h3 class="mt-1 text-xl font-black text-slate-800">最快的日常操作流程</h3></div>
+                        <ol class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            <li class="flex gap-4 rounded-2xl border border-slate-200 bg-white p-4"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 font-black text-white">1</span><div><h4 class="font-bold text-slate-800">登入並新增卡片</h4><p class="mt-1 text-sm leading-6 text-slate-500">用 Google 登入，在頂部輸入框貼上文字或網址；可指定分類，也可先放收件匣。</p></div></li>
+                            <li class="flex gap-4 rounded-2xl border border-slate-200 bg-white p-4"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 font-black text-white">2</span><div><h4 class="font-bold text-slate-800">整理卡片</h4><p class="mt-1 text-sm leading-6 text-slate-500">拖曳卡片到分類、使用 AI 整理收件匣，或點開卡片編輯標題與詳細筆記。</p></div></li>
+                            <li class="flex gap-4 rounded-2xl border border-slate-200 bg-white p-4"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 font-black text-white">3</span><div><h4 class="font-bold text-slate-800">需要時才 AI 研讀</h4><p class="mt-1 text-sm leading-6 text-slate-500">在含網址的卡片按「AI 研讀」，檢查預覽、逐一選 Tag，再追加到詳細筆記。</p></div></li>
+                            <li class="flex gap-4 rounded-2xl border border-slate-200 bg-white p-4"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 font-black text-white">4</span><div><h4 class="font-bold text-slate-800">搜尋或用 Tag 找回</h4><p class="mt-1 text-sm leading-6 text-slate-500">按頂部「搜尋」找文字與 AI 筆記；按「Tag 瀏覽」跨分類縮小範圍。</p></div></li>
+                        </ol>
+                    </section>
+
+                    <section id="help-research" class="scroll-mt-4 pt-10">
+                        <div class="mb-4"><div class="text-xs font-bold uppercase tracking-widest text-emerald-500">02 · Research</div><h3 class="mt-1 text-xl font-black text-slate-800">AI 網址研讀怎麼運作</h3></div>
+                        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 md:p-5">
+                            <div class="flex flex-wrap items-center gap-2 text-sm font-bold text-emerald-900"><span class="rounded-lg bg-white px-3 py-2">卡片網址</span><i class="fas fa-arrow-right text-emerald-400"></i><span class="rounded-lg bg-white px-3 py-2">Jina Reader 擷取原文</span><i class="fas fa-arrow-right text-emerald-400"></i><span class="rounded-lg bg-white px-3 py-2">Gemini／Mistral 整理</span><i class="fas fa-arrow-right text-emerald-400"></i><span class="rounded-lg bg-white px-3 py-2">預覽／審核</span><i class="fas fa-arrow-right text-emerald-400"></i><span class="rounded-lg bg-white px-3 py-2">追加詳細筆記與 Tag</span></div>
+                        </div>
+                        <div class="mt-4 grid gap-4 lg:grid-cols-2">
+                            <article class="rounded-2xl border border-slate-200 bg-white p-5"><h4 class="font-bold text-slate-800"><i class="fas fa-hand-pointer mr-2 text-indigo-500"></i>單張研讀</h4><ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-slate-600"><li>在卡片上按「AI 研讀」。</li><li>查看原卡片、原網址與整理結果。</li><li>逐一勾選要採用的既有或新 Tag。</li><li>按「追加到詳細筆記」；原卡片文字與網址不會被覆寫。</li></ol></article>
+                            <article class="rounded-2xl border border-slate-200 bg-white p-5"><h4 class="font-bold text-slate-800"><i class="fas fa-moon mr-2 text-violet-500"></i>批次回補舊卡片</h4><ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-slate-600"><li>開啟「Tag 瀏覽」→「待回補」。</li><li>勾選要處理的卡片。</li><li>選「手動審核」或「自動通過」。</li><li>啟動後佇列會逐張送出；手動模式的結果集中在「待審核」。</li></ol></article>
+                        </div>
+                        <div class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"><i class="fas fa-gauge-high mr-2"></i><strong>配額保護：</strong>遇到 429／配額不足時，佇列會保留原卡並暫停退避，不會把失敗卡片當成完成；可手動停止後更換整理服務。</div>
+                    </section>
+
+                    <section id="help-find" class="scroll-mt-4 pt-10">
+                        <div class="mb-4"><div class="text-xs font-bold uppercase tracking-widest text-violet-500">03 · Retrieve</div><h3 class="mt-1 text-xl font-black text-slate-800">搜尋與 Tag 的分工</h3></div>
+                        <div class="grid gap-4 lg:grid-cols-2">
+                            <article class="rounded-2xl border border-slate-200 bg-white p-5"><h4 class="font-bold text-slate-800">全文搜尋</h4><p class="mt-2 text-sm leading-6 text-slate-500">搜尋卡片文字、網址、AI 研讀索引與 Tag。以空白分隔多個關鍵字時，卡片必須全部符合；結果依原分類分組。</p><div class="mt-3 rounded-xl bg-slate-100 px-3 py-2 font-mono text-xs text-slate-600">Ctrl / Cmd + K</div></article>
+                            <article class="rounded-2xl border border-slate-200 bg-white p-5"><h4 class="font-bold text-slate-800">Tag 瀏覽</h4><p class="mt-2 text-sm leading-6 text-slate-500">適合從主題切入。可多選 Tag，使用「符合全部」看交集，或「符合任一」看聯集，結果同樣維持原分類。</p><div class="mt-3 flex gap-2 text-xs font-bold"><span class="rounded-full bg-indigo-50 px-3 py-1.5 text-indigo-700">符合全部 AND</span><span class="rounded-full bg-violet-50 px-3 py-1.5 text-violet-700">符合任一 OR</span></div></article>
+                        </div>
+                    </section>
+
+                    <section id="help-settings" class="scroll-mt-4 pt-10">
+                        <div class="mb-4"><div class="text-xs font-bold uppercase tracking-widest text-amber-500">04 · Configure</div><h3 class="mt-1 text-xl font-black text-slate-800">模型、Key 與研讀規則</h3></div>
+                        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                            <div class="grid gap-1 border-b border-slate-100 p-4 md:grid-cols-[10rem_1fr]"><strong class="text-sm text-slate-800">Google Gemini</strong><span class="text-sm leading-6 text-slate-500">一般 AI 整理使用；也可選作網址研讀整理服務。</span></div>
+                            <div class="grid gap-1 border-b border-slate-100 p-4 md:grid-cols-[10rem_1fr]"><strong class="text-sm text-slate-800">Mistral</strong><span class="text-sm leading-6 text-slate-500">可獨立作為網址研讀整理服務，適合 Gemini 配額不足時切換。</span></div>
+                            <div class="grid gap-1 p-4 md:grid-cols-[10rem_1fr]"><strong class="text-sm text-slate-800">Jina Reader</strong><span class="text-sm leading-6 text-slate-500">負責擷取公開網頁文字；Key 選填，未填時使用匿名額度。</span></div>
+                        </div>
+                        <div class="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm leading-6 text-indigo-900"><i class="fas fa-save mr-2"></i>三組 Key 都要按各自的「儲存 Key」。綠色狀態代表已保存在<strong>目前瀏覽器</strong>；模型查詢成功不等於已保存。System Prompt、Tag 與其他選項則按設定頁底部的「儲存設定」。</div>
+                    </section>
+
+                    <section id="help-deployment" class="scroll-mt-4 pt-10">
+                        <div class="mb-4"><div class="text-xs font-bold uppercase tracking-widest text-sky-500">05 · System</div><h3 class="mt-1 text-xl font-black text-slate-800">部署位置與資料放在哪裡</h3></div>
+                        <div class="grid gap-4 lg:grid-cols-2">
+                            <article class="rounded-2xl border border-sky-200 bg-sky-50 p-5"><h4 class="font-bold text-sky-950"><i class="fab fa-github mr-2"></i>前端網站</h4><p class="mt-2 text-sm leading-6 text-sky-900">由 GitHub Pages 部署，程式碼更新推到 main 後自動建置。</p><a href="https://allenphant.github.io/my-ai-brain/" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex min-h-10 items-center rounded-xl bg-white px-3 text-sm font-bold text-sky-700 shadow-sm ring-1 ring-sky-200 hover:bg-sky-100"><i class="fas fa-arrow-up-right-from-square mr-2"></i>開啟正式網站</a></article>
+                            <article class="rounded-2xl border border-indigo-200 bg-indigo-50 p-5"><h4 class="font-bold text-indigo-950"><i class="fas fa-database mr-2"></i>帳號與卡片資料</h4><p class="mt-2 text-sm leading-6 text-indigo-900">Google 登入由 Firebase Authentication 處理；分類、卡片與詳細筆記存放於 Firebase Cloud Firestore。</p><a href="https://github.com/allenphant/my-ai-brain" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex min-h-10 items-center rounded-xl bg-white px-3 text-sm font-bold text-indigo-700 shadow-sm ring-1 ring-indigo-200 hover:bg-indigo-100"><i class="fab fa-github mr-2"></i>查看原始碼</a></article>
+                        </div>
+                        <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-5"><h4 class="font-bold text-slate-800">資料邊界</h4><ul class="mt-3 space-y-2 text-sm leading-6 text-slate-600"><li><i class="fas fa-cloud mr-2 w-4 text-indigo-400"></i>卡片、分類與詳細筆記：Firestore，可隨登入帳號跨裝置同步。</li><li><i class="fas fa-laptop mr-2 w-4 text-emerald-500"></i>API Key、研讀快取、冷卻狀態與待審結果：目前瀏覽器 localStorage，不會同步到其他裝置。</li><li><i class="fas fa-arrow-right-arrow-left mr-2 w-4 text-amber-500"></i>網址研讀：瀏覽器直接呼叫 Jina 與選定模型 API；本專案沒有自建 AI 後端。</li></ul></div>
+                    </section>
+
+                    <section id="help-limits" class="scroll-mt-4 pb-10 pt-10">
+                        <div class="mb-4"><div class="text-xs font-bold uppercase tracking-widest text-rose-500">06 · Good to know</div><h3 class="mt-1 text-xl font-black text-slate-800">快捷鍵、手機操作與已知限制</h3></div>
+                        <div class="grid gap-4 lg:grid-cols-2">
+                            <article class="rounded-2xl border border-slate-200 bg-white p-5"><h4 class="font-bold text-slate-800">操作捷徑</h4><dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 text-sm"><dt><kbd class="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">Ctrl/Cmd + K</kbd></dt><dd class="text-slate-500">開啟全域搜尋</dd><dt><kbd class="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">Esc</kbd></dt><dd class="text-slate-500">關閉最上層視窗</dd><dt><span class="font-bold text-slate-700">手機返回</span></dt><dd class="text-slate-500">先關閉編輯器／說明頁等上層介面，不會直接退出程式</dd></dl></article>
+                            <article class="rounded-2xl border border-rose-200 bg-rose-50 p-5"><h4 class="font-bold text-rose-950">目前限制</h4><ul class="mt-3 space-y-2 text-sm leading-6 text-rose-900"><li>影片不會被 Jina 轉錄；YouTube／Vimeo 會標為「尚未解析的影片」。</li><li>私人、登入後、付費牆或反爬網站可能無法取得完整文字。</li><li>手動撰寫但未建立索引的詳細筆記，目前不在全文搜尋範圍內。</li><li>夜間佇列受瀏覽器背景節流與裝置休眠影響，建議保持頁面開啟並接上電源。</li></ul></article>
+                        </div>
+                        <p class="mt-6 text-center text-xs text-slate-400">My AI Brain · 個人使用的 AI 輔助知識庫</p>
+                    </section>
+                </main>
             </div>
         </div>
     </div>
