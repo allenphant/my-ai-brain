@@ -17,6 +17,8 @@ test('help center documents the core workflow, deployment, data boundary, and li
     assert.match(html, /Firebase Cloud Firestore/);
     assert.match(html, /目前瀏覽器 localStorage/);
     assert.match(html, /影片不會被 Jina 轉錄/);
+    assert.match(html, /Key／權限／帳務／模型失效/);
+    assert.match(html, /斷網、逾時、5xx/);
 });
 
 test('help center is reachable from both navigation surfaces and participates in overlay history', async () => {
@@ -26,4 +28,16 @@ test('help center is reachable from both navigation surfaces and participates in
     assert.match(appSource, /history\.pushState\(\{ overlay: 'help-center'/);
     assert.match(appSource, /targetOverlay === 'help-center'/);
     assert.match(appSource, /modalKeys\(closeHelpCenter\)/);
+});
+
+test('research log is reachable, filterable, and participates in overlay history', async () => {
+    const [html, appSource] = await readProductionSources();
+    assert.match(html, /id="research-log-modal"[^>]+role="dialog"/);
+    assert.match(html, /data-research-log-filter="error"/);
+    assert.match(appSource, /function createResearchLogSidebarLink/);
+    assert.match(appSource, /history\.pushState\(\{ overlay: 'research-log'/);
+    assert.match(appSource, /targetOverlay === 'research-log'/);
+    assert.match(appSource, /modalKeys\(closeResearchLog\)/);
+    assert.match(appSource, /researchBackfillQuotaFailures > backoffSchedule\.length/);
+    assert.match(appSource, /pauseAttempts > 3/);
 });

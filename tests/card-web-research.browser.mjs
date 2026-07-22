@@ -521,6 +521,7 @@ try {
 
     await page.click('#global-search-btn');
     await page.waitForFunction(() => !document.querySelector('#global-search-modal').classList.contains('hidden'));
+    await page.waitForFunction(() => document.activeElement === document.querySelector('#global-search-input'));
     assert.equal(await page.$eval('#global-search-input', input => document.activeElement === input), true);
     await page.type('#global-search-input', '完成 配額');
     await page.waitForFunction(() => document.querySelectorAll('[data-search-card]').length === 1);
@@ -812,7 +813,10 @@ try {
     );
     assert.equal(mistralPosts, 1);
     await page.click('#cancel-web-research-preview-btn');
-    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden')).catch(error => {
+        console.error(JSON.stringify({ pageErrors, consoleMessages }, null, 2));
+        throw error;
+    });
     await page.evaluate(() => {
         localStorage.setItem('webResearchProvider', 'gemini');
         localStorage.removeItem('lastWebPolishTime');
@@ -1199,6 +1203,21 @@ try {
     await page.click('#close-tag-browser-btn');
     await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
 
+    await page.evaluate(() => document.querySelector('[data-target="research-log"]')?.click());
+    await page.waitForFunction(() => !document.querySelector('#research-log-modal').classList.contains('hidden'));
+    assert.equal(await page.$$eval('#research-log-results article', entries => entries.length > 0), true);
+    assert.match(await page.$eval('#research-log-results', element => element.textContent), /Mistral 配額不足/);
+    assert.match(await page.$eval('#research-log-results', element => element.textContent), /處理方式/);
+    assert.doesNotMatch(await page.$eval('#research-log-results', element => element.textContent), /AIzaSyDefinitelySecretValue/);
+    await page.click('[data-research-log-filter="error"]');
+    assert.equal(await page.$$eval('#research-log-results article', entries => entries.length > 0), true);
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => document.querySelector('#research-log-modal').classList.contains('hidden'));
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => !document.querySelector('#research-log-modal').classList.contains('hidden'));
+    await page.click('#close-research-log-btn');
+    await page.waitForFunction(() => document.querySelector('#research-log-modal').classList.contains('hidden'));
+
     assert.deepEqual(pageErrors, []);
     console.log(JSON.stringify({
         cardResearchButton: 'visible',
@@ -1220,6 +1239,7 @@ try {
         tagBrowserBackForward: true,
         selectiveBackfillQueue: true,
         quotaBackfillPausedOnSameCard: true,
+        researchLogVisibleFilteredAndSanitized: true,
         overlayCloseControls: true,
         stackedBackOrder: true,
         deepLinkOpenedEditor: true,

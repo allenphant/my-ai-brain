@@ -15,6 +15,12 @@
             upsertResearchReview
         } from './research-review.mjs';
         import {
+            appendResearchLog,
+            classifyResearchFailure,
+            clearResearchLogs,
+            readResearchLogs
+        } from './research-runtime.mjs';
+        import {
             DEFAULT_MISTRAL_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT,
@@ -90,7 +96,9 @@
         let researchBackfillCompleted = 0;
         let researchBackfillFailed = 0;
         let researchBackfillQuotaFailures = 0;
+        const researchBackfillRetryAttempts = new Map();
         let researchReviewItems = [];
+        let researchLogFilter = 'all';
         let researchBackfillApprovalMode = localStorage.getItem('researchBackfillApprovalMode') === 'auto' ? 'auto' : 'manual';
         let currentTodoItems = [];
         let pendingDeleteTarget = null;
@@ -515,6 +523,7 @@
             nav.appendChild(createSidebarLink('inbox', 'fas fa-inbox', '收件匣'));
             nav.appendChild(createSearchSidebarLink());
             nav.appendChild(createTagBrowserSidebarLink());
+            nav.appendChild(createResearchLogSidebarLink());
             nav.appendChild(createHelpSidebarLink());
 
             // Divider
@@ -586,6 +595,18 @@
             btn.addEventListener('click', () => {
                 closeSidebar();
                 openHelpCenter();
+            });
+            return btn;
+        }
+
+        function createResearchLogSidebarLink() {
+            const btn = document.createElement('button');
+            btn.className = 'sidebar-link';
+            btn.setAttribute('data-target', 'research-log');
+            btn.innerHTML = '<i class="fas fa-clock-rotate-left sidebar-link-icon"></i><span class="sidebar-link-text">研讀紀錄</span>';
+            btn.addEventListener('click', () => {
+                closeSidebar();
+                openResearchLog();
             });
             return btn;
         }
@@ -1078,6 +1099,7 @@
             researchBackfillIndex = 0;
             activeResearchBackfillKey = null;
             researchBackfillQuotaFailures = 0;
+            researchBackfillRetryAttempts.clear();
             updateResearchBackfillStatus(message);
             renderResearchBackfillPanel();
             document.getElementById('research-queue-floating-status')?.classList.add('hidden');
@@ -1092,6 +1114,7 @@
             researchBackfillIndex = 0;
             activeResearchBackfillKey = null;
             researchBackfillQuotaFailures = 0;
+            researchBackfillRetryAttempts.clear();
             selectedResearchBackfillKeys.clear();
             const destination = researchBackfillApprovalMode === 'auto' ? '筆已自動通過' : '筆已送往待審核';
             updateResearchBackfillStatus(`佇列完成：${completed} ${destination}${failed ? `，${failed} 筆失敗或轉待審` : ''}。`);
@@ -1100,7 +1123,7 @@
             document.getElementById('research-queue-floating-status')?.classList.add('hidden');
         }
 
-        function scheduleResearchBackfillRetry(remaining, { quota = false, provider = '' } = {}) {
+        function scheduleResearchBackfillRetry(remaining, { quota = false, provider = '', reason = '' } = {}) {
             clearResearchBackfillTimers();
             const retryAt = Date.now() + Math.max(remaining, 1000) + 250;
             const updateCountdown = () => {
@@ -1108,9 +1131,8 @@
                 const waitText = seconds >= 60
                     ? `${Math.ceil(seconds / 60)} 分鐘`
                     : `${seconds} 秒`;
-                updateResearchBackfillStatus(quota
-                    ? `${provider || '模型'} 配額暫停；保留第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張，${waitText}後重試。`
-                    : `冷卻中，${waitText}後自動研讀第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張。`);
+                const prefix = reason || (quota ? `${provider || '模型'} 配額暫停` : '冷卻中');
+                updateResearchBackfillStatus(`${prefix}；保留第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張，${waitText}後重試。`);
             };
             updateCountdown();
             researchBackfillCountdownTimer = setInterval(updateCountdown, 1000);
@@ -1131,11 +1153,13 @@
             updateResearchBackfillStatus(`正在研讀第 ${researchBackfillIndex + 1} / ${researchBackfillQueue.length} 張：${getShortText(entry.item.text, 24)}`);
             const outcome = await runCardWebResearch(entry.item, entry.group.id, null, {
                 fromBackfill: true,
-                deferPreview: true
+                deferPreview: true,
+                attempt: researchBackfillRetryAttempts.get(entry.key) || 0
             });
             if (researchBackfillQueue.length === 0) return;
             if (outcome?.status === 'ready') {
                 researchBackfillQuotaFailures = 0;
+                researchBackfillRetryAttempts.delete(entry.key);
                 let completionMessage = '';
                 if (researchBackfillApprovalMode === 'auto') {
                     const allSuggestionIds = [
@@ -1149,11 +1173,32 @@
                     } catch (error) {
                         console.error('自動通過研讀結果失敗：', error);
                         researchBackfillFailed += 1;
+                        const decision = classifyResearchFailure({ stage: 'firestore', error });
+                        recordResearchLog({
+                            level: decision.action === 'stop' ? 'error' : 'warning', stage: 'firestore',
+                            provider: 'Firebase', status: decision.category, action: 'fallback',
+                            title: decision.title, cardTitle: getShortText(entry.item.text, 160),
+                            sourceUrl: outcome.payload.sourceUrl, collectionName: entry.group.id, itemId: entry.item.id,
+                            detail: decision.detail,
+                            resolution: '自動寫入失敗，已改存本機待審核，避免結果遺失。'
+                        });
                         try {
                             saveResearchReview(outcome.payload);
+                            if (decision.action === 'stop') {
+                                cancelResearchBackfillQueue(`${decision.userMessage} 本次結果已保存到待審核。`);
+                                renderResearchReviewPanel();
+                                return;
+                            }
                             completionMessage = '自動寫入失敗，結果已送往待審核；準備下一張。';
                         } catch (storageError) {
                             console.error('無法保存待審核研讀結果：', storageError);
+                            const storageDecision = classifyResearchFailure({ stage: 'storage', error: storageError });
+                            recordResearchLog({
+                                level: 'error', stage: 'storage', provider: '瀏覽器儲存空間',
+                                status: storageDecision.category, action: 'stop', title: storageDecision.title,
+                                cardTitle: getShortText(entry.item.text, 160), sourceUrl: outcome.payload.sourceUrl,
+                                detail: storageDecision.detail, resolution: storageDecision.resolution
+                            });
                             cancelResearchBackfillQueue('自動寫入與待審保存皆失敗，佇列已停止以避免遺失資料。');
                             return;
                         }
@@ -1165,6 +1210,13 @@
                         completionMessage = `已完成 ${researchBackfillCompleted} / ${researchBackfillQueue.length}，結果已送往待審核；準備下一張。`;
                     } catch (error) {
                         console.error('無法保存待審核研讀結果：', error);
+                        const decision = classifyResearchFailure({ stage: 'storage', error });
+                        recordResearchLog({
+                            level: 'error', stage: 'storage', provider: '瀏覽器儲存空間',
+                            status: decision.category, action: 'stop', title: decision.title,
+                            cardTitle: getShortText(entry.item.text, 160), sourceUrl: outcome.payload.sourceUrl,
+                            detail: decision.detail, resolution: decision.resolution
+                        });
                         cancelResearchBackfillQueue('瀏覽器無法保存待審核結果，佇列已停止以避免遺失資料。');
                         return;
                     }
@@ -1182,12 +1234,26 @@
                 return;
             }
             if (outcome?.status === 'blocked') {
-                cancelResearchBackfillQueue(`缺少 ${outcome.provider || '網址研讀服務'} API Key，請完成設定後重新啟動回補。`);
+                cancelResearchBackfillQueue(outcome.message || `${outcome.provider || '網址研讀服務'} 無法繼續，請完成設定後重新啟動回補。`);
                 return;
             }
             if (outcome?.status === 'quota') {
                 researchBackfillQuotaFailures += 1;
                 const backoffSchedule = [5 * 60_000, 15 * 60_000, 60 * 60_000];
+                if (researchBackfillQuotaFailures > backoffSchedule.length) {
+                    recordResearchLog({
+                        level: 'error', stage: 'provider', provider: outcome.provider,
+                        model: outcome.model, status: 'quota_retry_exhausted', action: 'stop',
+                        title: `${outcome.provider || '模型'} 配額重試已達上限`,
+                        cardTitle: getShortText(entry.item.text, 160),
+                        sourceUrl: extractUrls(entry.item.text || '')[0] || '',
+                        collectionName: entry.group.id, itemId: entry.item.id,
+                        detail: '同一張卡已完成 3 次配額退避重試，服務仍回傳 429。',
+                        resolution: '佇列已停止；更換整理服務／Key，或等待額度重置後重新啟動。'
+                    });
+                    cancelResearchBackfillQueue(`${outcome.provider || '模型'} 連續 3 次配額退避後仍無法使用，佇列已停止，避免無限重送。`);
+                    return;
+                }
                 const backoff = backoffSchedule[Math.min(researchBackfillQuotaFailures - 1, backoffSchedule.length - 1)];
                 scheduleResearchBackfillRetry(Math.max(outcome.remaining || 0, backoff), {
                     quota: true,
@@ -1195,7 +1261,39 @@
                 });
                 return;
             }
+            if (outcome?.status === 'pause') {
+                const pauseAttempts = (researchBackfillRetryAttempts.get(entry.key) || 0) + 1;
+                researchBackfillRetryAttempts.set(entry.key, pauseAttempts);
+                if (pauseAttempts > 3) {
+                    recordResearchLog({
+                        level: 'error', stage: 'jina', provider: outcome.provider,
+                        status: 'pause_retry_exhausted', action: 'stop',
+                        title: `${outcome.provider || '來源服務'} 限制重試已達上限`,
+                        cardTitle: getShortText(entry.item.text, 160),
+                        sourceUrl: extractUrls(entry.item.text || '')[0] || '',
+                        collectionName: entry.group.id, itemId: entry.item.id,
+                        detail: '同一張卡已等待並重試 3 次，來源服務仍限制存取。',
+                        resolution: '佇列已停止；設定／更換 Jina Key，或等待限制解除後重新啟動。'
+                    });
+                    cancelResearchBackfillQueue(`${outcome.provider || '來源服務'} 等待重試 3 次後仍受限制，佇列已停止，避免無限重送。`);
+                    return;
+                }
+                scheduleResearchBackfillRetry(outcome.remaining || 5 * 60_000, {
+                    provider: outcome.provider,
+                    reason: outcome.reason || `${outcome.provider || '來源服務'} 暫停`
+                });
+                return;
+            }
+            if (outcome?.status === 'retry') {
+                researchBackfillRetryAttempts.set(entry.key, (researchBackfillRetryAttempts.get(entry.key) || 0) + 1);
+                scheduleResearchBackfillRetry(outcome.remaining || 15_000, {
+                    provider: outcome.provider,
+                    reason: outcome.reason || `${outcome.provider || '研讀服務'} 暫時異常`
+                });
+                return;
+            }
             researchBackfillFailed += 1;
+            researchBackfillRetryAttempts.delete(entry.key);
             activeResearchBackfillKey = null;
             researchBackfillIndex += 1;
             updateResearchBackfillStatus(`上一張無法研讀，已跳過；準備下一張。`);
@@ -1213,6 +1311,7 @@
             researchBackfillCompleted = 0;
             researchBackfillFailed = 0;
             researchBackfillQuotaFailures = 0;
+            researchBackfillRetryAttempts.clear();
             researchBackfillStatusMessage = '';
             if (researchBackfillQueue.length === 0) {
                 renderResearchBackfillPanel();
@@ -1300,6 +1399,132 @@
             keyLayers.pop('tag-browser');
         }
 
+        function getResearchLogUserId() {
+            return currentUser?.uid || 'anonymous';
+        }
+
+        function updateResearchLogCount() {
+            const logs = readResearchLogs(localStorage, getResearchLogUserId());
+            const count = document.getElementById('research-log-count');
+            if (count) count.textContent = String(logs.length);
+            return logs;
+        }
+
+        function recordResearchLog(entry) {
+            try {
+                const logs = appendResearchLog(localStorage, getResearchLogUserId(), entry);
+                const count = document.getElementById('research-log-count');
+                if (count) count.textContent = String(logs.length);
+                const modal = document.getElementById('research-log-modal');
+                if (modal && !modal.classList.contains('hidden')) renderResearchLogs();
+            } catch (error) {
+                console.warn('無法保存研讀紀錄：', error);
+            }
+        }
+
+        function renderResearchLogs() {
+            const logs = updateResearchLogCount();
+            const filtered = researchLogFilter === 'all'
+                ? logs
+                : logs.filter(entry => entry.level === researchLogFilter);
+            const results = document.getElementById('research-log-results');
+            const empty = document.getElementById('research-log-empty');
+            results.replaceChildren();
+            empty.classList.toggle('hidden', filtered.length > 0);
+            document.getElementById('research-log-summary').textContent = `共 ${logs.length} 筆；目前顯示 ${filtered.length} 筆。紀錄只存在這台瀏覽器。`;
+
+            document.querySelectorAll('[data-research-log-filter]').forEach(button => {
+                const selected = button.dataset.researchLogFilter === researchLogFilter;
+                button.classList.toggle('bg-white', selected);
+                button.classList.toggle('text-slate-800', selected);
+                button.classList.toggle('shadow-sm', selected);
+                button.classList.toggle('text-slate-600', !selected);
+                button.setAttribute('aria-pressed', String(selected));
+            });
+
+            const styles = {
+                success: { icon: 'fa-circle-check', border: 'border-emerald-200', badge: 'bg-emerald-100 text-emerald-700', label: '成功' },
+                warning: { icon: 'fa-clock', border: 'border-amber-200', badge: 'bg-amber-100 text-amber-800', label: '等待／重試' },
+                error: { icon: 'fa-circle-exclamation', border: 'border-rose-200', badge: 'bg-rose-100 text-rose-700', label: '錯誤／停止' },
+                info: { icon: 'fa-circle-info', border: 'border-slate-200', badge: 'bg-slate-100 text-slate-700', label: '資訊' }
+            };
+            filtered.forEach(entry => {
+                const style = styles[entry.level] || styles.info;
+                const article = document.createElement('article');
+                article.className = `rounded-2xl border ${style.border} bg-white p-4 shadow-sm`;
+                const heading = document.createElement('div');
+                heading.className = 'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between';
+                const titleWrap = document.createElement('div');
+                titleWrap.className = 'min-w-0';
+                const title = document.createElement('h3');
+                title.className = 'font-bold text-slate-800';
+                const icon = document.createElement('i');
+                icon.className = `fas ${style.icon} mr-2`;
+                title.append(icon, document.createTextNode(entry.title || entry.status || '研讀事件'));
+                const context = document.createElement('p');
+                context.className = 'mt-1 break-words text-xs text-slate-500';
+                context.textContent = [entry.provider, entry.model, entry.stage].filter(Boolean).join(' · ');
+                titleWrap.append(title, context);
+                const meta = document.createElement('div');
+                meta.className = 'flex shrink-0 items-center gap-2';
+                const badge = document.createElement('span');
+                badge.className = `rounded-full px-2 py-1 text-[11px] font-bold ${style.badge}`;
+                badge.textContent = `${style.label}${entry.action ? ` · ${entry.action}` : ''}`;
+                const time = document.createElement('time');
+                time.className = 'text-xs text-slate-400';
+                time.dateTime = new Date(entry.timestamp).toISOString();
+                time.textContent = new Date(entry.timestamp).toLocaleString('zh-TW');
+                meta.append(badge, time);
+                heading.append(titleWrap, meta);
+                article.appendChild(heading);
+
+                if (entry.cardTitle) {
+                    const card = document.createElement('p');
+                    card.className = 'mt-3 break-words rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700';
+                    card.textContent = entry.cardTitle;
+                    article.appendChild(card);
+                }
+                if (entry.sourceUrl) {
+                    const link = document.createElement('a');
+                    link.className = 'mt-2 block break-all text-xs font-medium text-indigo-600 hover:underline';
+                    link.href = entry.sourceUrl;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.textContent = entry.sourceUrl;
+                    article.appendChild(link);
+                }
+                [entry.detail, entry.resolution].filter(Boolean).forEach((text, index) => {
+                    const paragraph = document.createElement('p');
+                    paragraph.className = `mt-2 break-words text-sm leading-6 ${index === 0 ? 'text-slate-600' : 'font-medium text-slate-700'}`;
+                    paragraph.textContent = index === 0 ? text : `處理方式：${text}`;
+                    article.appendChild(paragraph);
+                });
+                if (entry.retryAt > Date.now()) {
+                    const retry = document.createElement('p');
+                    retry.className = 'mt-2 text-xs font-bold text-amber-700';
+                    retry.textContent = `預計重試：${new Date(entry.retryAt).toLocaleString('zh-TW')}`;
+                    article.appendChild(retry);
+                }
+                results.appendChild(article);
+            });
+        }
+
+        function openResearchLog({ fromHistory = false } = {}) {
+            renderResearchLogs();
+            document.getElementById('research-log-modal').classList.remove('hidden');
+            keyLayers.push({ name: 'research-log', keys: modalKeys(closeResearchLog) });
+            if (!fromHistory) history.pushState({ overlay: 'research-log' }, '', window.location.href);
+        }
+
+        function closeResearchLog({ fromHistory = false } = {}) {
+            if (!fromHistory && history.state?.overlay === 'research-log') {
+                history.back();
+                return;
+            }
+            document.getElementById('research-log-modal').classList.add('hidden');
+            keyLayers.pop('research-log');
+        }
+
         document.getElementById('global-search-btn').addEventListener('click', () => openGlobalSearch());
         document.getElementById('close-global-search-btn').addEventListener('click', () => closeGlobalSearch());
         document.getElementById('global-search-input').addEventListener('input', renderGlobalSearch);
@@ -1314,6 +1539,22 @@
         });
         document.getElementById('tag-browser-btn').addEventListener('click', () => openTagBrowser());
         document.getElementById('close-tag-browser-btn').addEventListener('click', () => closeTagBrowser());
+        document.getElementById('research-log-btn').addEventListener('click', () => openResearchLog());
+        document.getElementById('close-research-log-btn').addEventListener('click', () => closeResearchLog());
+        document.getElementById('research-log-modal').addEventListener('click', event => {
+            if (event.target === event.currentTarget) closeResearchLog();
+        });
+        document.querySelectorAll('[data-research-log-filter]').forEach(button => {
+            button.addEventListener('click', () => {
+                researchLogFilter = button.dataset.researchLogFilter || 'all';
+                renderResearchLogs();
+            });
+        });
+        document.getElementById('clear-research-log-btn').addEventListener('click', () => {
+            if (!window.confirm('確定清除這台瀏覽器的全部研讀紀錄？')) return;
+            clearResearchLogs(localStorage, getResearchLogUserId());
+            renderResearchLogs();
+        });
         document.getElementById('help-center-btn').addEventListener('click', () => openHelpCenter());
         document.getElementById('close-help-center-btn').addEventListener('click', () => closeHelpCenter());
         document.getElementById('help-center-modal').addEventListener('click', event => {
@@ -1700,6 +1941,7 @@
             if (user) {
                 currentUser = user;
                 loadResearchReviews();
+                updateResearchLogCount();
                 document.getElementById('auth-status').classList.replace('bg-amber-500', 'bg-emerald-500');
                 document.getElementById('auth-text').innerText = user.displayName ? `嗨，${user.displayName}` : "已登入";
                 document.getElementById('login-btn').classList.add('hidden'); document.getElementById('logout-btn').classList.remove('hidden');
@@ -1727,6 +1969,7 @@
             } else {
                 currentUser = null;
                 researchReviewItems = [];
+                updateResearchLogCount();
                 document.getElementById('auth-status').classList.replace('bg-emerald-500', 'bg-amber-500');
                 document.getElementById('auth-text').innerText = "請先登入";
                 document.getElementById('login-btn').classList.remove('hidden'); document.getElementById('logout-btn').classList.add('hidden');
@@ -2426,7 +2669,8 @@
 
         async function runCardWebResearch(item, collectionName, button, {
             fromBackfill = false,
-            deferPreview = false
+            deferPreview = false,
+            attempt = 0
         } = {}) {
             const normalizedText = (item?.text || '').trim();
             const eligibility = canUseWebResearch(normalizedText);
@@ -2439,6 +2683,12 @@
             const sourceUrl = extractUrls(normalizedText)[0];
             const userNote = normalizedText.replace(sourceUrl, '').trim();
             const directVideoPage = isDirectVideoPageUrl(sourceUrl);
+            const logContext = {
+                cardTitle: getShortText(userNote || normalizedText, 160),
+                sourceUrl,
+                collectionName,
+                itemId: item?.id || ''
+            };
 
             let providerName = 'gemini';
             let apiKey = null;
@@ -2465,8 +2715,15 @@
             if (!apiKey && !directVideoPage) {
                 if (!fromBackfill) openSettingsModal();
                 const providerLabel = providerName === 'mistral' ? 'Mistral' : 'Gemini';
+                recordResearchLog({
+                    ...logContext, level: 'error', stage: 'provider', provider: providerLabel,
+                    model: targetModel, status: 'missing_api_key', action: 'stop',
+                    title: `${providerLabel} API Key 尚未設定`,
+                    detail: '整理服務沒有可用的 API Key。',
+                    resolution: `在系統設定填入並儲存 ${providerLabel} API Key 後重新啟動。`
+                });
                 showToast(`請先設定 ${providerLabel} API Key，才能使用 AI 研讀。`, 'fas fa-key');
-                return { status: 'blocked', reason: 'missing_api_key', provider: providerLabel };
+                return { status: 'blocked', reason: 'missing_api_key', provider: providerLabel, message: `缺少 ${providerLabel} API Key，佇列已停止。` };
             }
 
             const cacheContext = {
@@ -2480,6 +2737,12 @@
             if (cached) {
                 saveAiStatus('web', '使用快取', '相同內容直接套用快取結果');
                 updateAiStatusPanel();
+                recordResearchLog({
+                    ...logContext, level: 'success', stage: 'cache', provider: providerName,
+                    model: targetModel, status: 'cached', action: 'cache', title: '已套用研讀快取',
+                    detail: '相同網址、卡片內容、模型、Prompt 與 Tag 清單已有結果。',
+                    resolution: '沒有呼叫 Jina 或模型 API，因此不消耗外部配額。'
+                });
                 const payload = {
                     itemId: item.id,
                     collectionName,
@@ -2499,6 +2762,12 @@
             if (!directVideoPage && cooldownRemaining > 0) {
                 saveAiStatus('web', '冷卻中', `剩餘 ${formatCooldown(cooldownRemaining)}`);
                 updateAiStatusPanel();
+                recordResearchLog({
+                    ...logContext, level: 'warning', stage: 'cooldown', provider: providerName,
+                    model: targetModel, status: 'cooldown', action: 'pause', title: '本機研讀冷卻中',
+                    detail: `仍需等待 ${formatCooldown(cooldownRemaining)}。`,
+                    resolution: '保留同一張卡，倒數結束後再送出。', retryAt: Date.now() + cooldownRemaining
+                });
                 showToast(`AI 研讀冷卻中，請 ${formatCooldown(cooldownRemaining)} 後再試。`, 'fas fa-hourglass-half');
                 return { status: 'cooldown', remaining: cooldownRemaining };
             }
@@ -2506,13 +2775,6 @@
             const restoreButton = setButtonLoading(button, '<div class="loader w-4 h-4 border-2 border-t-transparent mx-auto"></div>');
 
             try {
-                if (!directVideoPage) {
-                    try {
-                        localStorage.setItem('lastWebPolishTime', Date.now().toString());
-                    } catch (storageError) {
-                        console.warn('無法儲存 AI 研讀冷卻時間：', storageError);
-                    }
-                }
                 showToast(
                     directVideoPage
                         ? '正在辨識影片網址...'
@@ -2530,6 +2792,13 @@
                     mediaStatus: media.status,
                     mediaNotice: media.notice
                 };
+                if (!directVideoPage && media.canSummarize) {
+                    try {
+                        localStorage.setItem('lastWebPolishTime', Date.now().toString());
+                    } catch (storageError) {
+                        console.warn('無法儲存 AI 研讀冷卻時間：', storageError);
+                    }
+                }
                 const polished = directVideoPage
                     ? buildUnparsedVideoResearchResult(currentTags)
                     : media.canSummarize
@@ -2559,6 +2828,14 @@
                     cacheWritten ? '已完成網址研讀並寫入快取' : '已完成網址研讀（瀏覽器未允許寫入快取）'
                 );
                 updateAiStatusPanel();
+                recordResearchLog({
+                    ...logContext, level: 'success', stage: directVideoPage ? 'media' : 'complete',
+                    provider: directVideoPage ? '本機判斷' : providerName, model: directVideoPage ? '' : targetModel,
+                    status: directVideoPage ? 'video_only' : 'ready', action: 'complete',
+                    title: directVideoPage ? '已辨識為尚未解析的影片' : 'AI 研讀完成',
+                    detail: directVideoPage ? '影片內容未被猜測，僅建立「尚未解析的影片」結果。' : (cacheWritten ? '結果已完成並寫入快取。' : '結果已完成，但瀏覽器拒絕寫入快取。'),
+                    resolution: deferPreview ? '依目前模式送往待審核或自動通過。' : '請在預覽確認後追加到詳細筆記。'
+                });
                 const payload = {
                     itemId: item.id,
                     collectionName,
@@ -2583,29 +2860,63 @@
                     quotaId: providerError.quotaId,
                     retryDelay: providerError.retryDelay
                 } : { stage: jinaError ? 'jina' : 'unknown', message: rawMessage });
-                if (jinaError) {
-                    saveAiStatus('web', '來源擷取失敗', jinaError.detail);
-                    showToast(`Jina Reader 擷取失敗：${jinaError.message}`, 'fas fa-file-circle-xmark');
-                } else if (providerError?.isQuota) {
-                    saveAiStatus('web', '配額不足', providerError.detail);
-                    const retryText = providerError.retryDelay ? `，約 ${providerError.retryDelay} 後可重試` : '';
-                    showToast(`網址研讀模型 ${providerError.model} 配額不足${retryText}。`, 'fas fa-gauge-high');
-                } else {
-                    const detail = providerError?.detail || `模型 ${targetModel}｜${rawMessage}`;
-                    saveAiStatus('web', '失敗', detail);
-                    showToast(`AI 網頁研讀失敗：${providerError?.message || rawMessage}`, 'fas fa-exclamation-triangle');
-                }
+                const stage = jinaError ? 'jina' : 'provider';
+                const decision = classifyResearchFailure({
+                    stage,
+                    provider: providerName,
+                    error,
+                    hasJinaKey: Boolean(jinaApiKey),
+                    attempt
+                });
+                const compactStatus = decision.category === 'provider_quota'
+                    ? '配額不足'
+                    : stage === 'jina'
+                        ? '來源擷取失敗'
+                        : '失敗';
+                saveAiStatus('web', compactStatus, decision.detail);
+                showToast(decision.userMessage, decision.action === 'stop' ? 'fas fa-circle-stop' : decision.action === 'skip' ? 'fas fa-forward' : 'fas fa-hourglass-half');
+                recordResearchLog({
+                    ...logContext,
+                    level: decision.action === 'stop' || decision.action === 'skip' ? 'error' : 'warning',
+                    stage,
+                    provider: stage === 'jina' ? 'Jina Reader' : providerName,
+                    model: stage === 'provider' ? targetModel : '',
+                    status: decision.category,
+                    action: decision.action,
+                    title: decision.title,
+                    detail: decision.detail,
+                    resolution: decision.resolution,
+                    retryAt: decision.retryAfterMs ? Date.now() + decision.retryAfterMs : 0
+                });
                 updateAiStatusPanel();
-                if (providerError?.isQuota) {
+                if (decision.category === 'provider_quota') {
                     return {
                         status: 'quota',
                         provider: providerName === 'mistral' ? 'Mistral' : 'Gemini',
                         model: targetModel,
-                        remaining: providerError.retryAfterMs || 0,
+                        remaining: decision.retryAfterMs || 0,
                         error
                     };
                 }
-                return { status: 'error', error };
+                if (decision.action === 'pause' || decision.action === 'retry') {
+                    return {
+                        status: decision.action,
+                        remaining: decision.retryAfterMs,
+                        provider: stage === 'jina' ? 'Jina Reader' : (providerName === 'mistral' ? 'Mistral' : 'Gemini'),
+                        reason: decision.title,
+                        error
+                    };
+                }
+                if (decision.action === 'stop') {
+                    return {
+                        status: 'blocked',
+                        reason: decision.category,
+                        provider: stage === 'jina' ? 'Jina Reader' : (providerName === 'mistral' ? 'Mistral' : 'Gemini'),
+                        message: decision.userMessage,
+                        error
+                    };
+                }
+                return { status: 'error', reason: decision.title, error };
             } finally {
                 restoreButton();
             }
@@ -4021,6 +4332,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 closeTagBrowser({ fromHistory: true });
                 return;
             }
+            const researchLogModal = document.getElementById('research-log-modal');
+            if (!researchLogModal.classList.contains('hidden') && targetOverlay !== 'research-log') {
+                closeResearchLog({ fromHistory: true });
+                return;
+            }
 
             if (targetOverlay === 'editor' && !activeEditorCardId && currentUser) {
                 const itemId = event.state?.itemId;
@@ -4072,6 +4388,10 @@ ${JSON.stringify(inboxData, null, 2)}`;
             }
             if (targetOverlay === 'tag-browser' && tagBrowserModal.classList.contains('hidden')) {
                 openTagBrowser({ fromHistory: true });
+                return;
+            }
+            if (targetOverlay === 'research-log' && researchLogModal.classList.contains('hidden')) {
+                openResearchLog({ fromHistory: true });
             }
         });
         document.getElementById('editor-title').addEventListener('input', (e) => {

@@ -437,6 +437,16 @@
                             <article class="rounded-2xl border border-slate-200 bg-white p-5"><h4 class="font-bold text-slate-800">操作捷徑</h4><dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 text-sm"><dt><kbd class="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">Ctrl/Cmd + K</kbd></dt><dd class="text-slate-500">開啟全域搜尋</dd><dt><kbd class="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">Esc</kbd></dt><dd class="text-slate-500">關閉最上層視窗</dd><dt><span class="font-bold text-slate-700">手機返回</span></dt><dd class="text-slate-500">先關閉編輯器／說明頁等上層介面，不會直接退出程式</dd></dl></article>
                             <article class="rounded-2xl border border-rose-200 bg-rose-50 p-5"><h4 class="font-bold text-rose-950">目前限制</h4><ul class="mt-3 space-y-2 text-sm leading-6 text-rose-900"><li>影片不會被 Jina 轉錄；YouTube／Vimeo 會標為「尚未解析的影片」。</li><li>私人、登入後、付費牆或反爬網站可能無法取得完整文字。</li><li>手動撰寫但未建立索引的詳細筆記，目前不在全文搜尋範圍內。</li><li>夜間佇列受瀏覽器背景節流與裝置休眠影響，建議保持頁面開啟並接上電源。</li></ul></article>
                         </div>
+                        <article class="mt-4 overflow-hidden rounded-2xl border border-amber-200 bg-white">
+                            <div class="border-b border-amber-100 bg-amber-50 px-5 py-4"><h4 class="font-bold text-amber-950"><i class="fas fa-shield-halved mr-2"></i>研讀故障處理策略</h4><p class="mt-1 text-sm text-amber-800">佇列不再對所有錯誤無限送出；每種失敗有固定去向，並寫入「研讀紀錄」。</p></div>
+                            <div class="divide-y divide-slate-100 text-sm">
+                                <div class="grid gap-1 p-4 md:grid-cols-[11rem_1fr]"><strong class="text-rose-700">Key／權限／帳務／模型失效</strong><span class="leading-6 text-slate-600">立即停止整條佇列，保留目前卡片；修正設定後再手動重啟。</span></div>
+                                <div class="grid gap-1 p-4 md:grid-cols-[11rem_1fr]"><strong class="text-amber-700">429 配額或來源封鎖</strong><span class="leading-6 text-slate-600">暫停同一張卡，優先採用服務回傳時間；最多重試 3 次（模型採 5／15／60 分鐘），仍失敗就停止，避免整晚無限送出。</span></div>
+                                <div class="grid gap-1 p-4 md:grid-cols-[11rem_1fr]"><strong class="text-indigo-700">斷網、逾時、5xx</strong><span class="leading-6 text-slate-600">同一張最多自動重試 3 次（15 秒、60 秒、180 秒）；仍失敗才跳過，避免卡死整晚。</span></div>
+                                <div class="grid gap-1 p-4 md:grid-cols-[11rem_1fr]"><strong class="text-slate-700">網址不存在／內容不相容</strong><span class="leading-6 text-slate-600">跳過該張並繼續，卡片仍留在待回補清單，可日後重新研讀。</span></div>
+                                <div class="grid gap-1 p-4 md:grid-cols-[11rem_1fr]"><strong class="text-emerald-700">Firebase／瀏覽器儲存失敗</strong><span class="leading-6 text-slate-600">自動寫入失敗先降級到本機待審；連待審也無法保存時停止，避免結果遺失。</span></div>
+                            </div>
+                        </article>
                         <p class="mt-6 text-center text-xs text-slate-400">My AI Brain · 個人使用的 AI 輔助知識庫</p>
                     </section>
                 </main>
@@ -458,6 +468,10 @@
                     <button id="tag-review-toggle-btn" type="button" class="min-h-11 rounded-xl bg-indigo-50 px-3 text-xs font-bold text-indigo-800 transition-colors hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-300" aria-controls="tag-review-panel" aria-expanded="false">
                         <i class="fas fa-inbox mr-1"></i>待審核
                         <span id="tag-review-count" class="ml-1 rounded-full bg-indigo-200 px-1.5 py-0.5 text-[11px]">0</span>
+                    </button>
+                    <button id="research-log-btn" type="button" class="min-h-11 rounded-xl bg-slate-100 px-3 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-300" aria-haspopup="dialog" aria-controls="research-log-modal">
+                        <i class="fas fa-clock-rotate-left mr-1"></i>研讀紀錄
+                        <span id="research-log-count" class="ml-1 rounded-full bg-slate-200 px-1.5 py-0.5 text-[11px]">0</span>
                     </button>
                     <button id="close-tag-browser-btn" type="button" class="flex h-11 w-11 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300" aria-label="關閉 Tag 瀏覽"><i class="fas fa-times text-lg"></i></button>
                 </div>
@@ -527,6 +541,37 @@
                     <i class="fas fa-tags mb-3 text-3xl text-slate-300"></i>
                     <p class="font-semibold text-slate-600">沒有符合條件的卡片</p>
                     <p class="mt-1 text-sm text-slate-400">請調整 Tag 或切換「符合任一」。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="research-log-modal" class="hidden fixed inset-0 z-[95] bg-slate-900/55 backdrop-blur-sm md:p-4" role="dialog" aria-modal="true" aria-labelledby="research-log-title">
+        <div class="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden bg-slate-50 shadow-2xl md:h-[calc(100vh-2rem)] md:rounded-2xl">
+            <div class="border-b border-slate-200 bg-white px-4 py-4 md:px-6">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <h2 id="research-log-title" class="flex items-center gap-2 text-lg font-bold text-slate-800 md:text-xl"><i class="fas fa-clock-rotate-left text-slate-500"></i>AI 研讀紀錄</h2>
+                        <p class="mt-1 text-xs leading-5 text-slate-500">保留最近 200 筆於目前瀏覽器；不記錄 API Key。每筆會說明程式選擇重試、暫停、跳過或停止的原因。</p>
+                    </div>
+                    <button id="close-research-log-btn" type="button" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300" aria-label="關閉研讀紀錄"><i class="fas fa-times text-lg"></i></button>
+                </div>
+                <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="inline-flex w-fit max-w-full overflow-x-auto rounded-xl bg-slate-100 p-1 custom-scrollbar" role="group" aria-label="研讀紀錄篩選">
+                        <button type="button" data-research-log-filter="all" class="min-h-9 shrink-0 rounded-lg bg-white px-3 text-xs font-bold text-slate-800 shadow-sm">全部</button>
+                        <button type="button" data-research-log-filter="error" class="min-h-9 shrink-0 rounded-lg px-3 text-xs font-bold text-slate-600">錯誤／停止</button>
+                        <button type="button" data-research-log-filter="warning" class="min-h-9 shrink-0 rounded-lg px-3 text-xs font-bold text-slate-600">等待／重試</button>
+                        <button type="button" data-research-log-filter="success" class="min-h-9 shrink-0 rounded-lg px-3 text-xs font-bold text-slate-600">成功</button>
+                    </div>
+                    <button id="clear-research-log-btn" type="button" class="min-h-10 rounded-xl border border-rose-200 bg-white px-3 text-xs font-bold text-rose-600 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-300"><i class="fas fa-trash-alt mr-1"></i>清除紀錄</button>
+                </div>
+                <div id="research-log-summary" class="mt-3 text-sm font-medium text-slate-500" aria-live="polite"></div>
+            </div>
+            <div class="flex-1 overflow-y-auto px-4 py-5 custom-scrollbar md:px-6">
+                <div id="research-log-results" class="space-y-3"></div>
+                <div id="research-log-empty" class="hidden rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
+                    <i class="fas fa-clipboard-list mb-3 text-3xl text-slate-300"></i>
+                    <p class="font-bold text-slate-700">目前沒有符合條件的研讀紀錄</p>
+                    <p class="mt-1 text-sm text-slate-400">執行 AI 研讀後，成功、快取、冷卻與錯誤都會出現在這裡。</p>
                 </div>
             </div>
         </div>
