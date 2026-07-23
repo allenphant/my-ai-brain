@@ -19,6 +19,21 @@ test('help center documents the core workflow, deployment, data boundary, and li
     assert.match(html, /影片不會被 Jina 轉錄/);
     assert.match(html, /Key／權限／帳務／模型失效/);
     assert.match(html, /斷網、逾時、5xx/);
+    assert.match(html, /定期自動回補/);
+    assert.match(html, /Cloud Functions／Cloud Run 工具 API/);
+});
+
+test('automatic research schedule is configurable and documents browser-only boundaries', async () => {
+    const [html, appSource] = await readProductionSources();
+    assert.match(html, /id="auto-research-interval-select"/);
+    assert.match(html, /value="6h"/);
+    assert.match(html, /value="weekly"/);
+    assert.match(html, /id="run-auto-research-now-btn"/);
+    assert.match(html, /相同內容連續排程失敗 3 次會被隔離/);
+    assert.match(html, /關閉頁面或裝置休眠時不會在伺服器背景執行/);
+    assert.match(appSource, /checkAutomaticResearchSchedule/);
+    assert.match(appSource, /recordScheduledResearchFailure/);
+    assert.match(appSource, /localStorage\.setItem\('autoResearchInterval'/);
 });
 
 test('help center is reachable from both navigation surfaces and participates in overlay history', async () => {

@@ -673,6 +673,13 @@ try {
     await page.$eval('#new-tag-input', input => { input.value = '研究'; });
     await page.click('#add-tag-btn');
     await page.$eval('#web-research-system-prompt', input => { input.value = '自訂研讀提示：只根據來源輸出繁體中文。'; });
+    assert.deepEqual(
+        await page.$$eval('#auto-research-interval-select option', options => options.map(option => option.value)),
+        ['off', '6h', '12h', 'daily', '3d', 'weekly']
+    );
+    await page.select('#auto-research-interval-select', 'daily');
+    assert.match(await page.$eval('#auto-research-schedule-status', element => element.textContent), /立即執行/);
+    await page.select('#auto-research-interval-select', 'off');
     await page.click('#verify-mistral-key-btn');
     await page.waitForFunction(() => document.querySelectorAll('#mistral-web-research-model-select option').length === 2);
     assert.equal(mistralModelGets, 1);
@@ -1239,6 +1246,7 @@ try {
         tagBrowserBackForward: true,
         selectiveBackfillQueue: true,
         quotaBackfillPausedOnSameCard: true,
+        automaticResearchScheduleSettings: true,
         researchLogVisibleFilteredAndSanitized: true,
         overlayCloseControls: true,
         stackedBackOrder: true,

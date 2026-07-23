@@ -21,6 +21,14 @@
             readResearchLogs
         } from './research-runtime.mjs';
         import {
+            clearAutoResearchFailure,
+            getAutoResearchDue,
+            readAutoResearchState,
+            recordAutoResearchFailure,
+            selectAutoResearchCandidates,
+            writeAutoResearchState
+        } from './auto-research-schedule.mjs';
+        import {
             DEFAULT_MISTRAL_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT,
@@ -38,6 +46,7 @@
             describeMistralApiError,
             extractGeminiResponseText,
             extractUrls,
+            findSuspiciousTagIds,
             getWebResearchCooldownRemaining,
             getWebResearchModelOptions,
             isInteractiveCardTarget,
@@ -100,6 +109,12 @@
         let researchReviewItems = [];
         let researchLogFilter = 'all';
         let researchBackfillApprovalMode = localStorage.getItem('researchBackfillApprovalMode') === 'auto' ? 'auto' : 'manual';
+        let researchBackfillOrigin = 'manual';
+        let automaticResearchCheckTimer = null;
+        let automaticResearchPollTimer = null;
+        let automaticResearchInboxLoaded = false;
+        let automaticResearchCategoriesLoaded = false;
+        const automaticResearchLoadedCollections = new Set();
         let currentTodoItems = [];
         let pendingDeleteTarget = null;
         let pendingMoveTarget = null;
@@ -243,6 +258,7 @@
                 const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
                 items.sort((a, b) => getOrder(b) - getOrder(a));
                 currentItemsByCollection.set(catId, items);
+                automaticResearchLoadedCollections.add(String(catId));
                 
                 const countEl = document.getElementById(`count-${catId}`);
                 if (countEl) {
@@ -257,6 +273,8 @@
                     renderList(items, listEl, catId, `${catIcon} text-slate-400`);
                 }
                 refreshOpenTagBrowser();
+                renderAutomaticResearchScheduleStatus();
+                if (isAutomaticResearchDataReady()) scheduleAutomaticResearchCheck();
             });
         }
 
@@ -853,6 +871,168 @@
             })).filter(group => group.items.length > 0);
         }
 
+        function getAutomaticResearchUserId() {
+            return currentUser?.uid || 'anonymous';
+        }
+
+        function readCurrentAutomaticResearchState() {
+            return readAutoResearchState(localStorage, getAutomaticResearchUserId());
+        }
+
+        function saveCurrentAutomaticResearchState(state) {
+            try {
+                return writeAutoResearchState(localStorage, getAutomaticResearchUserId(), state);
+            } catch (error) {
+                console.warn('無法保存自動研讀排程狀態：', error);
+                return state;
+            }
+        }
+
+        function formatAutomaticResearchTime(timestamp) {
+            return timestamp ? new Date(timestamp).toLocaleString('zh-TW') : '尚未執行';
+        }
+
+        function getAutomaticResearchSelection() {
+            return selectAutoResearchCandidates(getResearchBackfillGroups(), readCurrentAutomaticResearchState());
+        }
+
+        function renderAutomaticResearchScheduleStatus() {
+            const status = document.getElementById('auto-research-schedule-status');
+            if (!status) return;
+            const settingsOpen = !document.getElementById('settings-modal')?.classList.contains('hidden');
+            const interval = settingsOpen
+                ? document.getElementById('auto-research-interval-select')?.value || 'off'
+                : localStorage.getItem('autoResearchInterval') || 'off';
+            const state = readCurrentAutomaticResearchState();
+            const due = getAutoResearchDue({ interval, lastRunAt: state.lastRunAt });
+            const { runnable, blocked } = getAutomaticResearchSelection();
+            const lines = [];
+            if (!due.enabled) {
+                lines.push('目前關閉，只會在你手動啟動時研讀。');
+            } else {
+                lines.push(`上次啟動：${formatAutomaticResearchTime(state.lastRunAt)}`);
+                lines.push(`下次檢查：${due.due ? '資料載入完成後立即執行' : formatAutomaticResearchTime(due.nextRunAt)}`);
+            }
+            lines.push(`目前可自動回補 ${runnable.length} 張；隔離 ${blocked.length} 張。`);
+            status.textContent = lines.join(' ');
+            const resetButton = document.getElementById('reset-auto-research-failures-btn');
+            if (resetButton) {
+                resetButton.disabled = blocked.length === 0 && Object.keys(state.failures).length === 0;
+                resetButton.textContent = blocked.length > 0 ? `重新嘗試隔離卡片（${blocked.length}）` : '清除失敗紀錄';
+            }
+        }
+
+        function isAutomaticResearchDataReady() {
+            if (!currentUser || !automaticResearchInboxLoaded || !automaticResearchCategoriesLoaded) return false;
+            return currentCategories.every(category => automaticResearchLoadedCollections.has(String(category.id)));
+        }
+
+        function scheduleAutomaticResearchCheck(delay = 1200) {
+            clearTimeout(automaticResearchCheckTimer);
+            automaticResearchCheckTimer = setTimeout(() => {
+                automaticResearchCheckTimer = null;
+                void checkAutomaticResearchSchedule();
+            }, delay);
+        }
+
+        function clearScheduledResearchFailure(key) {
+            const state = readCurrentAutomaticResearchState();
+            if (!state.failures[key]) return;
+            saveCurrentAutomaticResearchState(clearAutoResearchFailure(state, key));
+            renderAutomaticResearchScheduleStatus();
+        }
+
+        function recordScheduledResearchFailure(entry, reason) {
+            const state = readCurrentAutomaticResearchState();
+            const result = recordAutoResearchFailure(state, {
+                key: entry.key,
+                sourceText: entry.item.text,
+                reason
+            });
+            saveCurrentAutomaticResearchState(result.state);
+            if (result.blocked) {
+                recordResearchLog({
+                    level: 'error',
+                    stage: 'schedule',
+                    provider: '自動排程',
+                    status: 'unchanged_card_blocked',
+                    action: 'isolate',
+                    title: '卡片已從自動排程隔離',
+                    cardTitle: getShortText(entry.item.text, 160),
+                    sourceUrl: extractUrls(entry.item.text || '')[0] || '',
+                    collectionName: entry.group.id,
+                    itemId: entry.item.id,
+                    detail: `相同卡片內容已連續排程失敗 ${result.attempts} 次。${reason ? ` 最近原因：${reason}` : ''}`,
+                    resolution: '請確認網址公開可讀、卡片只含一個網址且不要混入登入牆內容；修改卡片文字後會自動解除隔離。'
+                });
+                showToast('有卡片連續研讀失敗，已隔離；請在研讀紀錄查看調整方式。', 'fas fa-triangle-exclamation');
+            }
+            renderAutomaticResearchScheduleStatus();
+        }
+
+        function beginResearchBackfillQueue(entries, origin = 'manual') {
+            researchBackfillQueue = Array.isArray(entries) ? entries : [];
+            researchBackfillOrigin = origin === 'schedule' ? 'schedule' : 'manual';
+            researchBackfillIndex = 0;
+            activeResearchBackfillKey = null;
+            researchBackfillCompleted = 0;
+            researchBackfillFailed = 0;
+            researchBackfillQuotaFailures = 0;
+            researchBackfillRetryAttempts.clear();
+            researchBackfillStatusMessage = '';
+            if (researchBackfillQueue.length === 0) {
+                renderResearchBackfillPanel();
+                return false;
+            }
+            renderResearchBackfillPanel();
+            void requestResearchBackfillWakeLock();
+            void processNextResearchBackfill();
+            return true;
+        }
+
+        function startAutomaticResearchBackfillQueue(entries) {
+            const started = beginResearchBackfillQueue(entries, 'schedule');
+            if (started) {
+                showToast(`自動排程已啟動，共 ${entries.length} 張。`, 'fas fa-clock-rotate-left');
+            }
+            return started;
+        }
+
+        async function checkAutomaticResearchSchedule({ force = false } = {}) {
+            renderAutomaticResearchScheduleStatus();
+            if (!currentUser) {
+                if (force) showToast('請先登入，才能執行自動研讀。', 'fas fa-user-lock');
+                return false;
+            }
+            if (researchBackfillQueue.length > 0) {
+                if (force) showToast('目前已有研讀佇列執行中。', 'fas fa-list-check');
+                return false;
+            }
+            if (!isAutomaticResearchDataReady()) {
+                if (force) showToast('卡片資料仍在載入，完成後會自動檢查。', 'fas fa-spinner');
+                scheduleAutomaticResearchCheck();
+                return false;
+            }
+            if (!force && document.visibilityState === 'hidden') return false;
+            const interval = localStorage.getItem('autoResearchInterval') || 'off';
+            const state = readCurrentAutomaticResearchState();
+            const due = getAutoResearchDue({ interval, lastRunAt: state.lastRunAt });
+            if (!force && (!due.enabled || !due.due)) return false;
+
+            const { runnable, blocked } = getAutomaticResearchSelection();
+            state.lastRunAt = Date.now();
+            saveCurrentAutomaticResearchState(state);
+            renderAutomaticResearchScheduleStatus();
+            if (runnable.length === 0) {
+                showToast(
+                    blocked.length > 0 ? `沒有可執行卡片；${blocked.length} 張因連續失敗已隔離。` : '目前沒有尚未研讀的網址卡片。',
+                    blocked.length > 0 ? 'fas fa-triangle-exclamation' : 'fas fa-circle-check'
+                );
+                return false;
+            }
+            return startAutomaticResearchBackfillQueue(runnable);
+        }
+
         function loadResearchReviews() {
             researchReviewItems = currentUser
                 ? readResearchReviews(localStorage, currentUser.uid)
@@ -1093,6 +1273,7 @@
         }
 
         function cancelResearchBackfillQueue(message = '回補佇列已停止。') {
+            const wasScheduled = researchBackfillOrigin === 'schedule';
             clearResearchBackfillTimers();
             releaseResearchBackfillWakeLock();
             researchBackfillQueue = [];
@@ -1100,12 +1281,15 @@
             activeResearchBackfillKey = null;
             researchBackfillQuotaFailures = 0;
             researchBackfillRetryAttempts.clear();
+            researchBackfillOrigin = 'manual';
             updateResearchBackfillStatus(message);
             renderResearchBackfillPanel();
+            if (wasScheduled) renderAutomaticResearchScheduleStatus();
             document.getElementById('research-queue-floating-status')?.classList.add('hidden');
         }
 
         function finishResearchBackfillQueue() {
+            const wasScheduled = researchBackfillOrigin === 'schedule';
             const completed = researchBackfillCompleted;
             const failed = researchBackfillFailed;
             clearResearchBackfillTimers();
@@ -1115,11 +1299,18 @@
             activeResearchBackfillKey = null;
             researchBackfillQuotaFailures = 0;
             researchBackfillRetryAttempts.clear();
+            researchBackfillOrigin = 'manual';
             selectedResearchBackfillKeys.clear();
             const destination = researchBackfillApprovalMode === 'auto' ? '筆已自動通過' : '筆已送往待審核';
             updateResearchBackfillStatus(`佇列完成：${completed} ${destination}${failed ? `，${failed} 筆失敗或轉待審` : ''}。`);
             renderResearchBackfillPanel();
             renderResearchReviewPanel();
+            if (wasScheduled) {
+                const state = readCurrentAutomaticResearchState();
+                state.lastCompletedAt = Date.now();
+                saveCurrentAutomaticResearchState(state);
+                renderAutomaticResearchScheduleStatus();
+            }
             document.getElementById('research-queue-floating-status')?.classList.add('hidden');
         }
 
@@ -1160,6 +1351,7 @@
             if (outcome?.status === 'ready') {
                 researchBackfillQuotaFailures = 0;
                 researchBackfillRetryAttempts.delete(entry.key);
+                if (researchBackfillOrigin === 'schedule') clearScheduledResearchFailure(entry.key);
                 let completionMessage = '';
                 if (researchBackfillApprovalMode === 'auto') {
                     const allSuggestionIds = [
@@ -1293,6 +1485,9 @@
                 return;
             }
             researchBackfillFailed += 1;
+            if (researchBackfillOrigin === 'schedule') {
+                recordScheduledResearchFailure(entry, outcome?.reason || outcome?.error?.message || '來源或模型無法處理');
+            }
             researchBackfillRetryAttempts.delete(entry.key);
             activeResearchBackfillKey = null;
             researchBackfillIndex += 1;
@@ -1302,24 +1497,11 @@
 
         function startResearchBackfillQueue() {
             const selected = selectedResearchBackfillKeys;
-            researchBackfillQueue = getResearchBackfillGroups().flatMap(group => group.items.flatMap(item => {
+            const entries = getResearchBackfillGroups().flatMap(group => group.items.flatMap(item => {
                 const key = getResearchBackfillKey(group.id, item.id);
                 return selected.has(key) ? [{ key, group, item }] : [];
             }));
-            researchBackfillIndex = 0;
-            activeResearchBackfillKey = null;
-            researchBackfillCompleted = 0;
-            researchBackfillFailed = 0;
-            researchBackfillQuotaFailures = 0;
-            researchBackfillRetryAttempts.clear();
-            researchBackfillStatusMessage = '';
-            if (researchBackfillQueue.length === 0) {
-                renderResearchBackfillPanel();
-                return;
-            }
-            renderResearchBackfillPanel();
-            void requestResearchBackfillWakeLock();
-            processNextResearchBackfill();
+            beginResearchBackfillQueue(entries, 'manual');
         }
 
         document.addEventListener('visibilitychange', () => {
@@ -1940,12 +2122,18 @@
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 currentUser = user;
+                automaticResearchInboxLoaded = false;
+                automaticResearchCategoriesLoaded = false;
+                automaticResearchLoadedCollections.clear();
                 loadResearchReviews();
                 updateResearchLogCount();
+                renderAutomaticResearchScheduleStatus();
                 document.getElementById('auth-status').classList.replace('bg-amber-500', 'bg-emerald-500');
                 document.getElementById('auth-text').innerText = user.displayName ? `嗨，${user.displayName}` : "已登入";
                 document.getElementById('login-btn').classList.add('hidden'); document.getElementById('logout-btn').classList.remove('hidden');
                 setupRealtimeListeners(user.uid);
+                clearInterval(automaticResearchPollTimer);
+                automaticResearchPollTimer = setInterval(() => void checkAutomaticResearchSchedule(), 60_000);
                 
                 const urlParams = new URLSearchParams(window.location.search);
                 const editorId = urlParams.get('editor');
@@ -1967,6 +2155,13 @@
                 handleIncomingShare();
                 processPendingShare();
             } else {
+                clearTimeout(automaticResearchCheckTimer);
+                clearInterval(automaticResearchPollTimer);
+                automaticResearchCheckTimer = null;
+                automaticResearchPollTimer = null;
+                automaticResearchInboxLoaded = false;
+                automaticResearchCategoriesLoaded = false;
+                automaticResearchLoadedCollections.clear();
                 currentUser = null;
                 researchReviewItems = [];
                 updateResearchLogCount();
@@ -1984,6 +2179,11 @@
                 handleIncomingShare();
             }
         });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') scheduleAutomaticResearchCheck(300);
+        });
+        window.addEventListener('focus', () => scheduleAutomaticResearchCheck(300));
 
         function checkAutoSortCondition() {
             if (isSorting || currentInboxItems.length === 0) return; 
@@ -2011,15 +2211,19 @@
 
             onSnapshot(getCol('inbox'), (snapshot) => {
                 currentInboxItems = []; snapshot.forEach(doc => currentInboxItems.push({ id: doc.id, ...doc.data() }));
+                automaticResearchInboxLoaded = true;
                 sortItems(currentInboxItems); renderList(currentInboxItems, document.getElementById('inbox-list'), 'inbox');
                 document.getElementById('inbox-count').innerText = currentInboxItems.length;
                 document.getElementById('ai-sort-btn').disabled = currentInboxItems.length === 0;
                 if (isInitialInboxLoad) { isInitialInboxLoad = false; setTimeout(checkAutoSortCondition, 800); }
                 setTimeout(initSidebarObserver, 100);
                 refreshOpenTagBrowser();
+                renderAutomaticResearchScheduleStatus();
+                if (isAutomaticResearchDataReady()) scheduleAutomaticResearchCheck();
             });
 
             onSnapshot(getCol('categories'), async (snapshot) => {
+                automaticResearchCategoriesLoaded = true;
                 currentCategories = [];
                 snapshot.forEach(doc => currentCategories.push({ id: doc.id, ...doc.data() }));
                 
@@ -2038,6 +2242,9 @@
                 [...currentItemsByCollection.keys()].forEach(id => {
                     if (!categoryIds.has(id)) currentItemsByCollection.delete(id);
                 });
+                [...automaticResearchLoadedCollections].forEach(id => {
+                    if (!categoryIds.has(id)) automaticResearchLoadedCollections.delete(id);
+                });
                 
                 renderCategoryManagerList(currentCategories);
                 renderMainGrid(currentCategories);
@@ -2045,6 +2252,8 @@
                 renderSidebar(currentCategories);
                 setTimeout(initSidebarObserver, 100);
                 refreshOpenTagBrowser();
+                renderAutomaticResearchScheduleStatus();
+                if (isAutomaticResearchDataReady()) scheduleAutomaticResearchCheck();
             });
         }
 
@@ -3510,6 +3719,10 @@
         function renderTagManager() {
             const container = document.getElementById('tag-manager-list');
             container.replaceChildren();
+            const suspiciousTagIds = findSuspiciousTagIds(draftTags);
+            const suspiciousWarning = document.getElementById('suspicious-tag-warning');
+            suspiciousWarning.classList.toggle('hidden', suspiciousTagIds.length === 0);
+            document.getElementById('suspicious-tag-count').textContent = String(suspiciousTagIds.length);
             if (!draftTags.length) {
                 const empty = document.createElement('span');
                 empty.className = 'text-xs text-slate-400';
@@ -3601,11 +3814,13 @@
             document.getElementById('imgbb-key-input').value = localStorage.getItem('imgbbApiKey') || '';
             document.getElementById('web-research-system-prompt').value = localStorage.getItem('webResearchSystemPrompt') || DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
             document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off';
+            document.getElementById('auto-research-interval-select').value = localStorage.getItem('autoResearchInterval') || 'off';
             document.getElementById('auto-newline-toggle').checked = localStorage.getItem('autoNewlineAfterUrl') !== 'off';
             draftTags = currentTags.map(tag => ({ ...tag }));
             renderTagManager();
             renderWebResearchProviderSettings();
             updateAiStatusPanel();
+            renderAutomaticResearchScheduleStatus();
             document.getElementById('settings-modal').classList.remove('hidden');
             keyLayers.push({ name: 'settings', keys: modalKeys(closeSettingsModal) });
         }
@@ -3615,6 +3830,25 @@
             openSettingsModal();
         });
         document.getElementById('add-tag-btn').addEventListener('click', addDraftTag);
+        document.getElementById('remove-suspicious-tags-btn').addEventListener('click', () => {
+            const suspiciousTagIds = new Set(findSuspiciousTagIds(draftTags));
+            if (suspiciousTagIds.size === 0) return;
+            draftTags = draftTags.filter(tag => !suspiciousTagIds.has(tag.id));
+            renderTagManager();
+            showToast(`已從草稿移除 ${suspiciousTagIds.size} 個可疑 Tag；請按「儲存設定」套用。`, 'fas fa-broom');
+        });
+        document.getElementById('run-auto-research-now-btn').addEventListener('click', async () => {
+            closeSettingsModal();
+            await checkAutomaticResearchSchedule({ force: true });
+        });
+        document.getElementById('reset-auto-research-failures-btn').addEventListener('click', () => {
+            const state = readCurrentAutomaticResearchState();
+            state.failures = {};
+            saveCurrentAutomaticResearchState(state);
+            renderAutomaticResearchScheduleStatus();
+            showToast('已清除自動排程失敗紀錄，隔離卡片可重新嘗試。', 'fas fa-rotate');
+        });
+        document.getElementById('auto-research-interval-select').addEventListener('change', renderAutomaticResearchScheduleStatus);
         document.getElementById('new-tag-input').addEventListener('keydown', event => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
@@ -3887,6 +4121,7 @@
             const systemPrompt = document.getElementById('web-research-system-prompt').value.trim() || DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
             localStorage.setItem('webResearchSystemPrompt', systemPrompt);
             localStorage.setItem('autoSortSetting', document.getElementById('auto-sort-select').value);
+            localStorage.setItem('autoResearchInterval', document.getElementById('auto-research-interval-select').value);
             localStorage.setItem('autoNewlineAfterUrl', document.getElementById('auto-newline-toggle').checked ? 'on' : 'off');
             try {
                 if (currentUser) {
@@ -3898,6 +4133,8 @@
                 }
                 currentTags = draftTags.map(tag => ({ ...tag }));
                 closeSettingsModal();
+                renderAutomaticResearchScheduleStatus();
+                scheduleAutomaticResearchCheck(300);
             } catch (error) {
                 console.error('儲存 tag 設定失敗：', error);
                 showToast('Tag 設定儲存失敗，請稍後重試。', 'fas fa-exclamation-triangle');

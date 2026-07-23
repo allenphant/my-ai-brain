@@ -30,6 +30,7 @@ import {
     isDirectVideoPageUrl,
     normalizeHttpUrl,
     parseGeminiResearchResult,
+    findSuspiciousTagIds,
     parseJinaReaderResponse,
     parseRetryDelayMs,
     resolveSelectedTags,
@@ -385,6 +386,27 @@ test('Gemini structured result keeps valid existing tags, deduplicates new tags,
             tldr: '', evaluation: '', details: '', matchedTagIds: [], suggestedTags: []
         }), [], { url: 'https://social.example/post/1' }),
         /缺少必要內容/
+    );
+});
+
+test('tag IDs accidentally returned as new tag names are recovered or rejected', () => {
+    const parsed = parseGeminiResearchResult(JSON.stringify({
+        tldr: '摘要',
+        evaluation: '評價',
+        details: '細節',
+        matchedTagIds: [],
+        suggestedTags: ['tag-5wcwmz', 'tag-unknown9', '真正的新分類']
+    }), [{ id: 'tag-5wcwmz', name: '資訊安全' }]);
+
+    assert.deepEqual(parsed.matchedTags, [{ id: 'tag-5wcwmz', name: '資訊安全', isNew: false }]);
+    assert.deepEqual(parsed.suggestedTags, [{ id: 'new:真正的新分類', name: '真正的新分類', isNew: true }]);
+    assert.deepEqual(
+        findSuspiciousTagIds([
+            { id: 'tag-5wcwmz', name: '資訊安全' },
+            { id: 'tag-bad001', name: 'tag-5wcwmz' },
+            { id: 'human-readable', name: '正常分類' }
+        ]),
+        ['tag-bad001']
     );
 });
 

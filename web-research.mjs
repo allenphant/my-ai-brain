@@ -327,17 +327,24 @@ export function parseGeminiResearchResult(rawText, tags = [], source = {}) {
         .filter(tag => tag.id && tag.name);
     const catalogById = new Map(catalog.map(tag => [tag.id, tag]));
     const catalogNames = new Set(catalog.map(tag => tag.name.toLocaleLowerCase('zh-Hant')));
+    const rawSuggestedTags = (Array.isArray(parsed?.suggestedTags) ? parsed.suggestedTags : [])
+        .map(normalizeTagName)
+        .filter(Boolean);
     const matchedTags = uniqueBy(
-        (Array.isArray(parsed?.matchedTagIds) ? parsed.matchedTagIds : [])
+        [
+            ...(Array.isArray(parsed?.matchedTagIds) ? parsed.matchedTagIds : []),
+            ...rawSuggestedTags.filter(value => catalogById.has(value))
+        ]
             .map(id => catalogById.get(String(id)))
             .filter(Boolean)
             .map(tag => ({ ...tag, isNew: false })),
         tag => tag.id
     );
     const suggestedTags = uniqueBy(
-        (Array.isArray(parsed?.suggestedTags) ? parsed.suggestedTags : [])
-            .map(normalizeTagName)
-            .filter(name => name && !catalogNames.has(name.toLocaleLowerCase('zh-Hant')))
+        rawSuggestedTags
+            .filter(name => !catalogById.has(name))
+            .filter(name => !/^tag-[a-z0-9]{5,}(?:-\d+)?$/i.test(name))
+            .filter(name => !catalogNames.has(name.toLocaleLowerCase('zh-Hant')))
             .map(name => ({ id: `new:${name}`, name, isNew: true })),
         tag => tag.name.toLocaleLowerCase('zh-Hant')
     );
@@ -360,6 +367,15 @@ export function parseGeminiResearchResult(rawText, tags = [], source = {}) {
         matchedTags,
         suggestedTags
     };
+}
+
+export function findSuspiciousTagIds(catalog = []) {
+    const normalized = (Array.isArray(catalog) ? catalog : [])
+        .map(tag => ({ id: String(tag?.id || '').trim(), name: normalizeTagName(tag?.name) }))
+        .filter(tag => tag.id && tag.name);
+    return normalized
+        .filter(tag => /^tag-[a-z0-9]{5,}(?:-\d+)?$/i.test(tag.name))
+        .map(tag => tag.id);
 }
 
 export function resolveSelectedTags({ catalog = [], existingCardTagIds = [], suggestions = [], selectedSuggestionIds = [] }) {
