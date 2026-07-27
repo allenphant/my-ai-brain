@@ -16,8 +16,8 @@
   到期使用者；Cloud Tasks 以 concurrency 1 執行 Jina → Gemini 或 Gemini
   YouTube 研讀；結果先寫入 Firestore `pending_review`，不直接修改卡片。
 * **成本與失敗護欄**：預設關閉排程、每批 20、每日 50、每月預估 US$5、影片
-  每日保守預留 60 分鐘、instance 0～1、相同來源冪等、卡片變更時取消舊工作、
-  429／5xx 交由 Tasks 有限退避。
+  每日保守預留 60 分鐘、instance 0～1、Tasks 約每 60 秒最多派送一張、相同來源
+  冪等、卡片變更時取消舊工作、429／5xx 交由 Tasks 有限退避。
 * **驗證狀態**：Functions 三個來源檔均通過語法載入；完整 Node 測試 78／78
   通過；read-only cloud preflight 通過並正確警告本機 gcloud 目前指向另一專案。
 * **尚未串接**：前端尚未呼叫新 Callable Functions；待審 UI 尚未讀取雲端 jobs；

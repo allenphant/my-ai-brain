@@ -107,6 +107,8 @@ promptVersion
 - 每月預估 AI 費用最多 500 cents。
 - YouTube 未知片長時先預留完整 60 分鐘日額度，同一天不會連續送出未知長度影片。
 - Tasks concurrency 為 1。
+- Tasks dispatch rate 為 `0.016667/sec`，約每 60 秒最多開始一張；部署腳本會在
+  Firebase 部署後重新套用，避免 queue 回到 500/sec 預設值。
 - 相同工作成功或待審時直接返回。
 - 卡片內容已改變則標記 `cancelled_stale`。
 - 429／5xx 交由 Cloud Tasks 退避，不在 Function 內 sleep。

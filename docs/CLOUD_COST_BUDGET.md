@@ -83,6 +83,7 @@
 每月 AI 預估成本上限：US$5
 YouTube 每日最多處理：60 分鐘
 Cloud Tasks 最大同時處理：1
+Cloud Tasks 最大派送速率：約每 60 秒 1 張
 Cloud Run／Functions 最大 instance：1
 Cloud Run minimum instances：0
 ```
@@ -115,6 +116,7 @@ Google Cloud Budget 只會寄通知，不會自動停止服務。因此後端會
 - 不要把 Scheduler 設成每分鐘掃描；目前每 10 分鐘足夠。
 - 不要長期開啟 Cloud Tasks debug logging；除錯完成後關閉。
 - 不要移除 Tasks 的 `maxConcurrentDispatches: 1`，除非已重新評估模型 RPM／TPM。
+- 不要保留 Cloud Tasks 預設的 500 tasks/sec；部署腳本會覆寫為約每分鐘 1 張。
 
 ### Firestore
 
