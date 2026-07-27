@@ -728,7 +728,14 @@
                     <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-violet-600 shadow-sm"><i class="fas fa-clock-rotate-left"></i></span>
                     <div class="min-w-0 flex-1">
                         <label for="auto-research-interval-select" class="block text-sm font-bold text-violet-950">自動回補尚未研讀的網址</label>
-                        <p class="mt-1 text-xs leading-5 text-violet-800">程式開啟且登入時，依週期檢查所有分類。結果仍遵循上方的「手動審核／自動通過」。</p>
+                        <label class="mt-3 flex min-h-12 cursor-pointer items-center justify-between gap-4 rounded-xl border border-violet-200 bg-white px-3 py-2">
+                            <span class="min-w-0">
+                                <span class="block text-sm font-bold text-violet-950">雲端背景研讀</span>
+                                <span class="mt-0.5 block text-xs leading-5 text-violet-700">關閉網頁與電腦後仍會排隊；完成結果跨裝置進入待審核。</span>
+                            </span>
+                            <input id="cloud-research-enabled-toggle" type="checkbox" class="h-5 w-5 shrink-0 accent-violet-600">
+                        </label>
+                        <p class="mt-2 text-xs leading-5 text-violet-800">啟用雲端後，卡片的「AI 研讀」會改成「雲端研讀」。目前雲端結果固定手動審核，不會直接寫入卡片。</p>
                         <select id="auto-research-interval-select" class="mt-3 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-violet-300">
                             <option value="off">關閉（只手動啟動）</option>
                             <option value="6h">每 6 小時</option>
@@ -738,11 +745,11 @@
                             <option value="weekly">每週</option>
                         </select>
                         <div class="mt-3 flex flex-col gap-2 sm:flex-row">
-                            <button id="run-auto-research-now-btn" type="button" class="min-h-10 rounded-xl bg-violet-600 px-4 text-sm font-bold text-white hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-300"><i class="fas fa-play mr-1.5"></i>現在檢查並執行</button>
+                            <button id="run-auto-research-now-btn" type="button" class="min-h-10 rounded-xl bg-violet-600 px-4 text-sm font-bold text-white hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-300"><i class="fas fa-play mr-1.5"></i>現在檢查並排程</button>
                             <button id="reset-auto-research-failures-btn" type="button" class="min-h-10 rounded-xl border border-violet-200 bg-white px-4 text-sm font-bold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-violet-300">清除失敗紀錄</button>
                         </div>
                         <div id="auto-research-schedule-status" class="mt-3 rounded-xl bg-white/80 px-3 py-2 text-xs leading-5 text-violet-900" aria-live="polite">正在計算排程狀態…</div>
-                        <p class="mt-2 text-[11px] leading-5 text-violet-700"><i class="fas fa-shield-halved mr-1"></i>相同內容連續排程失敗 3 次會被隔離；修改卡片網址或文字即可自動解除。GitHub Pages 是純前端，因此關閉頁面或裝置休眠時不會在伺服器背景執行，回到程式後會補做逾期檢查。</p>
+                        <p class="mt-2 text-[11px] leading-5 text-violet-700"><i class="fas fa-shield-halved mr-1"></i>雲端模式同一份卡片內容只建立一個工作，避免重複扣額度；若終止失敗，請修正網址或卡片文字後再送。關閉雲端模式時仍使用原本的瀏覽器前景佇列。</p>
                     </div>
                 </div>
             </div>

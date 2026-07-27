@@ -1,6 +1,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc, setDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, query, where, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc, setDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
         import { createLayerStack, attachKeyboardManager } from './js/keyboard-layers.js';
         import { attachMdShortcuts } from './js/md-shortcuts.js';
         import { groupCardsBySearch } from './card-search.mjs';
@@ -28,6 +29,11 @@
             selectAutoResearchCandidates,
             writeAutoResearchState
         } from './auto-research-schedule.mjs';
+        import {
+            buildCloudAutomationPayload,
+            mapCloudResearchJobToReview,
+            mergeResearchReviews
+        } from './cloud-research.mjs';
         import {
             DEFAULT_MISTRAL_RESEARCH_MODEL,
             DEFAULT_WEB_RESEARCH_MODEL,
@@ -83,6 +89,10 @@
         const auth = getAuth(app);
         const provider = new GoogleAuthProvider();
         const db = getFirestore(app);
+        const cloudFunctions = getFunctions(app, 'asia-east1');
+        const updateResearchAutomationCallable = httpsCallable(cloudFunctions, 'updateResearchAutomation');
+        const enqueueCardResearchCallable = httpsCallable(cloudFunctions, 'enqueueCardResearch');
+        const resolveResearchReviewCallable = httpsCallable(cloudFunctions, 'resolveResearchReview');
 
         let currentUser = null;
         let currentCategories = [];
@@ -107,6 +117,11 @@
         let researchBackfillQuotaFailures = 0;
         const researchBackfillRetryAttempts = new Map();
         let researchReviewItems = [];
+        let cloudResearchReviewItems = [];
+        let cloudAutomationSettings = null;
+        let cloudResearchListenerError = '';
+        let unsubscribeCloudResearchJobs = null;
+        let unsubscribeCloudAutomation = null;
         let researchLogFilter = 'all';
         let researchBackfillApprovalMode = localStorage.getItem('researchBackfillApprovalMode') === 'auto' ? 'auto' : 'manual';
         let researchBackfillOrigin = 'manual';
@@ -860,7 +875,9 @@
         const getResearchBackfillKey = (collectionId, itemId) => `${collectionId}/${itemId}`;
 
         function getResearchBackfillGroups() {
-            const pendingKeys = new Set(researchReviewItems.map(item => item.id));
+            const pendingKeys = new Set(
+                researchReviewItems.map(item => getResearchBackfillKey(item.collectionName, item.itemId))
+            );
             return groupResearchBackfillCandidates({
                 categories: currentCategories,
                 inboxItems: currentInboxItems,
@@ -896,6 +913,21 @@
             return selectAutoResearchCandidates(getResearchBackfillGroups(), readCurrentAutomaticResearchState());
         }
 
+        function isCloudResearchEnabled() {
+            const settingsOpen = !document.getElementById('settings-modal')?.classList.contains('hidden');
+            const toggle = document.getElementById('cloud-research-enabled-toggle');
+            return settingsOpen && toggle
+                ? toggle.checked
+                : localStorage.getItem('cloudResearchEnabled') === 'on';
+        }
+
+        function firestoreTimeToMillis(value) {
+            if (typeof value?.toMillis === 'function') return value.toMillis();
+            if (Number.isFinite(value?.seconds)) return value.seconds * 1000;
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
+        }
+
         function renderAutomaticResearchScheduleStatus() {
             const status = document.getElementById('auto-research-schedule-status');
             if (!status) return;
@@ -903,6 +935,29 @@
             const interval = settingsOpen
                 ? document.getElementById('auto-research-interval-select')?.value || 'off'
                 : localStorage.getItem('autoResearchInterval') || 'off';
+            const cloudEnabled = isCloudResearchEnabled();
+            if (cloudEnabled) {
+                const pendingCount = cloudResearchReviewItems.length;
+                const lines = ['執行位置：Google Cloud（關閉網頁後仍會繼續）。'];
+                if (cloudResearchListenerError) {
+                    lines.push(`雲端狀態讀取失敗：${cloudResearchListenerError}`);
+                } else if (interval === 'off' || cloudAutomationSettings?.enabled === false) {
+                    lines.push('自動排程目前關閉；仍可在卡片按「雲端研讀」。');
+                } else if (cloudAutomationSettings) {
+                    lines.push(`上次檢查：${formatAutomaticResearchTime(firestoreTimeToMillis(cloudAutomationSettings.lastRunAt))}`);
+                    lines.push(`下次檢查：約 ${formatAutomaticResearchTime(firestoreTimeToMillis(cloudAutomationSettings.nextRunAt))}`);
+                } else {
+                    lines.push('雲端排程設定同步中。');
+                }
+                lines.push(`雲端待審核 ${pendingCount} 筆；每分鐘最多處理 1 張。`);
+                status.textContent = lines.join(' ');
+                const resetButton = document.getElementById('reset-auto-research-failures-btn');
+                if (resetButton) {
+                    resetButton.disabled = true;
+                    resetButton.textContent = '雲端失敗由工作佇列管理';
+                }
+                return;
+            }
             const state = readCurrentAutomaticResearchState();
             const due = getAutoResearchDue({ interval, lastRunAt: state.lastRunAt });
             const { runnable, blocked } = getAutomaticResearchSelection();
@@ -1004,6 +1059,14 @@
                 if (force) showToast('請先登入，才能執行自動研讀。', 'fas fa-user-lock');
                 return false;
             }
+            if (isCloudResearchEnabled()) {
+                if (!force) return false;
+                if (!isAutomaticResearchDataReady()) {
+                    showToast('卡片資料仍在載入，請稍後再試。', 'fas fa-spinner');
+                    return false;
+                }
+                return enqueueCloudResearchSelection(getAutomaticResearchSelection().runnable);
+            }
             if (researchBackfillQueue.length > 0) {
                 if (force) showToast('目前已有研讀佇列執行中。', 'fas fa-list-check');
                 return false;
@@ -1033,35 +1096,191 @@
             return startAutomaticResearchBackfillQueue(runnable);
         }
 
-        function loadResearchReviews() {
-            researchReviewItems = currentUser
+        function refreshMergedResearchReviews() {
+            const localReviews = currentUser
                 ? readResearchReviews(localStorage, currentUser.uid)
                 : [];
+            researchReviewItems = mergeResearchReviews(localReviews, cloudResearchReviewItems);
+            renderResearchReviewPanel();
+            renderResearchBackfillPanel();
+        }
+
+        function loadResearchReviews() {
+            cloudResearchReviewItems = [];
+            refreshMergedResearchReviews();
         }
 
         function saveResearchReview(payload) {
             if (!currentUser) throw new Error('使用者尚未登入');
             const reviewId = getResearchBackfillKey(payload.collectionName, payload.itemId);
-            researchReviewItems = upsertResearchReview(localStorage, currentUser.uid, {
+            upsertResearchReview(localStorage, currentUser.uid, {
                 id: reviewId,
                 ...payload,
                 createdAt: Date.now()
             });
+            refreshMergedResearchReviews();
             return reviewId;
         }
 
-        function deleteResearchReview(reviewId) {
+        async function deleteResearchReview(reviewId, decision = 'discarded') {
             if (!currentUser) return false;
             try {
-                researchReviewItems = removeResearchReview(localStorage, currentUser.uid, reviewId);
-                renderResearchReviewPanel();
-                renderResearchBackfillPanel();
+                const review = researchReviewItems.find(item => item.id === reviewId);
+                if (review?.cloudManaged && review.cloudJobId) {
+                    await resolveResearchReviewCallable({
+                        jobId: review.cloudJobId,
+                        decision: decision === 'succeeded' ? 'succeeded' : 'discarded'
+                    });
+                    cloudResearchReviewItems = cloudResearchReviewItems.filter(item => item.id !== reviewId);
+                } else {
+                    removeResearchReview(localStorage, currentUser.uid, reviewId);
+                }
+                refreshMergedResearchReviews();
                 return true;
             } catch (error) {
                 console.error('無法移除待審核研讀結果：', error);
-                showToast('無法更新待審核清單，請確認瀏覽器允許儲存資料。', 'fas fa-exclamation-triangle');
+                showToast('無法更新待審核清單，請稍後重試。', 'fas fa-exclamation-triangle');
                 return false;
             }
+        }
+
+        function cleanupCloudResearchListeners() {
+            unsubscribeCloudResearchJobs?.();
+            unsubscribeCloudAutomation?.();
+            unsubscribeCloudResearchJobs = null;
+            unsubscribeCloudAutomation = null;
+            cloudResearchReviewItems = [];
+            cloudAutomationSettings = null;
+            cloudResearchListenerError = '';
+        }
+
+        function setupCloudResearchListeners(uid) {
+            cleanupCloudResearchListeners();
+            unsubscribeCloudAutomation = onSnapshot(
+                doc(db, 'artifacts', appId, 'automationUsers', uid),
+                snapshot => {
+                    cloudAutomationSettings = snapshot.exists() ? snapshot.data() : null;
+                    renderAutomaticResearchScheduleStatus();
+                },
+                error => {
+                    console.error('無法讀取雲端研讀排程：', error);
+                    cloudResearchListenerError = error?.message || '權限或網路錯誤';
+                    renderAutomaticResearchScheduleStatus();
+                }
+            );
+            unsubscribeCloudResearchJobs = onSnapshot(
+                query(
+                    collection(db, 'artifacts', appId, 'users', uid, 'researchJobs'),
+                    where('status', '==', 'pending_review')
+                ),
+                async snapshot => {
+                    try {
+                        const jobs = snapshot.docs
+                            .map(snapshotDoc => ({ id: snapshotDoc.id, ...snapshotDoc.data() }));
+                        const reviews = await Promise.all(jobs.map(async job => {
+                            const cachedCard = currentItemsByCollection
+                                .get(job.collectionName)
+                                ?.find(item => item.id === job.cardId);
+                            let card = cachedCard;
+                            if (!card) {
+                                const cardSnapshot = await getDoc(
+                                    doc(db, 'artifacts', appId, 'users', uid, job.collectionName, job.cardId)
+                                );
+                                card = cardSnapshot.exists() ? cardSnapshot.data() : {};
+                            }
+                            return mapCloudResearchJobToReview({
+                                jobId: job.id,
+                                job,
+                                card,
+                                tags: currentTags
+                            });
+                        }));
+                        if (currentUser?.uid !== uid) return;
+                        cloudResearchReviewItems = reviews;
+                        cloudResearchListenerError = '';
+                        refreshMergedResearchReviews();
+                        renderAutomaticResearchScheduleStatus();
+                    } catch (error) {
+                        console.error('無法載入雲端待審核研讀：', error);
+                        cloudResearchListenerError = error?.message || '權限或網路錯誤';
+                        renderAutomaticResearchScheduleStatus();
+                    }
+                },
+                error => {
+                    console.error('無法監聽雲端研讀工作：', error);
+                    cloudResearchListenerError = error?.message || '權限或網路錯誤';
+                    renderAutomaticResearchScheduleStatus();
+                }
+            );
+        }
+
+        async function syncCloudAutomationSettings(interval) {
+            const response = await updateResearchAutomationCallable(
+                buildCloudAutomationPayload(interval, { approvalMode: 'manual' })
+            );
+            cloudAutomationSettings = response.data?.settings || cloudAutomationSettings;
+            renderAutomaticResearchScheduleStatus();
+            return response.data;
+        }
+
+        function describeCloudEnqueueResult(result = {}) {
+            if (result.reason === 'queued') return '已送入雲端佇列，完成後會出現在待審核。';
+            if (result.reason === 'idempotent_existing') {
+                const statusLabels = {
+                    queued: '已在雲端排隊',
+                    running: '正在雲端研讀',
+                    retry_wait: '暫時失敗，等待自動重試',
+                    pending_review: '結果已在待審核',
+                    succeeded: '這份卡片內容已完成研讀',
+                    discarded: '這份卡片內容的結果已捨棄',
+                    failed_terminal: '先前研讀失敗；修改卡片內容後可建立新工作',
+                    blocked_budget: '已被每日或每月預算上限阻擋'
+                };
+                return statusLabels[result.status] || '相同內容已有雲端工作，不會重複計費。';
+            }
+            if (String(result.reason || '').includes('limit')) return '已達雲端安全用量上限，沒有送出。';
+            return '雲端工作已建立。';
+        }
+
+        async function enqueueCloudCardResearch(item, collectionName, button = null) {
+            if (!currentUser) {
+                showToast('請先登入，才能使用雲端研讀。', 'fas fa-user-lock');
+                return false;
+            }
+            const restoreButton = setButtonLoading(
+                button,
+                '<div class="loader h-4 w-4 border-2 border-t-transparent"></div><span>送入中…</span>'
+            );
+            try {
+                const response = await enqueueCardResearchCallable({
+                    collectionName,
+                    cardId: item.id
+                });
+                showToast(describeCloudEnqueueResult(response.data), 'fas fa-cloud-arrow-up');
+                return response.data;
+            } catch (error) {
+                console.error('送入雲端研讀失敗：', error);
+                showToast(`雲端研讀送出失敗：${error?.message || '未知錯誤'}`, 'fas fa-exclamation-triangle');
+                return false;
+            } finally {
+                restoreButton();
+            }
+        }
+
+        async function enqueueCloudResearchSelection(entries) {
+            const selected = (Array.isArray(entries) ? entries : []).slice(0, 20);
+            if (selected.length === 0) {
+                showToast('目前沒有尚未研讀的單一網址卡片。', 'fas fa-circle-check');
+                return false;
+            }
+            showToast(`正在把 ${selected.length} 張卡片送入雲端佇列…`, 'fas fa-cloud-arrow-up');
+            let accepted = 0;
+            for (const entry of selected) {
+                const result = await enqueueCloudCardResearch(entry.item, entry.group.id);
+                if (result) accepted += 1;
+            }
+            showToast(`已檢查 ${selected.length} 張，其中 ${accepted} 張完成雲端排程。`, 'fas fa-list-check');
+            return accepted > 0;
         }
 
         function renderResearchReviewPanel() {
@@ -1112,9 +1331,11 @@
                 discardButton.className = 'min-h-10 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-600 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-300';
                 discardButton.textContent = '捨棄';
                 discardButton.setAttribute('data-review-discard', review.id);
-                discardButton.addEventListener('click', () => {
+                discardButton.addEventListener('click', async () => {
                     if (!window.confirm('確定捨棄這筆待審核研讀結果？卡片不會被修改。')) return;
-                    deleteResearchReview(review.id);
+                    discardButton.disabled = true;
+                    await deleteResearchReview(review.id, 'discarded');
+                    discardButton.disabled = false;
                 });
                 actions.append(reviewButton, discardButton);
                 row.append(content, actions);
@@ -2132,6 +2353,7 @@
                 document.getElementById('auth-text').innerText = user.displayName ? `嗨，${user.displayName}` : "已登入";
                 document.getElementById('login-btn').classList.add('hidden'); document.getElementById('logout-btn').classList.remove('hidden');
                 setupRealtimeListeners(user.uid);
+                setupCloudResearchListeners(user.uid);
                 clearInterval(automaticResearchPollTimer);
                 automaticResearchPollTimer = setInterval(() => void checkAutomaticResearchSchedule(), 60_000);
                 
@@ -2155,6 +2377,7 @@
                 handleIncomingShare();
                 processPendingShare();
             } else {
+                cleanupCloudResearchListeners();
                 clearTimeout(automaticResearchCheckTimer);
                 clearInterval(automaticResearchPollTimer);
                 automaticResearchCheckTimer = null;
@@ -2274,11 +2497,12 @@
 
         function getWebResearchButtonHTML(item) {
             if (!canUseWebResearch(item?.text).ok) return '';
+            const cloudEnabled = localStorage.getItem('cloudResearchEnabled') === 'on';
             return `
                 <div class="flex justify-end mt-1" data-card-interactive>
-                    <button type="button" class="web-research-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 text-xs font-bold transition-colors" title="AI 研讀這張卡片的網址">
-                        <i class="fas fa-wand-magic-sparkles"></i>
-                        <span>AI 研讀</span>
+                    <button type="button" class="web-research-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 text-xs font-bold transition-colors" title="${cloudEnabled ? '送入雲端背景研讀，完成後進入待審核' : 'AI 研讀這張卡片的網址'}">
+                        <i class="fas ${cloudEnabled ? 'fa-cloud-arrow-up' : 'fa-wand-magic-sparkles'}"></i>
+                        <span>${cloudEnabled ? '雲端研讀' : 'AI 研讀'}</span>
                     </button>
                 </div>`;
         }
@@ -2306,7 +2530,11 @@
             li.querySelector('.web-research-btn')?.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                runCardWebResearch(item, collectionName, event.currentTarget);
+                if (localStorage.getItem('cloudResearchEnabled') === 'on') {
+                    enqueueCloudCardResearch(item, collectionName, event.currentTarget);
+                } else {
+                    runCardWebResearch(item, collectionName, event.currentTarget);
+                }
             });
         }
 
@@ -3266,7 +3494,7 @@
                 await persistWebResearchPayload(payload, selectedSuggestionIds);
                 const completedReviewId = payload.reviewId;
                 closeWebResearchPreview();
-                const reviewRemoved = !completedReviewId || deleteResearchReview(completedReviewId);
+                const reviewRemoved = !completedReviewId || await deleteResearchReview(completedReviewId, 'succeeded');
                 showToast(
                     reviewRemoved
                         ? 'AI 研讀結果與勾選的 tag 已儲存。'
@@ -3815,6 +4043,7 @@
             document.getElementById('web-research-system-prompt').value = localStorage.getItem('webResearchSystemPrompt') || DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
             document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off';
             document.getElementById('auto-research-interval-select').value = localStorage.getItem('autoResearchInterval') || 'off';
+            document.getElementById('cloud-research-enabled-toggle').checked = localStorage.getItem('cloudResearchEnabled') === 'on';
             document.getElementById('auto-newline-toggle').checked = localStorage.getItem('autoNewlineAfterUrl') !== 'off';
             draftTags = currentTags.map(tag => ({ ...tag }));
             renderTagManager();
@@ -3849,6 +4078,7 @@
             showToast('已清除自動排程失敗紀錄，隔離卡片可重新嘗試。', 'fas fa-rotate');
         });
         document.getElementById('auto-research-interval-select').addEventListener('change', renderAutomaticResearchScheduleStatus);
+        document.getElementById('cloud-research-enabled-toggle').addEventListener('change', renderAutomaticResearchScheduleStatus);
         document.getElementById('new-tag-input').addEventListener('keydown', event => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
@@ -4069,6 +4299,9 @@
             const webResearchProvider = document.getElementById('web-research-provider-select').value;
             const jinaKey = document.getElementById('jina-api-key-input').value.trim();
             const imgbbKey = document.getElementById('imgbb-key-input').value.trim();
+            const cloudResearchEnabled = document.getElementById('cloud-research-enabled-toggle').checked;
+            const autoResearchInterval = document.getElementById('auto-research-interval-select').value;
+            const wasCloudResearchEnabled = localStorage.getItem('cloudResearchEnabled') === 'on';
             const cleanedTags = draftTags
                 .map(tag => ({ id: String(tag.id), name: String(tag.name || '').trim().replace(/\s+/g, ' ').slice(0, 40) }))
                 .filter(tag => tag.id && tag.name);
@@ -4121,9 +4354,16 @@
             const systemPrompt = document.getElementById('web-research-system-prompt').value.trim() || DEFAULT_WEB_RESEARCH_SYSTEM_PROMPT;
             localStorage.setItem('webResearchSystemPrompt', systemPrompt);
             localStorage.setItem('autoSortSetting', document.getElementById('auto-sort-select').value);
-            localStorage.setItem('autoResearchInterval', document.getElementById('auto-research-interval-select').value);
+            localStorage.setItem('autoResearchInterval', autoResearchInterval);
             localStorage.setItem('autoNewlineAfterUrl', document.getElementById('auto-newline-toggle').checked ? 'on' : 'off');
             try {
+                if ((cloudResearchEnabled || wasCloudResearchEnabled) && !currentUser) {
+                    throw new Error('請先登入，才能變更雲端研讀設定。');
+                }
+                if (cloudResearchEnabled || wasCloudResearchEnabled) {
+                    await syncCloudAutomationSettings(cloudResearchEnabled ? autoResearchInterval : 'off');
+                }
+                localStorage.setItem('cloudResearchEnabled', cloudResearchEnabled ? 'on' : 'off');
                 if (currentUser) {
                     await setDoc(
                         doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'tags'),
@@ -4136,8 +4376,8 @@
                 renderAutomaticResearchScheduleStatus();
                 scheduleAutomaticResearchCheck(300);
             } catch (error) {
-                console.error('儲存 tag 設定失敗：', error);
-                showToast('Tag 設定儲存失敗，請稍後重試。', 'fas fa-exclamation-triangle');
+                console.error('儲存系統設定失敗：', error);
+                showToast(`設定儲存失敗：${error?.message || '請稍後重試。'}`, 'fas fa-exclamation-triangle');
             }
         });
 

@@ -1,28 +1,39 @@
-# AI 網址研讀雲端後端骨架已完成，尚未部署或啟用
+# AI 網址研讀雲端後端已部署，前端雲端模式已完成串接
 
 > **更新時間**：2026-07-27
 > **專案核心**：以 Vanilla JS 與 Firebase 打造的類似 Notion 的個人 AI 大腦/知識庫工具。
 
 ## 2026-07-27 最新狀態
 
+* **Google Cloud 已正式部署**：Firebase 專案 `my-ai-brain-6867e` 已升級 Blaze，
+  設定每月 US$5 預算通知；四個 asia-east1 Functions、每 10 分鐘 Scheduler
+  與 `runResearchJob` Cloud Tasks queue 均為 ACTIVE。
+* **雲端吞吐護欄**：`runResearchJob` 維持 min instances 0、max instances 1；
+  Cloud Tasks concurrency 1、每 60 秒最多派送一張、最多嘗試 3 次，退避
+  60～3600 秒且最長 24 小時。
+* **前端雲端模式**：設定頁新增「雲端背景研讀」開關。啟用後，單卡按鈕改為
+  「雲端研讀」，自動週期透過 callable 同步至後端；關閉網頁或電腦後工作仍會
+  在 Cloud Tasks 繼續。預設仍關閉，舊瀏覽器前景研讀保留作為備援。
+* **跨裝置待審核**：前端即時監聽 Firestore `researchJobs` 的 `pending_review`，
+  將雲端結果轉為既有預覽格式並顯示原卡片文字、原網址、TL;DR、評價、詳細內容、
+  限制與 Tag 建議。核准才 append 到詳細筆記並標記 `succeeded`；捨棄標記
+  `discarded`，兩者都不會重複排程相同來源內容。
+* **驗證**：Node 測試全數通過；手機尺寸無頭瀏覽器回歸測試通過，包含既有快取、
+  冷卻、配額暫停、搜尋、Tag、返回 UX，以及新雲端按鈕 callable 呼叫，無 page error。
+
 * **成本與設定文件**：新增 `docs/CLOUD_COST_BUDGET.md`、`docs/CLOUD_SETUP_GUIDE.md`
   與 `docs/CLOUD_RESEARCH_ARCHITECTURE.md`，記錄免費額度估算、US$5 預算護欄、
   禁止設定與逐步部署流程。
-* **安全部署入口**：新增 Firebase Functions 專案與部署腳本。所有會啟用 API 或
-  部署可計費資源的腳本都固定 project `my-ai-brain-6867e`，並要求
-  `CONFIRM_BILLABLE_PROJECT`；目前沒有啟用 API、沒有部署 Functions、沒有修改
-  Billing。
+* **安全部署入口**：Firebase Functions 專案與部署腳本固定 project
+  `my-ai-brain-6867e`，並要求 `CONFIRM_BILLABLE_PROJECT`，避免誤部署至其他專案。
 * **後端研讀骨架**：Callable Functions 驗證 Firebase Auth；單一 Scheduler 找出
   到期使用者；Cloud Tasks 以 concurrency 1 執行 Jina → Gemini 或 Gemini
   YouTube 研讀；結果先寫入 Firestore `pending_review`，不直接修改卡片。
 * **成本與失敗護欄**：預設關閉排程、每批 20、每日 50、每月預估 US$5、影片
   每日保守預留 60 分鐘、instance 0～1、Tasks 約每 60 秒最多派送一張、相同來源
   冪等、卡片變更時取消舊工作、429／5xx 交由 Tasks 有限退避。
-* **驗證狀態**：Functions 三個來源檔均通過語法載入；完整 Node 測試 78／78
-  通過；read-only cloud preflight 通過並正確警告本機 gcloud 目前指向另一專案。
-* **尚未串接**：前端尚未呼叫新 Callable Functions；待審 UI 尚未讀取雲端 jobs；
-  自動通過與 Mistral 後端 adapter 尚未開啟。這些會在單張正式雲端驗證後再接，
-  避免部署即批量消耗。
+* **仍刻意未開啟**：雲端自動通過與 Mistral 後端 adapter 尚未開啟；第一階段固定
+  手動審核，先避免無人值守時直接改寫卡片。
 
 ## 2026-07-23 最新狀態
 
@@ -80,7 +91,8 @@
 * **Tag filter 後續**：可再加入 Tag 合併工具與每個 Tag 的排序方式。
 * **搜尋後續**：目前本地搜尋已涵蓋卡片文字、AI 研讀索引與 Tag。手動撰寫但尚未建立索引的 Editor.js 詳細筆記不會被全文搜尋；若需要，下一階段應在詳細筆記儲存時同步維護純文字索引，再評估以 Jina Embeddings 加入語意搜尋。
 * **影片研讀**：目前刻意不處理影片。若未來需要，應另接字幕／逐字稿或影片理解服務，不能把 Jina Reader 當成影片轉錄器。
-* **待審核同步**：目前待審結果儲存在啟動佇列的瀏覽器（依登入使用者隔離），可跨重新整理保留，但尚未同步到其他裝置；若需要跨裝置審核，再搬到 Firestore。
+* **待審核同步**：本機前景佇列仍將結果存在啟動瀏覽器；雲端模式的結果已保存於
+  Firestore，可跨裝置審核。
 
 ---
 

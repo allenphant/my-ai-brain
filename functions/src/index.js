@@ -37,6 +37,7 @@ const GEMINI_RESEARCH_MODEL = defineString("GEMINI_RESEARCH_MODEL", {
 const TERMINAL_JOB_STATUSES = new Set([
   "pending_review",
   "succeeded",
+  "discarded",
   "blocked_budget",
   "cancelled_stale",
   "failed_terminal",
@@ -119,6 +120,7 @@ async function reserveAndCreateJob({uid, collectionName, cardId, card, settings}
       return {
         created: false,
         reason: "idempotent_existing",
+        status: existing.status,
         jobId,
         jobPath,
         shouldEnqueue: existing.status === "enqueue_failed",
@@ -246,6 +248,32 @@ exports.enqueueCardResearch = onCall({
     });
     throw new HttpsError("internal", "建立研讀工作失敗，請查看後端紀錄。");
   }
+});
+
+exports.resolveResearchReview = onCall({
+  region: REGION,
+  memory: "256MiB",
+  minInstances: 0,
+  maxInstances: 1,
+}, async (request) => {
+  const uid = requireAuth(request);
+  const jobId = assertDocumentPart(request.data?.jobId, "jobId");
+  const decision = request.data?.decision === "succeeded" ? "succeeded" : "discarded";
+  const jobRef = db.doc(getResearchJobPath(uid, jobId));
+  const snapshot = await jobRef.get();
+  if (!snapshot.exists) {
+    throw new HttpsError("not-found", "找不到研讀工作。");
+  }
+  if (snapshot.data().status !== "pending_review") {
+    return {ok: true, status: snapshot.data().status, unchanged: true};
+  }
+  await jobRef.set({
+    status: decision,
+    reviewDecision: decision === "succeeded" ? "approved" : "discarded",
+    reviewedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, {merge: true});
+  return {ok: true, status: decision};
 });
 
 async function findCandidateCards(uid, maxJobs) {

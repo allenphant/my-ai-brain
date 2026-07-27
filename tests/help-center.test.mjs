@@ -23,16 +23,18 @@ test('help center documents the core workflow, deployment, data boundary, and li
     assert.match(html, /Cloud Functions／Cloud Run 工具 API/);
 });
 
-test('automatic research schedule is configurable and documents browser-only boundaries', async () => {
+test('automatic research schedule is configurable and documents cloud/background boundaries', async () => {
     const [html, appSource] = await readProductionSources();
     assert.match(html, /id="auto-research-interval-select"/);
     assert.match(html, /value="6h"/);
     assert.match(html, /value="weekly"/);
     assert.match(html, /id="run-auto-research-now-btn"/);
-    assert.match(html, /相同內容連續排程失敗 3 次會被隔離/);
-    assert.match(html, /關閉頁面或裝置休眠時不會在伺服器背景執行/);
+    assert.match(html, /id="cloud-research-enabled-toggle"/);
+    assert.match(html, /關閉網頁與電腦後仍會排隊/);
+    assert.match(html, /同一份卡片內容只建立一個工作/);
     assert.match(appSource, /checkAutomaticResearchSchedule/);
     assert.match(appSource, /recordScheduledResearchFailure/);
+    assert.match(appSource, /syncCloudAutomationSettings/);
     assert.match(appSource, /localStorage\.setItem\('autoResearchInterval'/);
 });
 

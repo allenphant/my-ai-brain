@@ -49,6 +49,8 @@ const firebaseFirestoreModule = `
     const toPath = parts => parts.map(part => typeof part === 'string' ? part : part?.path || '').filter(Boolean).join('/');
     export const getFirestore = () => ({});
     export const collection = (...parts) => ({ path: toPath(parts) });
+    export const where = (field, operator, value) => ({ field, operator, value });
+    export const query = (ref, ...constraints) => ({ ...ref, constraints });
     export const doc = (...parts) => ({ path: toPath(parts) });
     export const addDoc = async () => ({ id: 'new-id' });
     export const deleteDoc = async () => {};
@@ -92,6 +94,10 @@ const firebaseFirestoreModule = `
         return { exists: () => false, data: () => ({}) };
     };
     export const onSnapshot = (ref, callback) => {
+        if (ref.path.endsWith('/automationUsers/test-user')) {
+            queueMicrotask(() => callback({ exists: () => false, data: () => ({}) }));
+            return () => {};
+        }
         if (ref.path.endsWith('/settings/tags')) {
             queueMicrotask(() => callback({
                 exists: () => true,
@@ -123,7 +129,7 @@ const firebaseFirestoreModule = `
         } else if (ref.path.endsWith('/bookmarks')) {
             rows = [{ id: 'bookmark-1', data: () => ({ text: '書籤網址 https://bookmark.example', tagIds: ['ai', 'design'], researchSearchText: '完成', createdAt: 1 }) }];
         }
-        queueMicrotask(() => callback({ forEach: handler => rows.forEach(handler) }));
+        queueMicrotask(() => callback({ docs: rows, forEach: handler => rows.forEach(handler) }));
         return () => {};
     };
     export const runTransaction = async (db, operation) => {
@@ -163,6 +169,19 @@ const firebaseFirestoreModule = `
             set: (ref, data, options) => globalThis.__mockTransactionWrites.push({ path: ref.path, data, options })
         };
         return operation(transaction);
+    };
+`;
+
+const firebaseFunctionsModule = `
+    export const getFunctions = () => ({});
+    export const httpsCallable = (functions, name) => async payload => {
+        globalThis.__mockCallableCalls ||= [];
+        globalThis.__mockCallableCalls.push({ name, payload });
+        return {
+            data: name === 'updateResearchAutomation'
+                ? { ok: true, settings: payload }
+                : { created: true, reason: 'queued', status: 'queued' }
+        };
     };
 `;
 
@@ -236,6 +255,10 @@ try {
         }
         if (url.includes('firebase-firestore.js')) {
             request.respond({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' }, contentType: 'text/javascript', body: firebaseFirestoreModule });
+            return;
+        }
+        if (url.includes('firebase-functions.js')) {
+            request.respond({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' }, contentType: 'text/javascript', body: firebaseFunctionsModule });
             return;
         }
         if (url.startsWith('https://r.jina.ai/http')) {
@@ -1225,6 +1248,22 @@ try {
     await page.click('#close-research-log-btn');
     await page.waitForFunction(() => document.querySelector('#research-log-modal').classList.contains('hidden'));
 
+    await page.evaluate(() => localStorage.setItem('cloudResearchEnabled', 'on'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('li[data-id="card-1"] .web-research-btn');
+    assert.equal(
+        await page.$eval('li[data-id="card-1"] .web-research-btn span', element => element.textContent),
+        '雲端研讀'
+    );
+    await page.click('li[data-id="card-1"] .web-research-btn');
+    await page.waitForFunction(() =>
+        (globalThis.__mockCallableCalls || []).some(call =>
+            call.name === 'enqueueCardResearch'
+            && call.payload.collectionName === 'inbox'
+            && call.payload.cardId === 'card-1'
+        )
+    );
+
     assert.deepEqual(pageErrors, []);
     console.log(JSON.stringify({
         cardResearchButton: 'visible',
@@ -1247,6 +1286,7 @@ try {
         selectiveBackfillQueue: true,
         quotaBackfillPausedOnSameCard: true,
         automaticResearchScheduleSettings: true,
+        cloudResearchEnqueued: true,
         researchLogVisibleFilteredAndSanitized: true,
         overlayCloseControls: true,
         stackedBackOrder: true,
