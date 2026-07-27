@@ -1,7 +1,28 @@
-# AI 網址研讀已支援安全的週期排程與失敗隔離
+# AI 網址研讀雲端後端骨架已完成，尚未部署或啟用
 
-> **更新時間**：2026-07-23
+> **更新時間**：2026-07-27
 > **專案核心**：以 Vanilla JS 與 Firebase 打造的類似 Notion 的個人 AI 大腦/知識庫工具。
+
+## 2026-07-27 最新狀態
+
+* **成本與設定文件**：新增 `docs/CLOUD_COST_BUDGET.md`、`docs/CLOUD_SETUP_GUIDE.md`
+  與 `docs/CLOUD_RESEARCH_ARCHITECTURE.md`，記錄免費額度估算、US$5 預算護欄、
+  禁止設定與逐步部署流程。
+* **安全部署入口**：新增 Firebase Functions 專案與部署腳本。所有會啟用 API 或
+  部署可計費資源的腳本都固定 project `my-ai-brain-6867e`，並要求
+  `CONFIRM_BILLABLE_PROJECT`；目前沒有啟用 API、沒有部署 Functions、沒有修改
+  Billing。
+* **後端研讀骨架**：Callable Functions 驗證 Firebase Auth；單一 Scheduler 找出
+  到期使用者；Cloud Tasks 以 concurrency 1 執行 Jina → Gemini 或 Gemini
+  YouTube 研讀；結果先寫入 Firestore `pending_review`，不直接修改卡片。
+* **成本與失敗護欄**：預設關閉排程、每批 20、每日 50、每月預估 US$5、影片
+  每日保守預留 60 分鐘、instance 0～1、相同來源冪等、卡片變更時取消舊工作、
+  429／5xx 交由 Tasks 有限退避。
+* **驗證狀態**：Functions 三個來源檔均通過語法載入；完整 Node 測試 78／78
+  通過；read-only cloud preflight 通過並正確警告本機 gcloud 目前指向另一專案。
+* **尚未串接**：前端尚未呼叫新 Callable Functions；待審 UI 尚未讀取雲端 jobs；
+  自動通過與 Mistral 後端 adapter 尚未開啟。這些會在單張正式雲端驗證後再接，
+  避免部署即批量消耗。
 
 ## 2026-07-23 最新狀態
 

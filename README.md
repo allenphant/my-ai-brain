@@ -7,6 +7,18 @@
 這是一個極度輕量、零延遲、且跨裝置同步的「個人大腦緩衝區」與「點子收集處」。
 透過結合 **Firebase 即時資料庫** 與 **Google Gemini API**，你可以隨時隨地將大腦中零碎的待辦事項、靈感或網址「傾倒」進收件匣，並透過「AI 魔法整理」一鍵自動將碎片歸類到專屬的區塊中。
 
+## ☁️ 無人值守研讀後端（建置中）
+
+目前已加入一套預設停用的 Firebase Functions／Cloud Tasks 後端骨架，讓網址
+研讀未來可在瀏覽器關閉後繼續執行。首次啟用前請依序閱讀：
+
+1. [成本預算與防爆帳單清單](docs/CLOUD_COST_BUDGET.md)
+2. [Google Cloud／Firebase 設定指南](docs/CLOUD_SETUP_GUIDE.md)
+3. [研讀後端架構與資料流](docs/CLOUD_RESEARCH_ARCHITECTURE.md)
+
+程式碼推上 GitHub 不會自動部署這套後端；啟用 API、設定 secrets 與部署都要求
+明確指定 `my-ai-brain-6867e`，且部署後排程仍維持關閉。
+
 ## ✨ 核心特色 (Features)
 
 * ⚡ **無延遲傾倒 (Zero-Latency Dump)：** 採用樂觀更新 (Optimistic UI) 技術，輸入點子按下 Enter 瞬間清空輸入框，即使網路延遲也能像機關槍一樣連續輸入，絕不打斷思緒。
