@@ -24,7 +24,10 @@
   新 OpenRouter 工作，不會被舊 `failed_terminal` job 擋住。
 * **驗證**：Node 單元測試 13/13 通過；手機尺寸完整瀏覽器回歸測試通過，
   NotebookLM 按鈕只出現在 YouTube 卡，會複製正確網址、開啟正確入口且沒有
-  page error。
+  page error。正式 Functions 部署後以獨立暫時 UID 執行端到端 smoke test，
+  工作成功進入 `pending_review`，provider 為 `jina+openrouter`，實際模型為
+  `google/gemma-4-26b-a4b-it:free`，TL;DR／評價／Tags 結構完整；暫時卡片、
+  job 與 task 已全數清除。
 * **Cloud Tasks IAM 已納入部署流程**：部署腳本會替 Functions runtime service
   account 補上 `roles/cloudtasks.enqueuer`、自身 `roles/iam.serviceAccountUser`
   與 `runResearchJob` invoker，避免 callable 能執行但無法建立已驗證 Task。
