@@ -1,9 +1,21 @@
 # AI 網址研讀雲端後端已部署，前端雲端模式已完成串接
 
-> **更新時間**：2026-07-27
+> **更新時間**：2026-07-28
 > **專案核心**：以 Vanilla JS 與 Firebase 打造的類似 Notion 的個人 AI 大腦/知識庫工具。
 
-## 2026-07-27 最新狀態
+## 2026-07-28 最新狀態
+
+* **Cloud Tasks IAM 已納入部署流程**：部署腳本會替 Functions runtime service
+  account 補上 `roles/cloudtasks.enqueuer`、自身 `roles/iam.serviceAccountUser`
+  與 `runResearchJob` invoker，避免 callable 能執行但無法建立已驗證 Task。
+* **送入失敗可診斷**：`enqueueCardResearch` 不再用 `message` 欄位遮蔽底層例外；
+  Cloud Logging 會保留錯誤類別、code、details 與 stack，前端也會區分缺少
+  Tasks Enqueuer、service account actAs、worker invoker 與 queue 不存在。
+* **待重新部署驗證**：上述 IAM 與診斷修正尚待從 Cloud Shell 拉取最新 main 後
+  執行一次 `CONFIRM_BILLABLE_PROJECT=my-ai-brain-6867e npm run deploy:functions`，
+  再以單張 GitHub 卡片驗證 enqueue → task → pending_review。
+
+## 2026-07-27 狀態
 
 * **Google Cloud 已正式部署**：Firebase 專案 `my-ai-brain-6867e` 已升級 Blaze，
   設定每月 US$5 預算通知；四個 asia-east1 Functions、每 10 分鐘 Scheduler
