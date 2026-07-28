@@ -200,6 +200,22 @@ export function isDirectVideoPageUrl(value) {
     }
 }
 
+export function getNotebookLmSourceUrl(text) {
+    const urls = extractUrls(text);
+    if (urls.length !== 1) return '';
+    try {
+        const url = new URL(urls[0]);
+        const host = url.hostname.toLowerCase().replace(/^www\./, '');
+        return host === 'youtu.be'
+            || host === 'youtube.com'
+            || host.endsWith('.youtube.com')
+            ? urls[0]
+            : '';
+    } catch {
+        return '';
+    }
+}
+
 export function buildUnparsedVideoResearchResult(tags = []) {
     const existing = (Array.isArray(tags) ? tags : []).find(tag => (
         normalizeTagName(tag?.name) === '尚未解析的影片' && String(tag?.id || '').trim()

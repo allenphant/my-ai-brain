@@ -3,7 +3,7 @@
 const crypto = require("node:crypto");
 
 const APP_ID = "my-personal-ai-brain";
-const PROMPT_VERSION = "cloud-research-v1";
+const PROMPT_VERSION = "cloud-research-v2-openrouter";
 const DEFAULT_TIME_ZONE = "Asia/Taipei";
 const MAX_CARD_TEXT_LENGTH = 20_000;
 const INTERVALS_MS = Object.freeze({
@@ -132,7 +132,7 @@ function isResearchCandidate(card = {}) {
 }
 
 function estimateJobCostCents(sourceKind) {
-  return sourceKind === "youtube" ? 10 : 2;
+  return sourceKind === "youtube" ? 0 : 2;
 }
 
 function formatPeriod(date, options) {

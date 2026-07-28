@@ -5,6 +5,26 @@
 
 ## 2026-07-28 最新狀態
 
+* **雲端文字研讀改用 OpenRouter**：一般網址固定由 Jina Reader 擷取公開文字，
+  後端再從 OpenRouter `/models` 動態挑選支援文字、至少 16K context、
+  結構化輸出且 prompt／completion 單價皆為 0 的模型；清單於 Function instance
+  內快取 1 小時，前三個候選交由 OpenRouter model fallback 依序嘗試。實際使用的
+  model 會寫進 Firestore job，未來新免費模型不需改版才能被選到。
+* **OpenRouter Secret 與錯誤邊界**：Worker 綁定 Secret Manager
+  `OPENROUTER_API_KEY`。401／403 立即以 `authentication_failed` 終止，402 以
+  `billing_credits_depleted` 終止，404 模型不存在終止；只有 429、逾時與 5xx
+  交給 Cloud Tasks 有限重試。程式只會選取價格明確為 0 的模型，不會自行切到
+  付費模型。
+* **YouTube 改為 NotebookLM 手動交接**：YouTube 不再送 Gemini Video 或文字模型
+  猜測，雲端工作直接產生 `尚未解析的影片` 待審結果。YouTube 卡片新增
+  `NotebookLM` 按鈕，點擊會複製原網址並開啟 NotebookLM，讓使用者貼到
+  「新增來源」。此流程不假裝自動把 NotebookLM 結果寫回。
+* **舊失敗工作可重新建立**：雲端 job prompt version 已升為
+  `cloud-research-v2-openrouter`，所以先前因 Gemini 額度終止的相同卡片會建立
+  新 OpenRouter 工作，不會被舊 `failed_terminal` job 擋住。
+* **驗證**：Node 單元測試 13/13 通過；手機尺寸完整瀏覽器回歸測試通過，
+  NotebookLM 按鈕只出現在 YouTube 卡，會複製正確網址、開啟正確入口且沒有
+  page error。
 * **Cloud Tasks IAM 已納入部署流程**：部署腳本會替 Functions runtime service
   account 補上 `roles/cloudtasks.enqueuer`、自身 `roles/iam.serviceAccountUser`
   與 `runResearchJob` invoker，避免 callable 能執行但無法建立已驗證 Task。
@@ -19,7 +39,7 @@
 * **429 分流**：一般 provider rate limit 仍由 Cloud Tasks 有限退避；Gemini
   明確回傳 `prepayment credits are depleted` 時改為 `billing_credits_depleted`
   終止錯誤，不再浪費後續自動重試。
-* **生產端驗證完成**：Functions 已部署至 asia-east1。以原本失敗的 GitHub
+* **舊 Gemini 路徑的生產端驗證**：Functions 已部署至 asia-east1。以原本失敗的 GitHub
   研讀工作重送後，Cloud Tasks 成功呼叫 worker、Jina Secret 成功讀取、Gemini
   回應也成功分類；因專案預付額度耗盡，工作正確停在 `failed_terminal` /
   `billing_credits_depleted`，worker HTTP 204，佇列沒有殘留重試。Queue 維持
@@ -49,8 +69,9 @@
 * **安全部署入口**：Firebase Functions 專案與部署腳本固定 project
   `my-ai-brain-6867e`，並要求 `CONFIRM_BILLABLE_PROJECT`，避免誤部署至其他專案。
 * **後端研讀骨架**：Callable Functions 驗證 Firebase Auth；單一 Scheduler 找出
-  到期使用者；Cloud Tasks 以 concurrency 1 執行 Jina → Gemini 或 Gemini
-  YouTube 研讀；結果先寫入 Firestore `pending_review`，不直接修改卡片。
+  到期使用者；Cloud Tasks 以 concurrency 1 執行 Jina → OpenRouter 免費模型；
+  YouTube 降級為 NotebookLM 手動交接。結果先寫入 Firestore `pending_review`，
+  不直接修改卡片。
 * **成本與失敗護欄**：預設關閉排程、每批 20、每日 50、每月預估 US$5、影片
   每日保守預留 60 分鐘、instance 0～1、Tasks 約每 60 秒最多派送一張、相同來源
   冪等、卡片變更時取消舊工作、429／5xx 交由 Tasks 有限退避。

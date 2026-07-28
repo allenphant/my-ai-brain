@@ -9,6 +9,15 @@ const DEFAULT_SYSTEM_PROMPT = [
   "若來源有影片但無法解析，必須在 limitations 明確說明。",
 ].join("\n");
 
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_APP_URL = "https://allenphant.github.io/my-ai-brain/";
+const OPENROUTER_APP_NAME = "my-ai-brain";
+const AUTO_FREE_MODEL = "auto:free";
+const FREE_MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
+let cachedFreeModels = null;
+let cachedFreeModelsAt = 0;
+
 class ExternalServiceError extends Error {
   constructor(message, {
     provider,
@@ -75,16 +84,23 @@ function serviceErrorFromResponse(provider, response, details) {
   const depletedPrepayment =
     response.status === 429 &&
     normalizedDetails.includes("prepayment credits are depleted");
+  const authenticationFailed = response.status === 401 || response.status === 403;
+  const billingUnavailable = response.status === 402;
+  const modelUnavailable = response.status === 404;
   const retryable =
-    !depletedPrepayment &&
+    !depletedPrepayment && !authenticationFailed && !billingUnavailable && !modelUnavailable &&
     (response.status === 429 || response.status >= 500);
+  let reason = "";
+  if (depletedPrepayment || billingUnavailable) reason = "billing_credits_depleted";
+  else if (authenticationFailed) reason = "authentication_failed";
+  else if (modelUnavailable) reason = "model_unavailable";
   return new ExternalServiceError(`${provider} HTTP ${response.status}`, {
     provider,
     status: response.status,
     retryable,
     retryAfterSeconds: parseRetryAfter(response),
     details,
-    reason: depletedPrepayment ? "billing_credits_depleted" : "",
+    reason,
   });
 }
 
@@ -155,6 +171,183 @@ function extractInteractionText(data) {
     (output?.content || []).map((part) => part?.text || ""),
   );
   return [...stepTexts, ...outputTexts].filter(Boolean).join("\n").trim();
+}
+
+function extractOpenRouterText(data) {
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => typeof part === "string" ? part : part?.text || "")
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function isZeroPrice(value) {
+  return value !== null && value !== undefined && value !== "" && Number(value) === 0;
+}
+
+function isFreeTextModel(model) {
+  const pricing = model?.pricing || {};
+  if (!isZeroPrice(pricing.prompt) || !isZeroPrice(pricing.completion)) return false;
+  const modalities = model?.architecture?.input_modalities;
+  if (Array.isArray(modalities) && modalities.length && !modalities.includes("text")) {
+    return false;
+  }
+  const supported = model?.supported_parameters;
+  if (Array.isArray(supported) && supported.length &&
+      !supported.includes("response_format") &&
+      !supported.includes("structured_outputs")) {
+    return false;
+  }
+  return Number(model?.context_length || 0) >= 16_000;
+}
+
+function scoreFreeModel(model) {
+  const id = String(model?.id || "").toLowerCase();
+  const supported = Array.isArray(model?.supported_parameters) ?
+    model.supported_parameters :
+    [];
+  let score = Math.min(Number(model?.context_length || 0), 200_000) / 10_000;
+  if (supported.includes("response_format")) score += 100;
+  if (supported.includes("structured_outputs")) score += 80;
+  if (/mistral|qwen|gemma|llama|nemotron/.test(id)) score += 20;
+  if (/instruct|chat/.test(id)) score += 10;
+  return score;
+}
+
+function selectOpenRouterFreeModels(models, configuredModel = AUTO_FREE_MODEL) {
+  const freeModels = (Array.isArray(models) ? models : [])
+    .filter(isFreeTextModel)
+    .sort((left, right) =>
+      scoreFreeModel(right) - scoreFreeModel(left) ||
+      String(left.id || "").localeCompare(String(right.id || "")),
+    );
+  if (!freeModels.length) return [];
+  if (configuredModel && configuredModel !== AUTO_FREE_MODEL) {
+    const configured = freeModels.find((model) => model.id === configuredModel);
+    if (configured) {
+      return [configured, ...freeModels.filter((model) => model.id !== configuredModel)];
+    }
+  }
+  return freeModels;
+}
+
+async function listOpenRouterFreeModels(apiKey, configuredModel = AUTO_FREE_MODEL) {
+  const now = Date.now();
+  if (cachedFreeModels && now - cachedFreeModelsAt < FREE_MODEL_CACHE_TTL_MS) {
+    return selectOpenRouterFreeModels(cachedFreeModels, configuredModel);
+  }
+  const response = await fetchWithTimeout(OPENROUTER_MODELS_URL, {
+    provider: "openrouter",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: "application/json",
+    },
+  }, 30_000);
+  if (!response.ok) {
+    throw serviceErrorFromResponse(
+      "openrouter",
+      response,
+      await parseErrorResponse(response),
+    );
+  }
+  const payload = await response.json();
+  cachedFreeModels = Array.isArray(payload?.data) ? payload.data : [];
+  cachedFreeModelsAt = now;
+  const selected = selectOpenRouterFreeModels(cachedFreeModels, configuredModel);
+  if (!selected.length) {
+    throw new ExternalServiceError("OpenRouter 目前沒有符合條件的免費文字模型", {
+      provider: "openrouter",
+      retryable: true,
+      retryAfterSeconds: 60 * 60,
+      reason: "no_free_model",
+    });
+  }
+  return selected;
+}
+
+async function analyzeWebSourceWithOpenRouter({
+  sourceUrl,
+  openRouterApiKey,
+  jinaApiKey = "",
+  openRouterModel = AUTO_FREE_MODEL,
+  systemPrompt = DEFAULT_SYSTEM_PROMPT,
+}) {
+  const sourceText = await readWithJina(sourceUrl, jinaApiKey);
+  const freeModels = await listOpenRouterFreeModels(openRouterApiKey, openRouterModel);
+  const selectedModel = freeModels[0].id;
+  const fallbackModels = freeModels.slice(0, 3).map((candidate) => candidate.id);
+  const response = await fetchWithTimeout(OPENROUTER_CHAT_URL, {
+    method: "POST",
+    provider: "openrouter",
+    headers: {
+      Authorization: `Bearer ${openRouterApiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": OPENROUTER_APP_URL,
+      "X-Title": OPENROUTER_APP_NAME,
+    },
+    body: JSON.stringify({
+      models: fallbackModels,
+      messages: [
+        {role: "system", content: systemPrompt},
+        {
+          role: "user",
+          content: `請整理以下來源。\n來源網址：${sourceUrl}\n\n來源文字：\n${sourceText}`,
+        },
+      ],
+      response_format: {type: "json_object"},
+      temperature: 0.1,
+      provider: {
+        allow_fallbacks: true,
+        require_parameters: true,
+      },
+    }),
+  }, 120_000);
+  if (!response.ok) {
+    throw serviceErrorFromResponse(
+      "openrouter",
+      response,
+      await parseErrorResponse(response),
+    );
+  }
+  const data = await response.json();
+  const text = extractOpenRouterText(data);
+  if (!text) {
+    throw new ExternalServiceError("OpenRouter 沒有回傳內容", {
+      provider: "openrouter",
+      retryable: false,
+      reason: "empty_response",
+    });
+  }
+  try {
+    return {
+      ...normalizeResearchResult(JSON.parse(stripJsonFence(text)), sourceUrl),
+      provider: "jina+openrouter",
+      model: String(data?.model || selectedModel),
+    };
+  } catch {
+    throw new ExternalServiceError("OpenRouter 回傳的 JSON 無法解析", {
+      provider: "openrouter",
+      retryable: false,
+      reason: "invalid_json",
+      details: text.slice(0, 500),
+    });
+  }
+}
+
+function buildUnparsedYouTubeResult(sourceUrl) {
+  return {
+    tldr: "影片尚未解析。",
+    verdict: "請使用 NotebookLM 或其他影片工具手動研讀。",
+    notes: "影片無法由目前的自動文字研讀流程解析。",
+    suggestedTags: ["尚未解析的影片"],
+    limitations: "尚未分析影片字幕、聲音或畫面。",
+    sourceUrl,
+    provider: "notebooklm-manual",
+    model: "",
+  };
 }
 
 async function analyzeWebSource({
@@ -271,28 +464,40 @@ async function analyzeYouTubeSource({
 }
 
 async function analyzeSource(options) {
+  if (options.sourceKind === "youtube") {
+    return buildUnparsedYouTubeResult(options.sourceUrl);
+  }
+  if (options.openRouterApiKey) {
+    return analyzeWebSourceWithOpenRouter(options);
+  }
   if (!options.geminiApiKey) {
-    throw new ExternalServiceError("尚未設定 GEMINI_API_KEY", {
-      provider: "gemini",
+    throw new ExternalServiceError("尚未設定 OPENROUTER_API_KEY", {
+      provider: "openrouter",
       status: 401,
       retryable: false,
+      reason: "authentication_failed",
     });
   }
-  return options.sourceKind === "youtube" ?
-    analyzeYouTubeSource(options) :
-    analyzeWebSource(options);
+  return analyzeWebSource(options);
 }
 
 module.exports = {
+  AUTO_FREE_MODEL,
   DEFAULT_SYSTEM_PROMPT,
   ExternalServiceError,
   analyzeSource,
   analyzeWebSource,
+  analyzeWebSourceWithOpenRouter,
   analyzeYouTubeSource,
+  buildUnparsedYouTubeResult,
   extractGenerateContentText,
   extractInteractionText,
+  extractOpenRouterText,
+  isFreeTextModel,
+  listOpenRouterFreeModels,
   normalizeResearchResult,
   readWithJina,
+  selectOpenRouterFreeModels,
   serviceErrorFromResponse,
   stripJsonFence,
 };

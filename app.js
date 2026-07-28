@@ -53,6 +53,7 @@
             extractGeminiResponseText,
             extractUrls,
             findSuspiciousTagIds,
+            getNotebookLmSourceUrl,
             getWebResearchCooldownRemaining,
             getWebResearchModelOptions,
             isInteractiveCardTarget,
@@ -2498,8 +2499,14 @@
         function getWebResearchButtonHTML(item) {
             if (!canUseWebResearch(item?.text).ok) return '';
             const cloudEnabled = localStorage.getItem('cloudResearchEnabled') === 'on';
+            const notebookLmSourceUrl = getNotebookLmSourceUrl(item?.text);
             return `
-                <div class="flex justify-end mt-1" data-card-interactive>
+                <div class="flex flex-wrap justify-end gap-2 mt-1" data-card-interactive>
+                    ${notebookLmSourceUrl ? `
+                    <button type="button" class="notebooklm-research-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:border-amber-300 text-xs font-bold transition-colors" title="複製影片網址並開啟 NotebookLM 手動研讀">
+                        <i class="fas fa-book-open"></i>
+                        <span>NotebookLM</span>
+                    </button>` : ''}
                     <button type="button" class="web-research-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 text-xs font-bold transition-colors" title="${cloudEnabled ? '送入雲端背景研讀，完成後進入待審核' : 'AI 研讀這張卡片的網址'}">
                         <i class="fas ${cloudEnabled ? 'fa-cloud-arrow-up' : 'fa-wand-magic-sparkles'}"></i>
                         <span>${cloudEnabled ? '雲端研讀' : 'AI 研讀'}</span>
@@ -2534,6 +2541,36 @@
                     enqueueCloudCardResearch(item, collectionName, event.currentTarget);
                 } else {
                     runCardWebResearch(item, collectionName, event.currentTarget);
+                }
+            });
+            li.querySelector('.notebooklm-research-btn')?.addEventListener('click', async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const sourceUrl = getNotebookLmSourceUrl(item?.text);
+                if (!sourceUrl) {
+                    showToast('這張卡片沒有可交給 NotebookLM 的 YouTube 網址。', 'fas fa-triangle-exclamation');
+                    return;
+                }
+                window.open('https://notebooklm.google.com/', '_blank', 'noopener,noreferrer');
+                try {
+                    await navigator.clipboard.writeText(sourceUrl);
+                    showToast('已複製 YouTube 網址並開啟 NotebookLM，請貼到「新增來源」。', 'fas fa-copy');
+                } catch {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = sourceUrl;
+                    textArea.setAttribute('readonly', '');
+                    textArea.style.position = 'fixed';
+                    textArea.style.opacity = '0';
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    const copied = document.execCommand('copy');
+                    textArea.remove();
+                    showToast(
+                        copied
+                            ? '已複製 YouTube 網址並開啟 NotebookLM，請貼到「新增來源」。'
+                            : 'NotebookLM 已開啟；請手動複製卡片中的 YouTube 網址。',
+                        copied ? 'fas fa-copy' : 'fas fa-book-open'
+                    );
                 }
             });
         }

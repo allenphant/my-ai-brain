@@ -8,7 +8,7 @@
 - Firebase Authentication。
 - 既有 Firestore 卡片資料。
 - 手動審核／自動通過選擇。
-- Jina → Gemini／Mistral 資料流。
+- Jina → OpenRouter 免費文字模型資料流。
 - 失敗隔離與研讀紀錄。
 
 ## 第一階段元件
@@ -24,7 +24,8 @@ Cloud Scheduler（每 10 分鐘）
        └─ Cloud Tasks
             └─ runResearchJob
                  ├─ Jina Reader
-                 ├─ Gemini text／YouTube understanding
+                 ├─ OpenRouter free text model fallback
+                 ├─ YouTube → NotebookLM manual handoff
                  └─ Firestore pending result
 ```
 
@@ -105,7 +106,8 @@ promptVersion
 - 單次最多 20 張。
 - 每日最多 50 張。
 - 每月預估 AI 費用最多 500 cents。
-- YouTube 未知片長時先預留完整 60 分鐘日額度，同一天不會連續送出未知長度影片。
+- YouTube 不呼叫影片理解 API，因此不占用影片分鐘額度，也不產生模型費用。
+- OpenRouter 只會從模型目錄選擇 prompt／completion 明確為 0 的模型。
 - Tasks concurrency 為 1。
 - Tasks dispatch rate 為 `0.016667/sec`，約每 60 秒最多開始一張；部署腳本會在
   Firebase 部署後重新套用，避免 queue 回到 500/sec 預設值。
@@ -115,12 +117,9 @@ promptVersion
 
 ## 尚未接上的部分
 
-本次先建立安全後端與測試，不立即切換正式前端：
+目前前端與雲端後端已正式串接，仍刻意保留以下限制：
 
-- 前端尚未呼叫 Callable Functions。
-- 待審核 UI 尚未從 localStorage 遷移到 Firestore。
 - 自動通過尚未在後端啟用。
-- Mistral provider adapter 尚未啟用。
-- YouTube Gemini Video Understanding 會由 provider adapter 處理，但需真實 Key 與配額驗收。
+- NotebookLM 沒有接自動回寫；YouTube 只提供複製網址並開啟 NotebookLM 的手動入口。
 
 這些刻意分階段，避免一部署就開始批量產生費用。

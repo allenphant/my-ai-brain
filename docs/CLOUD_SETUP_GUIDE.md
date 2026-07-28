@@ -138,10 +138,12 @@ CONFIRM_BILLABLE_PROJECT=my-ai-brain-6867e npm run cloud:enable-apis
 ```bash
 npx firebase-tools functions:secrets:set GEMINI_API_KEY --project my-ai-brain-6867e
 npx firebase-tools functions:secrets:set JINA_API_KEY --project my-ai-brain-6867e
+npx firebase-tools functions:secrets:set OPENROUTER_API_KEY --project my-ai-brain-6867e
 ```
 
-正式 Worker 會同時綁定 Gemini 與 Jina secrets，因此兩者都要設定。這可避免匿名
-Reader 的低限制或共用濫用封鎖讓夜間佇列持續失敗。
+正式 Worker 以 Jina 擷取一般網址、OpenRouter 免費模型整理，並保留 Gemini secret
+作為舊版相容備援。Jina 與 OpenRouter 兩者都要設定，避免匿名 Reader 限制或缺少
+模型授權讓夜間佇列持續失敗。
 
 未來使用 Mistral 時：
 
@@ -259,7 +261,7 @@ Secret Manager：
 4. 測試相同卡片不會重複建立工作。
 5. 測試修改卡片後舊工作會變成 `cancelled_stale`。
 6. 測試 5 張卡片，確認 Tasks 每次只執行一張。
-7. 測試 Gemini 429，確認進入 retry，而不是不停重送。
+7. 測試 OpenRouter 429，確認進入有限 retry；401／402 必須直接終止。
 8. 最後才將 `enabled` 設為 `true`。
 
 ## 13. 回復方式

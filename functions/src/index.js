@@ -32,8 +32,12 @@ const db = getFirestore();
 const REGION = process.env.FUNCTION_REGION || "asia-east1";
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 const JINA_API_KEY = defineSecret("JINA_API_KEY");
+const OPENROUTER_API_KEY = defineSecret("OPENROUTER_API_KEY");
 const GEMINI_RESEARCH_MODEL = defineString("GEMINI_RESEARCH_MODEL", {
   default: "gemini-3.5-flash-lite",
+});
+const OPENROUTER_RESEARCH_MODEL = defineString("OPENROUTER_RESEARCH_MODEL", {
+  default: "auto:free",
 });
 const TERMINAL_JOB_STATUSES = new Set([
   "pending_review",
@@ -106,11 +110,9 @@ async function reserveAndCreateJob({uid, collectionName, cardId, card, settings}
   const jobPath = getResearchJobPath(uid, jobId);
   const jobRef = db.doc(jobPath);
   const estimatedCostCents = estimateJobCostCents(sourceKind);
-  // YouTube duration is unknown before the provider reads it. Reserve the full
-  // daily allowance so an unexpectedly long video cannot bypass the guardrail.
-  const videoMinutes = sourceKind === "youtube" ?
-    settings.maxVideoMinutesPerDay :
-    0;
+  // YouTube is currently a manual NotebookLM handoff. The worker does not read
+  // its audio or video, so it must not consume the video-processing allowance.
+  const videoMinutes = 0;
   const {dayId, monthId} = getUsagePeriodIds();
   const dayRef = researchUsageRef(uid, dayId);
   const monthRef = researchUsageRef(uid, monthId);
@@ -365,7 +367,7 @@ exports.discoverDueResearchJobs = onSchedule({
 
 exports.runResearchJob = onTaskDispatched({
   region: REGION,
-  secrets: [GEMINI_API_KEY, JINA_API_KEY],
+  secrets: [GEMINI_API_KEY, JINA_API_KEY, OPENROUTER_API_KEY],
   memory: "512MiB",
   minInstances: 0,
   maxInstances: 1,
@@ -424,12 +426,21 @@ exports.runResearchJob = onTaskDispatched({
       geminiApiKey: GEMINI_API_KEY.value(),
       jinaApiKey: JINA_API_KEY.value(),
       model: GEMINI_RESEARCH_MODEL.value(),
+      openRouterApiKey: OPENROUTER_API_KEY.value(),
+      openRouterModel: OPENROUTER_RESEARCH_MODEL.value(),
     });
+    const {
+      provider: resultProvider,
+      model: resultModel,
+      ...resultPayload
+    } = result;
     await jobRef.set({
       status: "pending_review",
-      result,
-      provider: job.sourceKind === "youtube" ? "gemini-video" : "jina+gemini",
-      model: GEMINI_RESEARCH_MODEL.value(),
+      result: resultPayload,
+      provider: resultProvider || (job.sourceKind === "youtube" ?
+        "notebooklm-manual" :
+        "jina+openrouter"),
+      model: resultModel || "",
       completedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       error: FieldValue.delete(),

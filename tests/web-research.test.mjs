@@ -23,6 +23,7 @@ import {
     describeMistralApiError,
     extractGeminiResponseText,
     extractUrls,
+    getNotebookLmSourceUrl,
     getWebResearchModelOptions,
     getWebResearchCacheKey,
     getWebResearchCooldownRemaining,
@@ -311,6 +312,22 @@ test('direct video pages produce one concise result and one dedicated tag', () =
     assert.deepEqual(
         buildUnparsedVideoResearchResult([{ id: 'video-pending', name: '尚未解析的影片' }]).matchedTags,
         [{ id: 'video-pending', name: '尚未解析的影片', isNew: false }]
+    );
+});
+
+test('NotebookLM shortcut only accepts one YouTube source URL', () => {
+    assert.equal(
+        getNotebookLmSourceUrl('影片 https://youtu.be/DTKR9d0GpYs'),
+        'https://youtu.be/DTKR9d0GpYs'
+    );
+    assert.equal(
+        getNotebookLmSourceUrl('影片 https://www.youtube.com/watch?v=DTKR9d0GpYs'),
+        'https://www.youtube.com/watch?v=DTKR9d0GpYs'
+    );
+    assert.equal(getNotebookLmSourceUrl('文章 https://example.com/post'), '');
+    assert.equal(
+        getNotebookLmSourceUrl('https://youtu.be/DTKR9d0GpYs https://example.com/post'),
+        ''
     );
 });
 

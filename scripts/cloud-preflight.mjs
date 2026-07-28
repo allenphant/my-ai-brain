@@ -40,6 +40,7 @@ try {
 const trackedSecretPatterns = [
   ['Gemini server key', /GEMINI_API_KEY\s*[:=]\s*["'][^"']+/],
   ['Jina server key', /JINA_API_KEY\s*[:=]\s*["'][^"']+/],
+  ['OpenRouter server key', /OPENROUTER_API_KEY\s*[:=]\s*["'][^"']+/],
   ['Mistral server key', /MISTRAL_API_KEY\s*[:=]\s*["'][^"']+/],
 ];
 const filesToScan = [

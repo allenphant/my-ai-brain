@@ -520,6 +520,35 @@ try {
     assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 11);
     assert.equal(await page.$('li[data-id="card-5"] .web-research-btn'), null);
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
+    assert.equal(await page.$$eval('.notebooklm-research-btn', elements => elements.length), 2);
+    await page.evaluate(() => {
+        globalThis.__notebookLmOpenArgs = null;
+        globalThis.__notebookLmCopiedUrl = '';
+        window.open = (...args) => {
+            globalThis.__notebookLmOpenArgs = args;
+            return null;
+        };
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: {
+                writeText: async value => {
+                    globalThis.__notebookLmCopiedUrl = value;
+                }
+            }
+        });
+    });
+    await page.click('li[data-id="card-9"] .notebooklm-research-btn');
+    await page.waitForFunction(() => globalThis.__notebookLmCopiedUrl);
+    assert.deepEqual(
+        await page.evaluate(() => ({
+            opened: globalThis.__notebookLmOpenArgs,
+            copied: globalThis.__notebookLmCopiedUrl
+        })),
+        {
+            opened: ['https://notebooklm.google.com/', '_blank', 'noopener,noreferrer'],
+            copied: 'https://youtu.be/DTKR9d0GpYs'
+        }
+    );
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
 
     await page.click('#help-center-btn');

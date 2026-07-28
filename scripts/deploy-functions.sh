@@ -41,7 +41,7 @@ gcloud functions add-invoker-policy-binding "${TASK_FUNCTION}" \
 
 # Firebase task functions default to a very high queue dispatch rate when only
 # concurrency is specified. Keep the queue at one in-flight task and roughly
-# one new dispatch per minute so Jina/Gemini are not hammered by a backlog.
+# one new dispatch per minute so Jina/OpenRouter are not hammered by a backlog.
 gcloud tasks queues update "${TASK_QUEUE}" \
   --location="${REGION}" \
   --project="${PROJECT_ID}" \
