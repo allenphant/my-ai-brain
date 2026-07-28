@@ -16,6 +16,7 @@ class ExternalServiceError extends Error {
     retryable = false,
     retryAfterSeconds = 0,
     details = "",
+    reason = "",
   } = {}) {
     super(message);
     this.name = "ExternalServiceError";
@@ -24,6 +25,7 @@ class ExternalServiceError extends Error {
     this.retryable = retryable;
     this.retryAfterSeconds = retryAfterSeconds;
     this.details = details;
+    this.reason = reason;
   }
 }
 
@@ -69,13 +71,20 @@ async function parseErrorResponse(response) {
 }
 
 function serviceErrorFromResponse(provider, response, details) {
-  const retryable = response.status === 429 || response.status >= 500;
+  const normalizedDetails = String(details || "").toLowerCase();
+  const depletedPrepayment =
+    response.status === 429 &&
+    normalizedDetails.includes("prepayment credits are depleted");
+  const retryable =
+    !depletedPrepayment &&
+    (response.status === 429 || response.status >= 500);
   return new ExternalServiceError(`${provider} HTTP ${response.status}`, {
     provider,
     status: response.status,
     retryable,
     retryAfterSeconds: parseRetryAfter(response),
     details,
+    reason: depletedPrepayment ? "billing_credits_depleted" : "",
   });
 }
 
@@ -284,5 +293,6 @@ module.exports = {
   extractInteractionText,
   normalizeResearchResult,
   readWithJina,
+  serviceErrorFromResponse,
   stripJsonFence,
 };

@@ -16,6 +16,9 @@
 * **送入失敗可診斷**：`enqueueCardResearch` 不再用 `message` 欄位遮蔽底層例外；
   Cloud Logging 會保留錯誤類別、code、details 與 stack，前端也會區分缺少
   Tasks Enqueuer、service account actAs、worker invoker 與 queue 不存在。
+* **429 分流**：一般 provider rate limit 仍由 Cloud Tasks 有限退避；Gemini
+  明確回傳 `prepayment credits are depleted` 時改為 `billing_credits_depleted`
+  終止錯誤，不再浪費後續自動重試。
 * **待重新部署驗證**：上述 IAM 與診斷修正尚待從 Cloud Shell 拉取最新 main 後
   執行一次 `CONFIRM_BILLABLE_PROJECT=my-ai-brain-6867e npm run deploy:functions`，
   再以單張 GitHub 卡片驗證 enqueue → task → pending_review。

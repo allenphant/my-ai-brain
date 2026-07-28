@@ -439,7 +439,8 @@ exports.runResearchJob = onTaskDispatched({
     await jobRef.set({
       status: retryable ? "retry_wait" : "failed_terminal",
       error: {
-        code: retryable ? "external_retryable" : "external_terminal",
+        code: error?.reason ||
+          (retryable ? "external_retryable" : "external_terminal"),
         provider: error?.provider || "unknown",
         status: error?.status || 0,
         retryAfterSeconds: error?.retryAfterSeconds || 0,
