@@ -19,9 +19,11 @@
 * **429 分流**：一般 provider rate limit 仍由 Cloud Tasks 有限退避；Gemini
   明確回傳 `prepayment credits are depleted` 時改為 `billing_credits_depleted`
   終止錯誤，不再浪費後續自動重試。
-* **待重新部署驗證**：上述 IAM 與診斷修正尚待從 Cloud Shell 拉取最新 main 後
-  執行一次 `CONFIRM_BILLABLE_PROJECT=my-ai-brain-6867e npm run deploy:functions`，
-  再以單張 GitHub 卡片驗證 enqueue → task → pending_review。
+* **生產端驗證完成**：Functions 已部署至 asia-east1。以原本失敗的 GitHub
+  研讀工作重送後，Cloud Tasks 成功呼叫 worker、Jina Secret 成功讀取、Gemini
+  回應也成功分類；因專案預付額度耗盡，工作正確停在 `failed_terminal` /
+  `billing_credits_depleted`，worker HTTP 204，佇列沒有殘留重試。Queue 維持
+  concurrency 1、每 60 秒最多派送一張。
 
 ## 2026-07-27 狀態
 
