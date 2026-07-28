@@ -82,7 +82,12 @@ function taskTargetUri() {
 }
 
 async function enqueueTask(jobPath) {
-  const queue = getFunctions(undefined, REGION).taskQueue("runResearchJob");
+  // firebase-admin getFunctions() accepts only an App argument. Passing REGION
+  // as a second argument is silently ignored and makes a short queue name fall
+  // back to us-central1. Include the location in the function resource name.
+  const queue = getFunctions().taskQueue(
+    `locations/${REGION}/functions/runResearchJob`,
+  );
   await queue.enqueue(
     {jobPath},
     {

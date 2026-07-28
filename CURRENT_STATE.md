@@ -8,6 +8,9 @@
 * **Cloud Tasks IAM 已納入部署流程**：部署腳本會替 Functions runtime service
   account 補上 `roles/cloudtasks.enqueuer`、自身 `roles/iam.serviceAccountUser`
   與 `runResearchJob` invoker，避免 callable 能執行但無法建立已驗證 Task。
+* **修正跨區佇列定位**：Firebase Admin SDK 的 `getFunctions()` 不接受 region
+  第二參數；舊程式因此忽略 `asia-east1` 並誤找 `us-central1` queue。現在改用
+  `locations/asia-east1/functions/runResearchJob` 資源名稱，對準已部署佇列。
 * **送入失敗可診斷**：`enqueueCardResearch` 不再用 `message` 欄位遮蔽底層例外；
   Cloud Logging 會保留錯誤類別、code、details 與 stack，前端也會區分缺少
   Tasks Enqueuer、service account actAs、worker invoker 與 queue 不存在。

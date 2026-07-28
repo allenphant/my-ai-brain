@@ -31,3 +31,11 @@ test("keeps an unknown error useful without exposing an unbounded payload", () =
   assert.equal(result.errorMessage.length, 1000);
   assert.equal(result.stack, "trace");
 });
+
+test("classifies a missing regional Cloud Tasks queue", () => {
+  const result = describeTaskEnqueueError({
+    message: "Queue does not exist. If you just created the queue, wait at least a minute.",
+  });
+  assert.equal(result.category, "queue_not_found");
+  assert.match(result.clientMessage, /runResearchJob/);
+});
