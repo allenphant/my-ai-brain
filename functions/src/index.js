@@ -30,9 +30,6 @@ initializeApp();
 
 const db = getFirestore();
 const REGION = process.env.FUNCTION_REGION || "asia-east1";
-const TASK_INVOKER_SERVICE_ACCOUNT =
-  process.env.TASK_INVOKER_SERVICE_ACCOUNT ||
-  "755512158785-compute@developer.gserviceaccount.com";
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 const JINA_API_KEY = defineSecret("JINA_API_KEY");
 const GEMINI_RESEARCH_MODEL = defineString("GEMINI_RESEARCH_MODEL", {
@@ -368,7 +365,6 @@ exports.discoverDueResearchJobs = onSchedule({
 
 exports.runResearchJob = onTaskDispatched({
   region: REGION,
-  invoker: [TASK_INVOKER_SERVICE_ACCOUNT],
   secrets: [GEMINI_API_KEY, JINA_API_KEY],
   memory: "512MiB",
   minInstances: 0,

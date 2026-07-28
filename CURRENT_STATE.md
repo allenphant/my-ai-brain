@@ -8,6 +8,8 @@
 * **Cloud Tasks IAM 已納入部署流程**：部署腳本會替 Functions runtime service
   account 補上 `roles/cloudtasks.enqueuer`、自身 `roles/iam.serviceAccountUser`
   與 `runResearchJob` invoker，避免 callable 能執行但無法建立已驗證 Task。
+  Invoker 由部署後的 `gcloud` 指令設定；不在 `onTaskDispatched` options 重複
+  宣告，以避開 Firebase CLI 15.24.0 更新 Gen2 task function 時的 IAM 錯誤。
 * **修正跨區佇列定位**：Firebase Admin SDK 的 `getFunctions()` 不接受 region
   第二參數；舊程式因此忽略 `asia-east1` 並誤找 `us-central1` queue。現在改用
   `locations/asia-east1/functions/runResearchJob` 資源名稱，對準已部署佇列。
