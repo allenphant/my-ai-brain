@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: my-ai-brain-mcp
+    env: node
+    plan: free
+    buildCommand: npm ci --only=production
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: APP_ID
+        value: my-personal-ai-brain
+      - key: DEFAULT_USER_UID
+        sync: false
+      - key: MCP_API_KEY
+        generateValue: true
+      - key: FIREBASE_SERVICE_ACCOUNT_KEY
+        sync: false

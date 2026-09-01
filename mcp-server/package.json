@@ -1,0 +1,21 @@
+{
+  "name": "my-ai-brain-mcp-server",
+  "version": "1.0.0",
+  "description": "Remote MCP Server for My Personal AI Brain",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "@mozilla/readability": "^0.5.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase-admin": "^13.1.0",
+    "jsdom": "^26.0.0",
+    "zod": "^3.24.2"
+  }
+}
