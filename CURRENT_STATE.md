@@ -1,52 +1,24 @@
-# PWA 聯網研讀與快捷鍵優化完成，支援多款新分類圖示與彈窗快捷新增
+# feat: 遠端 MCP Server 實作完成，已合併至 main 分支
 
-> **更新時間**：2026-07-09 08:15
-> **專案核心**：以 Vanilla JS 與 Firebase 打造的類似 Notion 的個人 AI 大腦/知識庫工具。
-
-## 本次對話目標
-
-實作外部分享串接（PWA/Share Target）、自訂 App 縮圖、擴充分類圖示，並修正編輯狀態下 `Ctrl` 快捷鍵打架與全選問題，以及優化分類 `+` 按鈕之新增體驗。
+> **更新時間**：2026-09-01 14:31
+> **專案核心**：以 Vanilla JavaScript、Firebase、Tailwind CDN、Google Gemini API 打造之個人大腦，並具備專屬遠端 MCP Server (Streamable HTTP & Legacy SSE) 供外部 Agent 自動化分類與存取。
 
 ## 已完成任務
 
-* **[PWA 分享串接]**：升級為 PWA，新增 `manifest.json` 與 `sw.js`。串接 Web Share Target API，使外部分享（如 YouTube、Threads 等）自動導向並將內容填入首頁輸入框，且加入離線 `localStorage` 暫存登入後自動加載功能。
-  * `manifest.json`
-  * `sw.js`
-  * `index.html`
-* **[自訂與更換 App 縮圖]**：生成高質感 3D 擬態 PWA 大腦圖示（`brain-icon.jpg`）並在 Manifest 中完成路徑配置，使用者可直接覆蓋此檔案自訂 icon。
-  * `brain-icon.jpg`
-  * `manifest.json`
-  * `index.html`
-* **[AI 網頁聯網研讀與潤飾]**：整合 Gemini API 聯網搜尋（Google Search Grounding）功能。當輸入框檢測到 URL 時，自動利用 AI 連網讀取網頁並歸納潤飾為繁體中文筆記，並在最後保留原網頁連結。同時完善了 candidates 檢查與 FinishReason 的錯誤拋出診斷。
-  * `index.html`
-* **[新增分類圖示 picker]**：在編輯分類圖示選擇器中一口氣擴增 20 多個實用 icon（服飾、記帳、娛樂、健康、數位、社交、天氣等）。
-  * `index.html`
-* **[快捷鍵攔截優化]**：修正編輯視窗與卡片移動 Undo/Redo 快捷鍵衝突。在 Editorjs 或 Edit Modal 等編輯彈窗開啟時，全域快捷鍵暫停以防干擾 native 文字操作。同時為 EditorJS 實作自訂的 `Ctrl + A` / `Cmd + A` 整篇內容跨 block 全選機制，並攔截了非編輯區下的 global 全選以避免 modal 背景文字反白。
-  * `index.html`
-* **[分類 "+" 按鈕快捷新增彈窗]**：將各分類區的 `+` 按鈕由原先的「移至頂端 + 變更 dropdown」改為「直接彈出專屬新增小視窗 (`#add-card-modal`)」，無縫繼承 `Enter` 快捷送出、AI 網頁研讀與 Undo 歷史管理器，不影響原本頁面焦點。
-  * `index.html`
+* **[規格與架構審查]**：
+  * 完成 [`docs/superpowers/specs/2026-09-01-remote-mcp-server-design.md`](docs/superpowers/specs/2026-09-01-remote-mcp-server-design.md)。
+  * 經由 OpenAI Codex 深度審核，修訂最新 MCP 2025-11-25 Streamable HTTP 規範、毫秒時間戳對齊、原子性 Transaction 與 SSRF 防護。
+* **[建立 `mcp-server` 獨立模組]**：
+  * `mcp-server/src/services/fetcher.js`：具備 SSRF 內網攔截與 Readability 正文抽取服務。
+  * `mcp-server/src/services/firestore.js`：Scoped Firestore 資料庫封裝，鎖定使用者 UID。
+  * `mcp-server/src/services/domain.js`：具備 `runTransaction` 原子性搬移、Schema Hook (todos 清洗)、Editor.js JSON 筆記轉換與 50 筆批次整理。
+  * `mcp-server/src/server.js`：註冊 8 大領域 MCP 工具與 Zod 驗證。
+  * `mcp-server/src/index.js`：Express 伺服器，支援 `/mcp` (Streamable HTTP) 與 `/sse` (Legacy SSE)，並具備 Constant-time Bearer Token 認證。
+  * `mcp-server/tests/`：完整自動化測試（7 個測試套件 100% 通過）。
+  * `mcp-server/Dockerfile` & `mcp-server/render.yaml`：容器化與雲端一鍵部署支援。
+  * `mcp-server/README.md`：包含環境變數配置、部署指南與 Claude Desktop / Cursor Client 設定範例。
 
-## 進行中與卡點 (In Progress & Blockers)
+## 目前分支與工作樹狀態
 
-* **目前進度**：本階段所有功能與問題修復皆已完美實作並推送至 `main` 分支。
-* **下一步**：等待使用者確認外部分享與快捷選取的體驗，並依需求進行下一個階段的優化。
-* **卡點 (Blocker)**：無。
-
-## 避坑指南 (Failed Approaches)
-
-* **瀏覽器跨網域限制 (CORS)**：原先想在前端直接透過 fetch 抓取使用者分享的網頁連結進行爬蟲，但受限於瀏覽器的 CORS 機制會直接報錯失敗。
-  * **教訓**：改為利用 Gemini 的 `google_search` 聯網工具（Google Search Grounding）在後端代為抓取與研讀，前端只做對接，成功繞過 CORS。
-* **Gemini REST API 參數大小寫**：在 v1beta API 中，Tools 啟用搜尋的欄位是 `google_search`（蛇形命名），誤用駝峰命名 `googleSearch` 會被 API 直接視為無效或丟出 HTTP 400 錯誤。
-  * **教訓**：必須嚴格遵守 API 文件格式。同時，使用 `response.ok` 詳實捕獲 `err.message` 呈現在 Toast 中，而非吞掉錯誤。
-* **跨 contenteditable 全選限制**：Editor.js 的每個 block 都是獨立的 contenteditable `div`，原生瀏覽器的全選（Ctrl+A）只會選取單個 paragraph。
-  * **教訓**：透過 `range.selectNodeContents(editorContainer)` 強行全選整個編輯器容器的 DOM range，並在非編輯焦點時 `preventDefault` 防止選到 modal 背後的整頁背景。
-
-## 關鍵決策 (Key Decisions)
-
-* **[分享攔截寫入輸入框]**：原本分享會直接寫入 Firebase 建立卡片。決策改為「僅帶入輸入框並 focus」，原因是用戶分享外站內容時通常需要加上個人短評，自動新增會導致雜亂，帶入輸入框能給用戶二度編輯的緩衝。
-* **[PWA 離線策略-網路優先]**：Service Worker 採用 Network-First 策略。因為此 app 強度依賴 Firebase 與網路連線，Network-First 可確保使用者在有網路時，GitHub Pages 上任何代碼修改都能即時更新（無快取鎖死問題），只在離線時 fallback 快取。
-
-## 交接備忘錄 (Handover Context)
-
-這是一個 Vanilla JS + Firebase + Tailwind CDN 打造的單網頁 app。本階段完成了 PWA 的封裝與 Search Grounding 連網研讀。
-接手後第一步請先閱讀 `/home/cdc/CCdevelopment/my-ai-brain/CURRENT_STATE.md`。如有需要測試 PWA 功能，請將 GitHub Pages 加入手機主畫面並點選分享測試。
+* 已成功合併回 `main` 分支，並清理功能分支 `feat/remote-mcp-server`。
+* 全部測試（`mcp-server` 與根目錄測試）均為 100% 通過。
