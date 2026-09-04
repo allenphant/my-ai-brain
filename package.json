@@ -17,6 +17,7 @@
     "puppeteer": "^25.3.0"
   },
   "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
     "firebase-tools": "^15.24.0"
   }
 }

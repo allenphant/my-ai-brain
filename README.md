@@ -25,7 +25,7 @@
 * **樣式與介面：** Tailwind CSS (CDN), FontAwesome 6 (向量圖示)
 * **編輯器引擎：** Editor.js (支援 Header, List, Checklist, Quote, Code, Delimiter, Undo)
 * **資料庫與認證：** Firebase (Authentication, Cloud Firestore)
-* **圖床服務：** ImgBB API
+* **圖床服務：** ImgBB API（選配，外部公用圖床，請詳閱下方安全警示）
 * **AI 引擎：** Google Gemini API (`gemini-2.5-flash`), Mistral API (`mistral-small-2603`)
 * **MCP 服務：** Express, @modelcontextprotocol/sdk (位於 `mcp-server/`)
 * **靜態部署：** GitHub Pages
@@ -67,6 +67,11 @@
 1. **Google Gemini API Key**：至 [Google AI Studio](https://aistudio.google.com/app/apikey) 申請一組免費 Key（用於卡片自動分類與網址研讀）。
 2. **ImgBB API Key（選配，圖片支援）**：至 [ImgBB API](https://api.imgbb.com/) 免費註冊並取得 Key（用於支援在輸入框貼上截圖與相片上傳）。
 
+> [!WARNING]
+> **ImgBB 免費圖床隱私與可用性警示**：
+> 1. **公開存取風險 (Public URL Risk)**：ImgBB 產生的圖片網址為公開 CDN 連結，無存取控制清單（ACL）。任何取得圖片網址者皆可在公網直接檢視圖片。**絕對嚴禁上傳包含密碼、金鑰憑證、個人隱私文件或商業機密之截圖**。
+> 2. **無 SLA 與被動清除風險 (Retention Policy & Zero SLA)**：免費圖床不提供服務等級協議（SLA），長時間未存取的圖片可能遭平台清理失效，導致卡片連結破圖。重要筆記請以文字或結構化 Markdown 記錄。
+
 ### 步驟 3：在介面中完成設定
 1. 使用瀏覽器開啟本專案網頁。
 2. 點擊右上角的「系統設定」按鈕。
@@ -106,3 +111,6 @@
 * **零中心化憑證：** 專案主幹原始碼與 GitHub Pages 建置成果皆不含任何寫死之資料庫連線資訊或金鑰。
 * **本地隔離：** 你的所有設定（包含 Firebase Config、Gemini Key、ImgBB Key）均只儲存在你裝置當前的瀏覽器 `localStorage` 中。
 * **雲端隔離：** 透過 Firestore Security Rules 規則，只有通過你 Firebase 專案授權之 Google 帳號能夠存取你的資料分區。
+* **安全性分界 (Security Boundaries)：** 
+  - **Firestore 資料庫**：享有 Google 級別的安全認證與 UID 白名單隔離，只有你自己能讀寫個人的卡片文字與詳細筆記。
+  - **ImgBB 圖床**：為外部公開設施，其圖片 URL 任何人皆可直接存取且無 SLA 保障。請依據資料敏感度審慎決定是否貼上圖片，嚴禁上傳包含密碼或個人隱私之機敏截圖。
