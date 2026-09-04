@@ -136,20 +136,20 @@ test('BYOD: Unconfigured Firebase state and settings configuration flow', async 
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
         await page.waitForSelector('#auth-text');
 
-        // 1. 驗證頂部狀態為「未設定資料庫」
+        // 1. 驗證頂部狀態為「本機儲存模式」
         const authText = await page.$eval('#auth-text', el => el.innerText);
-        assert.equal(authText, '未設定資料庫');
+        assert.equal(authText, '本機儲存模式');
 
-        // 2. 驗證登入按鈕變更為「設定資料庫」
+        // 2. 驗證登入按鈕變更為「連結雲端」
         const loginBtnText = await page.$eval('#login-btn', el => el.innerText.trim());
-        assert.equal(loginBtnText.includes('設定資料庫'), true);
+        assert.equal(loginBtnText.includes('連結雲端'), true);
 
-        // 3. 驗證收件匣內顯示未設定資料庫之引導提示
-        await page.waitForSelector('#inbox-setup-btn');
-        const hasSetupBtn = await page.$eval('#inbox-setup-btn', el => Boolean(el));
-        assert.equal(hasSetupBtn, true);
+        // 3. 驗證主畫面已自動渲染 4 個本機預設分類
+        await page.waitForSelector('#list-todos');
+        const hasTodos = await page.$eval('#list-todos', el => Boolean(el));
+        assert.equal(hasTodos, true);
 
-        // 4. 點擊「設定資料庫」按鈕應彈出設定視窗
+        // 4. 點擊「連結雲端」按鈕應彈出設定視窗以供設定 Firebase
         await page.click('#login-btn');
         const isSettingsOpen = await page.$eval('#settings-modal', el => !el.classList.contains('hidden'));
         assert.equal(isSettingsOpen, true);

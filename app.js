@@ -69,6 +69,8 @@
             writeWebResearchCache
         } from './web-research.mjs';
         import { parseFirebaseConfig } from './firebase-config.mjs';
+        import { StorageController } from './js/storage-controller.mjs';
+        import * as LocalDb from './js/local-db.mjs';
 
         // --- Firebase 初始化 (BYOD 架構) ---
         let firebaseConfig = null;
@@ -263,7 +265,12 @@
 
         
         async function saveCategory(categoryData) {
-            if (!currentUser) return;
+            if (!currentUser || !db) {
+                const id = categoryData.id || `custom_cat_${Date.now()}`;
+                await LocalDb.saveCategory({ ...categoryData, id });
+                await refreshLocalCategories();
+                return;
+            }
             const catCol = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'categories');
             if (categoryData.id) {
                 const { id, ...data } = categoryData;
@@ -274,7 +281,12 @@
         }
 
         async function deleteCategoryFunc(id) {
-            if (!currentUser) return;
+            if (!currentUser || !db) {
+                await LocalDb.deleteCategory(id);
+                await refreshLocalCategories();
+                showToast('已刪除分類');
+                return;
+            }
             await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'categories', id));
             showToast('已刪除分類');
         }
@@ -282,6 +294,7 @@
         function setupCategoryListener(catId, catType, catName, catIcon) {
             const listEl = document.getElementById(`list-${catId}`);
             if (!listEl) return;
+            if (!currentUser || !db) return;
             onSnapshot(collection(db, 'artifacts', appId, 'users', currentUser.uid, catId), (snapshot) => {
                 const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
                 items.sort((a, b) => getOrder(b) - getOrder(a));
@@ -370,6 +383,27 @@
                         }
 
                         try {
+                            if (!currentUser || !db) {
+                                if (oldCol === newCol) {
+                                    await LocalDb.updateCard(oldCol, id, { order: newOrder });
+                                    await refreshLocalCollection(oldCol);
+                                } else {
+                                    const cards = await LocalDb.getCardsByCollection(oldCol);
+                                    const found = cards.find(c => c.id === id);
+                                    if (found) {
+                                        const moved = { ...found, order: newOrder, collection: newCol };
+                                        const targetCat = currentCategories.find(c => c.id === newCol);
+                                        const isTodoCol = newCol === 'todos' || (targetCat && targetCat.type === 'todo');
+                                        if (!isTodoCol) delete moved.completed;
+                                        await LocalDb.moveCard(oldCol, newCol, id, moved);
+                                        await refreshLocalCollection(oldCol);
+                                        await refreshLocalCollection(newCol);
+                                        showToast(`已將「${getShortText(moved.text)}」移至 [${getCollectionName(newCol)}]`, 'fas fa-exchange-alt');
+                                    }
+                                }
+                                return;
+                            }
+
                             const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, oldCol, id);
                             if (oldCol === newCol) {
                                 if (evt.oldIndex !== evt.newIndex) await updateDoc(docRef, { order: newOrder });
@@ -2380,46 +2414,169 @@
             }
         }
 
-        function renderUnconfiguredState() {
+        async function refreshLocalCollection(col) {
+            try {
+                const items = await LocalDb.getCardsByCollection(col);
+                if (col === 'inbox') {
+                    currentInboxItems = items;
+                    renderList(items, document.getElementById('inbox-list'), 'inbox');
+                    const countEl = document.getElementById('inbox-count');
+                    if (countEl) countEl.innerText = items.length;
+                    const aiSortBtn = document.getElementById('ai-sort-btn');
+                    if (aiSortBtn) aiSortBtn.disabled = items.length === 0;
+                } else {
+                    currentItemsByCollection.set(col, items);
+                    const listEl = document.getElementById(`list-${col}`);
+                    const countEl = document.getElementById(`count-${col}`);
+                    if (countEl) countEl.innerText = items.length;
+                    if (listEl) {
+                        const targetCat = currentCategories.find(c => c.id === col);
+                        const catType = targetCat ? targetCat.type : 'text';
+                        if (catType === 'todo') {
+                            renderTodos(items, listEl, col);
+                        } else if (catType === 'bookmark') {
+                            renderBookmarks(items, listEl, col);
+                        } else {
+                            renderList(items, listEl, col);
+                        }
+                    }
+                }
+                refreshOpenTagBrowser();
+            } catch (err) {
+                console.error(`Failed to refresh local collection ${col}:`, err);
+            }
+        }
+
+        async function refreshLocalCategories() {
+            try {
+                const cats = await LocalDb.getAllCategories();
+                currentCategories = cats;
+                renderCategoryManagerList(currentCategories);
+                renderMainGrid(currentCategories);
+                updateCategorySelectOptions(currentCategories);
+                for (const cat of currentCategories) {
+                    await refreshLocalCollection(cat.id);
+                }
+                initDragAndDrop();
+            } catch (err) {
+                console.error('Failed to refresh local categories:', err);
+            }
+        }
+
+        async function initLocalMode() {
             currentUser = null;
             const authStatus = document.getElementById('auth-status');
             const authText = document.getElementById('auth-text');
             const loginBtn = document.getElementById('login-btn');
             const logoutBtn = document.getElementById('logout-btn');
-            const inboxList = document.getElementById('inbox-list');
 
             if (authStatus) {
-                authStatus.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 shadow-inner shrink-0';
+                authStatus.className = 'w-2.5 h-2.5 rounded-full bg-sky-500 shadow-inner shrink-0';
             }
             if (authText) {
-                authText.innerText = "未設定資料庫";
+                authText.innerText = "本機儲存模式";
             }
             if (loginBtn) {
                 loginBtn.classList.remove('hidden');
-                loginBtn.innerHTML = '<i class="fas fa-cog text-indigo-500 mr-1"></i>設定資料庫';
+                loginBtn.innerHTML = '<i class="fas fa-cloud-arrow-up text-indigo-500 mr-1"></i>連結雲端';
+                loginBtn.title = "設定資料庫";
+                loginBtn.onclick = () => openSettingsModal();
             }
             if (logoutBtn) {
                 logoutBtn.classList.add('hidden');
             }
-            if (inboxList) {
-                inboxList.innerHTML = `
-                    <li class="bg-amber-50/70 p-6 rounded-xl border border-amber-200 text-slate-700 text-center ignore-drag">
-                        <div class="font-bold text-base mb-1 text-slate-800">尚未設定專屬 Firebase 資料庫</div>
-                        <p class="text-xs text-slate-500 mb-4 max-w-sm mx-auto leading-relaxed">
-                            本專案採用自帶資料庫（BYOD）架構，資料僅儲存於你個人的 Firebase 中。請前往系統設定填入你的 Firebase Config。
-                        </p>
-                        <button type="button" id="inbox-setup-btn" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
-                            前往設定 Firebase
-                        </button>
-                    </li>
-                `;
-                const setupBtn = document.getElementById('inbox-setup-btn');
-                if (setupBtn) {
-                    setupBtn.addEventListener('click', () => {
-                        openSettingsModal();
-                    });
+
+            try {
+                const cats = await LocalDb.ensureDefaultCategories();
+                currentCategories = cats;
+                renderCategoryManagerList(currentCategories);
+                renderMainGrid(currentCategories);
+                updateCategorySelectOptions(currentCategories);
+
+                const tags = await LocalDb.getTags();
+                currentTags = Array.isArray(tags) ? tags : [];
+                refreshOpenTagBrowser();
+
+                await refreshLocalCollection('inbox');
+                for (const cat of currentCategories) {
+                    await refreshLocalCollection(cat.id);
                 }
+
+                initDragAndDrop();
+                setTimeout(initSidebarObserver, 100);
+            } catch (err) {
+                console.error('Failed to initialize local mode:', err);
             }
+        }
+
+        async function checkAndPromptMigration(user) {
+            if (!user || !db) return;
+            try {
+                const storageCtrl = new StorageController('local');
+                const migCheck = await storageCtrl.needsCloudMigration();
+                if (!migCheck || !migCheck.needed) return;
+
+                const modal = document.getElementById('migration-modal');
+                const countSpan = document.getElementById('migration-count');
+                const confirmBtn = document.getElementById('confirm-migration-btn');
+                const dismissBtn = document.getElementById('dismiss-migration-btn');
+                const progressBox = document.getElementById('migration-progress');
+                const progressText = document.getElementById('migration-progress-text');
+                const progressPercent = document.getElementById('migration-progress-percent');
+                const progressBar = document.getElementById('migration-progress-bar');
+
+                if (!modal) return;
+
+                if (countSpan) countSpan.innerText = migCheck.cardCount;
+                modal.classList.remove('hidden');
+
+                if (dismissBtn) {
+                    dismissBtn.onclick = () => {
+                        modal.classList.add('hidden');
+                    };
+                }
+
+                if (confirmBtn) {
+                    confirmBtn.onclick = async () => {
+                        confirmBtn.disabled = true;
+                        if (dismissBtn) dismissBtn.disabled = true;
+                        if (progressBox) progressBox.classList.remove('hidden');
+
+                        const firestoreCtx = {
+                            db,
+                            appId,
+                            userId: user.uid,
+                            setDoc,
+                            doc,
+                            collection
+                        };
+
+                        try {
+                            await storageCtrl.migrateLocalToCloud(firestoreCtx, (p) => {
+                                if (progressText) progressText.innerText = `正在同步 (${p.processed}/${p.totalItems})...`;
+                                if (progressPercent) progressPercent.innerText = `${p.percentage}%`;
+                                if (progressBar) progressBar.style.width = `${p.percentage}%`;
+                            });
+
+                            showToast(`成功同步 ${migCheck.cardCount} 筆本機資料至雲端！`);
+                            setTimeout(() => {
+                                modal.classList.add('hidden');
+                            }, 800);
+                        } catch (err) {
+                            console.error('Migration failed:', err);
+                            showToast('遷移同步失敗，請稍後重試', true);
+                            confirmBtn.disabled = false;
+                            if (dismissBtn) dismissBtn.disabled = false;
+                        }
+                    };
+                }
+            } catch (err) {
+                console.error('Check migration error:', err);
+            }
+        }
+
+        function renderUnconfiguredState() {
+            initLocalMode();
         }
 
         if (isFirebaseConfigured && auth) {
@@ -2437,6 +2594,7 @@
                     document.getElementById('login-btn').classList.add('hidden'); document.getElementById('logout-btn').classList.remove('hidden');
                     setupRealtimeListeners(user.uid);
                     setupCloudResearchListeners(user.uid);
+                    checkAndPromptMigration(user);
                     clearInterval(automaticResearchPollTimer);
                     automaticResearchPollTimer = setInterval(() => void checkAutomaticResearchSchedule(), 60_000);
                     
@@ -2486,7 +2644,7 @@
                 }
             });
         } else {
-            renderUnconfiguredState();
+            initLocalMode();
         }
 
         document.addEventListener('visibilitychange', () => {
@@ -2787,7 +2945,14 @@
                 
                 checkbox.addEventListener('click', (e) => e.stopPropagation());
                 checkbox.addEventListener('change', async (e) => {
-                    if(currentUser) try { await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, containerEl.getAttribute('data-col'), item.id), { completed: e.target.checked }); } catch(err) {}
+                    if (currentUser && db) {
+                        try { await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, containerEl.getAttribute('data-col'), item.id), { completed: e.target.checked }); } catch(err) {}
+                    } else {
+                        try {
+                            await LocalDb.updateCard(containerEl.getAttribute('data-col'), item.id, { completed: e.target.checked });
+                            await refreshLocalCollection(containerEl.getAttribute('data-col'));
+                        } catch(err) {}
+                    }
                 });
 
                 attachItemListeners(li, item, containerEl.getAttribute('data-col')); containerEl.appendChild(li);
@@ -2824,11 +2989,22 @@
 
         document.getElementById('cancel-delete-btn').addEventListener('click', () => { confirmModal.classList.add('hidden'); pendingDeleteTarget = null; });
         document.getElementById('confirm-delete-btn').addEventListener('click', async () => {
-            if (currentUser && pendingDeleteTarget) {
+            if (pendingDeleteTarget) {
+                const col = pendingDeleteTarget.col;
+                const id = pendingDeleteTarget.id;
+
+                if (!currentUser || !db) {
+                    await LocalDb.deleteCard(col, id);
+                    await LocalDb.deleteNote(id);
+                    await refreshLocalCollection(col);
+                    showToast('已將卡片移至垃圾桶', 'fas fa-trash-alt');
+                    confirmModal.classList.add('hidden');
+                    pendingDeleteTarget = null;
+                    return;
+                }
+
                 const btn = document.getElementById('confirm-delete-btn'); const originalHTML = btn.innerHTML; btn.innerHTML = '<div class="loader w-4 h-4 mx-auto border-t-white border-2"></div>'; btn.disabled = true;
                 try { 
-                    const col = pendingDeleteTarget.col;
-                    const id = pendingDeleteTarget.id;
                     const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, col, id);
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
@@ -2887,7 +3063,7 @@
                 btn.addEventListener('click', async (e) => {
                     const targetBtn = e.currentTarget; 
                     const targetCol = targetBtn.getAttribute('data-target');
-                    if (currentUser && pendingMoveTarget) {
+                    if (pendingMoveTarget) {
                         const originalHTML = targetBtn.innerHTML; 
                         targetBtn.innerHTML = '<div class="loader w-5 h-5 mx-auto border-t-slate-500"></div>';
                         try {
@@ -2903,6 +3079,14 @@
                             const shortText = getShortText(dataToMove.text);
                             const oldName = getCollectionName(oldCol);
                             const newName = getCollectionName(targetCol);
+
+                            if (!currentUser || !db) {
+                                await LocalDb.moveCard(oldCol, targetCol, id, dataToMove);
+                                await refreshLocalCollection(oldCol);
+                                await refreshLocalCollection(targetCol);
+                                showToast(`已將「${shortText}」移至 [${newName}]`, 'fas fa-exchange-alt');
+                                return;
+                            }
                             
                             historyManager.push({
                                 undo: async () => {
@@ -2990,7 +3174,7 @@
         });
 
         document.getElementById('confirm-add-card-btn').addEventListener('click', async () => {
-            if (!currentUser || !activeAddCardColId) return;
+            if (!activeAddCardColId) return;
             let text = addCardInput.value.trim();
             if (!text) return;
 
@@ -3006,6 +3190,16 @@
                     createdAt: Date.now(), 
                     order: Date.now() 
                 };
+
+                if (!currentUser || !db) {
+                    await LocalDb.addCard(targetCollection, newDocData);
+                    await refreshLocalCollection(targetCollection);
+                    const shortText = getShortText(newDocData.text);
+                    const colName = getCollectionName(targetCollection);
+                    showToast(`已新增卡片「${shortText}」至本機 [${colName}]`, 'fas fa-plus');
+                    closeAddCardModal();
+                    return;
+                }
 
                 const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), newDocData);
                 const newId = docRef.id;
@@ -3860,12 +4054,6 @@
 
         document.getElementById('add-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            if (!isFirebaseConfigured || !db) {
-                showToast('請先至「系統設定」設定 Firebase Config', 'fas fa-cog');
-                openSettingsModal();
-                return;
-            }
-            if (!currentUser) return;
             let text = ideaInput.value.trim(); 
             
             if (!text && !stagedImageFile) return;
@@ -3879,18 +4067,20 @@
             try {
                 if (stagedImageFile) {
                     const imgbbKey = localStorage.getItem('imgbbApiKey');
-                    const formData = new FormData();
-                    formData.append('image', stagedImageFile);
+                    if (imgbbKey) {
+                        const formData = new FormData();
+                        formData.append('image', stagedImageFile);
 
-                    const res = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, {
-                        method: 'POST', body: formData
-                    });
-                    
-                    const data = await res.json();
-                    if (data.success) {
-                        uploadedImageUrl = data.data.url;
-                    } else {
-                        throw new Error(data.error?.message || "ImgBB 上傳失敗");
+                        const res = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, {
+                            method: 'POST', body: formData
+                        });
+                        
+                        const data = await res.json();
+                        if (data.success) {
+                            uploadedImageUrl = data.data.url;
+                        } else {
+                            throw new Error(data.error?.message || "ImgBB 上傳失敗");
+                        }
                     }
                 }
 
@@ -3901,6 +4091,17 @@
                 };
 
                 if (uploadedImageUrl) newDocData.imageUrl = uploadedImageUrl;
+
+                if (!currentUser || !db) {
+                    await LocalDb.addCard(targetCollection, newDocData);
+                    await refreshLocalCollection(targetCollection);
+                    const shortText = getShortText(newDocData.text);
+                    const colName = getCollectionName(targetCollection);
+                    showToast(`已新增卡片「${shortText}」至本機 [${colName}]`, 'fas fa-plus');
+                    ideaInput.value = ''; ideaInput.style.height = '40px';
+                    if (removeImageBtn) removeImageBtn.click();
+                    return;
+                }
 
                 const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, targetCollection), newDocData);
                 const newId = docRef.id;
@@ -4525,12 +4726,14 @@
                     await syncCloudAutomationSettings(cloudResearchEnabled ? autoResearchInterval : 'off');
                 }
                 localStorage.setItem('cloudResearchEnabled', cloudResearchEnabled ? 'on' : 'off');
-                if (currentUser) {
+                if (currentUser && db) {
                     await setDoc(
                         doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'tags'),
                         { items: draftTags, updatedAt: Date.now() },
                         { merge: true }
                     );
+                } else {
+                    await LocalDb.saveTags(draftTags);
                 }
                 currentTags = draftTags.map(tag => ({ ...tag }));
                 closeSettingsModal();
@@ -4550,7 +4753,7 @@
         });
 
         async function runAiSort() {
-            if (isSorting || currentInboxItems.length === 0 || !currentUser) return false;
+            if (isSorting || currentInboxItems.length === 0) return false;
             const apiKey = localStorage.getItem('geminiApiKey'); const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
             if (!apiKey) { openSettingsModal(); return false; }
             const lastManualSortTime = parseInt(localStorage.getItem('lastManualSortTime') || '0', 10);
@@ -4636,9 +4839,20 @@ ${JSON.stringify(inboxData, null, 2)}`;
                         data: item
                     });
                     
-                    await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCol, item.id), docData);
-                    await copyCardDetails('inbox', targetCol, item.id, item.id);
-                    await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', item.id));
+                    if (!currentUser || !db) {
+                        await LocalDb.moveCard('inbox', targetCol, item.id, docData);
+                    } else {
+                        await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, targetCol, item.id), docData);
+                        await copyCardDetails('inbox', targetCol, item.id, item.id);
+                        await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'inbox', item.id));
+                    }
+                }
+
+                if (!currentUser || !db) {
+                    await refreshLocalCollection('inbox');
+                    for (const m of historyMappings) {
+                        await refreshLocalCollection(m.newCol);
+                    }
                 }
                 
                 if (historyMappings.length > 0) {
@@ -4743,17 +4957,27 @@ ${JSON.stringify(inboxData, null, 2)}`;
 
             document.getElementById('editorjs-container').innerHTML = '<div class="flex justify-center items-center h-full min-h-[50vh]"><div class="loader w-10 h-10 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin"></div></div>';
 
-            // Fetch existing note from Firestore
+            // Fetch existing note from Firestore or LocalDb
             let noteData = null;
-            try {
-                // Ensure doc and getDoc are imported from firestore, they already should be in index.html
-                const noteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, collectionName, itemId, 'details', 'note');
-                const noteSnap = await getDoc(noteRef);
-                if (noteSnap.exists()) {
-                    noteData = noteSnap.data().data;
+            if (currentUser && db) {
+                try {
+                    const noteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, collectionName, itemId, 'details', 'note');
+                    const noteSnap = await getDoc(noteRef);
+                    if (noteSnap.exists()) {
+                        noteData = noteSnap.data().data;
+                    }
+                } catch (err) {
+                    console.error("Failed to load note details:", err);
                 }
-            } catch (err) {
-                console.error("Failed to load note details:", err);
+            } else {
+                try {
+                    const localNote = await LocalDb.getNote(itemId);
+                    if (localNote) {
+                        noteData = localNote.blocks ? localNote : (localNote.data || null);
+                    }
+                } catch (err) {
+                    console.error("Failed to load local note details:", err);
+                }
             }
             if (loadId !== currentEditorLoadId) return; // Abort if user clicked another card
             
@@ -4778,6 +5002,13 @@ ${JSON.stringify(inboxData, null, 2)}`;
             
             try {
                 const outputData = await currentEditor.save();
+
+                if (!currentUser || !db) {
+                    await LocalDb.saveNote(cardId, outputData);
+                    showSaveStatus('已儲存至本機', 'fas fa-check-circle text-sky-500');
+                    return;
+                }
+
                 const noteRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, collectionName, cardId, 'details', 'note');
                 
                 // Use setDoc with merge:true in case details/note doesn't exist yet
@@ -4801,6 +5032,15 @@ ${JSON.stringify(inboxData, null, 2)}`;
             pendingEditorTitle = null;
 
             try {
+                if (!currentUser || !db) {
+                    await LocalDb.updateCard(collectionName, cardId, {
+                        text: title,
+                        cardSearchText: title.toLocaleLowerCase('zh-Hant')
+                    });
+                    await refreshLocalCollection(collectionName);
+                    return;
+                }
+
                 const cardRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, collectionName, cardId);
                 await updateDoc(cardRef, {
                     text: title,
