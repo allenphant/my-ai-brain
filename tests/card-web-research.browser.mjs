@@ -244,6 +244,10 @@ try {
         localStorage.setItem('hasMigratedDefaultCategories', 'true');
         localStorage.setItem('geminiApiKey', 'fake-key');
         localStorage.setItem('autoSortSetting', 'off');
+        localStorage.setItem('firebaseConfig', JSON.stringify({
+            apiKey: 'fake-api-key',
+            projectId: 'fake-project'
+        }));
     });
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     try {

@@ -1,5 +1,113 @@
 import { getDb, getUserCollectionRef, getUserDocRef, getUserNoteRef } from './firestore.js';
 
+export const CONTROLLED_TAGS = [
+  '開源',
+  'AI提示詞',
+  'AI工具',
+  'AI Agent',
+  'Claude Code',
+  '軟體開發',
+  '前端開發',
+  '系統架構',
+  '雲端維運',
+  '資訊安全',
+  '學術研究',
+  '資料分析',
+  '影片與多媒體',
+  '社群與傳播',
+  '職涯與面試',
+  '生活與健康',
+  '時尚穿搭',
+  '文件與排版'
+];
+
+export const TAG_ALIASES = {
+  'localllm': 'AI工具',
+  '本地模型': 'AI工具',
+  'llm': 'AI工具',
+  'prompt': 'AI提示詞',
+  '提示詞': 'AI提示詞',
+  '生圖': '影片與多媒體',
+  '視覺設計': '前端開發',
+  '審美': '前端開發',
+  'ui': '前端開發',
+  '元件庫': '前端開發',
+  '前端': '前端開發',
+  'react': '前端開發',
+  '網頁設計': '前端開發',
+  'agent': 'AI Agent',
+  'ai agent': 'AI Agent',
+  'skill': 'AI Agent',
+  'mcp': 'AI Agent',
+  'codex': 'AI Agent',
+  '自演化': 'AI Agent',
+  'claude code': 'Claude Code',
+  'devops': '雲端維運',
+  'cloudflare': '雲端維運',
+  '部署': '雲端維運',
+  '系統設計': '系統架構',
+  '理財': '生活與健康',
+  '存股': '生活與健康',
+  '股市': '生活與健康',
+  '健康': '生活與健康',
+  '運動': '生活與健康',
+  '健身': '生活與健康',
+  '食譜': '生活與健康',
+  '美食': '生活與健康',
+  '攝影': '影片與多媒體',
+  '影片': '影片與多媒體',
+  '穿搭': '時尚穿搭',
+  '服飾': '時尚穿搭',
+  '職涯': '職涯與面試',
+  '面試': '職涯與面試',
+  '工作': '職涯與面試',
+  '學術': '學術研究',
+  '論文': '學術研究',
+  '資料分析': '資料分析',
+  '社群': '社群與傳播',
+  'instagram': '社群與傳播',
+  '文件': '文件與排版',
+  'markdown': '文件與排版',
+  '開源': '開源'
+};
+
+export function sanitizeTags(tags, categoryName = '') {
+  if (!Array.isArray(tags)) return [];
+  const normalizedCategory = (categoryName || '').toLowerCase().trim();
+  const sanitized = new Set();
+  const banned = ['ai工具', '稍後閱讀', '學習筆記', '收件匣', '待辦事項', '靈感與想法', 'inbox', 'todos', 'learning', 'ideas', 'bookmarks'];
+
+  for (const rawTag of tags) {
+    if (typeof rawTag !== 'string') continue;
+    const cleanTag = rawTag.trim();
+    if (!cleanTag) continue;
+
+    const lowerTag = cleanTag.toLowerCase();
+    if (lowerTag === normalizedCategory || banned.includes(lowerTag)) {
+      continue;
+    }
+
+    let resolvedTag = null;
+    if (TAG_ALIASES[lowerTag]) {
+      resolvedTag = TAG_ALIASES[lowerTag];
+    } else {
+      const match = CONTROLLED_TAGS.find(t => t.toLowerCase() === lowerTag);
+      if (match) {
+        resolvedTag = match;
+      }
+    }
+
+    if (resolvedTag) {
+      const lowerResolved = resolvedTag.toLowerCase();
+      if (lowerResolved !== normalizedCategory && !banned.includes(lowerResolved)) {
+        sanitized.add(resolvedTag);
+      }
+    }
+  }
+
+  return Array.from(sanitized).slice(0, 2);
+}
+
 export function wrapInEditorJs(text) {
   return {
     time: Date.now(),
@@ -63,7 +171,9 @@ export async function getInboxItems(limit = 20) {
       text: data.text || '',
       createdAt: data.createdAt || Date.now(),
       hasNote: !!data.hasNote,
-      order: data.order || data.createdAt || Date.now()
+      order: data.order || data.createdAt || Date.now(),
+      tags: Array.isArray(data.tags) ? data.tags : undefined,
+      aiReasoning: data.aiReasoning || undefined
     });
   });
   return items;
@@ -83,13 +193,15 @@ export async function getCategoryItems(category, limit = 20) {
       createdAt: data.createdAt || Date.now(),
       hasNote: !!data.hasNote,
       order: data.order || data.createdAt || Date.now(),
-      completed: typeof data.completed === 'boolean' ? data.completed : undefined
+      completed: typeof data.completed === 'boolean' ? data.completed : undefined,
+      tags: Array.isArray(data.tags) ? data.tags : undefined,
+      aiReasoning: data.aiReasoning || undefined
     });
   });
   return items;
 }
 
-export async function createItem(category = 'inbox', text, noteText) {
+export async function createItem(category = 'inbox', text, noteText, tags) {
   if (!text || typeof text !== 'string') {
     throw new Error('text is required and must be a string.');
   }
@@ -108,6 +220,11 @@ export async function createItem(category = 'inbox', text, noteText) {
 
   if (category === 'todos') {
     cardData.completed = false;
+  }
+
+  const cleanTags = sanitizeTags(tags, category);
+  if (cleanTags.length > 0) {
+    cardData.tags = cleanTags;
   }
 
   await db.runTransaction(async (t) => {
@@ -177,8 +294,13 @@ export async function moveItem(itemId, fromCategory, toCategory, aiReasoning, ta
     if (aiReasoning) {
       targetData.aiReasoning = aiReasoning;
     }
-    if (Array.isArray(tags) && tags.length > 0) {
-      targetData.tags = tags;
+    
+    const rawTags = Array.isArray(tags) ? tags : sourceData.tags;
+    const cleanTags = sanitizeTags(rawTags, toCategory);
+    if (cleanTags.length > 0) {
+      targetData.tags = cleanTags;
+    } else {
+      delete targetData.tags;
     }
 
     t.set(targetDocRef, targetData);
@@ -267,7 +389,9 @@ export async function searchItems(keyword, limit = 20) {
           text,
           category: cat.id,
           createdAt: data.createdAt || 0,
-          hasNote: !!data.hasNote
+          hasNote: !!data.hasNote,
+          tags: Array.isArray(data.tags) ? data.tags : undefined,
+          aiReasoning: data.aiReasoning || undefined
         });
       }
     });

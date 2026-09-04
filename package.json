@@ -1,0 +1,27 @@
+{
+  "dependencies": {
+    "jsdom": "^29.1.1",
+    "puppeteer": "^25.3.0"
+  },
+  "name": "my-ai-brain",
+  "version": "1.0.0",
+  "description": "My Personal AI Brain",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/allenphant/my-ai-brain.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/allenphant/my-ai-brain/issues"
+  },
+  "homepage": "https://github.com/allenphant/my-ai-brain#readme"
+}

@@ -10,28 +10,40 @@
             readWebResearchCache,
             writeWebResearchCache
         } from './web-research.mjs';
+        import { parseFirebaseConfig } from './firebase-config.mjs';
 
-        // --- Firebase 初始化 ---
-        let firebaseConfig;
-        let appId = 'my-personal-ai-brain'; 
+        // --- Firebase 初始化 (BYOD 架構：無預設硬編碼私有憑證) ---
+        let appId = 'my-personal-ai-brain';
+        let firebaseConfig = null;
+
         if (typeof __firebase_config !== 'undefined') {
-            firebaseConfig = JSON.parse(__firebase_config);
+            firebaseConfig = parseFirebaseConfig(__firebase_config);
             appId = typeof __app_id !== 'undefined' ? __app_id : appId;
-        } else {
-            firebaseConfig = {
-                apiKey: "AIzaSyC30YPS_CkGVBS8IBrq74sBW0pkP1-ev6w",
-                authDomain: "my-ai-brain-6867e.firebaseapp.com",
-                projectId: "my-ai-brain-6867e",
-                storageBucket: "my-ai-brain-6867e.firebasestorage.app",
-                messagingSenderId: "755512158785",
-                appId: "1:755512158785:web:8376054556e01717f9b4c0"
-            };
+        }
+        if (!firebaseConfig) {
+            const stored = localStorage.getItem('firebaseConfig');
+            if (stored) {
+                firebaseConfig = parseFirebaseConfig(stored);
+            }
         }
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const provider = new GoogleAuthProvider();
-        const db = getFirestore(app);
+        let app = null;
+        let auth = null;
+        let provider = null;
+        let db = null;
+        let isFirebaseConfigured = false;
+
+        if (firebaseConfig) {
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                provider = new GoogleAuthProvider();
+                db = getFirestore(app);
+                isFirebaseConfigured = true;
+            } catch (err) {
+                console.error("Firebase 初始化失敗:", err);
+            }
+        }
 
         let currentUser = null;
         let currentCategories = [];
@@ -276,11 +288,30 @@
         initDragAndDrop();
 
 
-        const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) try { await signInWithCustomToken(auth, __initial_auth_token); } catch (e) {} };
+        const initAuth = async () => {
+            if (!auth) return;
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                try { await signInWithCustomToken(auth, __initial_auth_token); } catch (e) {}
+            }
+        };
         initAuth();
 
-        document.getElementById('login-btn').addEventListener('click', async () => { try { await signInWithPopup(auth, provider); } catch (e) { alert("登入失敗：" + e.message); } });
-        document.getElementById('logout-btn').addEventListener('click', async () => { try { await signOut(auth); window.location.reload(); } catch (e) {} });
+        document.getElementById('login-btn').addEventListener('click', async () => {
+            if (!isFirebaseConfigured || !auth) {
+                showToast('請先至「系統設定」設定 Firebase Config', 'fas fa-cog');
+                openSettingsModal();
+                return;
+            }
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (e) {
+                alert("登入失敗：" + e.message);
+            }
+        });
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            if (!auth) return;
+            try { await signOut(auth); window.location.reload(); } catch (e) {}
+        });
 
 
         const categoryModal = document.getElementById('category-manager-modal');
@@ -413,7 +444,7 @@
             });
         }
 
-        // ✨ Sidebar Index
+        // Sidebar Index
         function renderSidebar(categories) {
             const nav = document.getElementById('sidebar-nav');
             if (!nav) return;
@@ -777,41 +808,123 @@
             }
         }
 
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                currentUser = user;
-                document.getElementById('auth-status').classList.replace('bg-amber-500', 'bg-emerald-500');
-                document.getElementById('auth-text').innerText = user.displayName ? `嗨，${user.displayName}` : "已登入";
-                document.getElementById('login-btn').classList.add('hidden'); document.getElementById('logout-btn').classList.remove('hidden');
-                setupRealtimeListeners(user.uid);
-                
-                const urlParams = new URLSearchParams(window.location.search);
-                const editorId = urlParams.get('editor');
-                const editorCol = urlParams.get('col');
-                if (editorId && editorCol) {
-                    getDoc(doc(db, 'artifacts', appId, 'users', user.uid, editorCol, editorId))
-                        .then(docSnap => {
-                            if (docSnap.exists()) {
-                                const editorUrl = `${window.location.pathname}?editor=${encodeURIComponent(editorId)}&col=${encodeURIComponent(editorCol)}`;
-                                history.replaceState({ overlay: null }, '', window.location.pathname);
-                                history.pushState({ overlay: 'editor', itemId: editorId, collectionName: editorCol }, '', editorUrl);
-                                openEditor(editorId, docSnap.data().text || '無標題', editorCol, { fromHistory: true });
-                            } else {
-                                history.replaceState({ overlay: null }, '', window.location.pathname);
-                            }
-                        }).catch(err => console.error(err));
+        function openSettingsModal() {
+            closeSidebar();
+            
+            // 回填 Firebase Config 與狀態
+            const storedFb = localStorage.getItem('firebaseConfig');
+            const fbInput = document.getElementById('firebase-config-input');
+            const fbBadge = document.getElementById('firebase-status-badge');
+            const clearFbBtn = document.getElementById('clear-firebase-btn');
+            if (storedFb) {
+                const parsed = parseFirebaseConfig(storedFb);
+                if (fbInput) fbInput.value = parsed ? JSON.stringify(parsed, null, 2) : storedFb;
+                if (fbBadge) {
+                    fbBadge.innerText = parsed?.projectId ? `已連線: ${parsed.projectId}` : '已設定';
+                    fbBadge.className = 'text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-100 text-emerald-700';
                 }
-                
-                handleIncomingShare();
-                processPendingShare();
+                if (clearFbBtn) clearFbBtn.classList.remove('hidden');
             } else {
-                currentUser = null;
-                document.getElementById('auth-status').classList.replace('bg-emerald-500', 'bg-amber-500');
-                document.getElementById('auth-text').innerText = "請先登入";
-                document.getElementById('login-btn').classList.remove('hidden'); document.getElementById('logout-btn').classList.add('hidden');
-                handleIncomingShare();
+                if (fbInput) fbInput.value = '';
+                if (fbBadge) {
+                    fbBadge.innerText = '未設定';
+                    fbBadge.className = 'text-[10px] px-2 py-0.5 rounded font-bold bg-amber-100 text-amber-700';
+                }
+                if (clearFbBtn) clearFbBtn.classList.add('hidden');
             }
-        });
+
+            const apiKeyInput = document.getElementById('api-key-input');
+            const imgbbKeyInput = document.getElementById('imgbb-key-input');
+            const autoSortSelect = document.getElementById('auto-sort-select');
+            if (apiKeyInput) apiKeyInput.value = localStorage.getItem('geminiApiKey') || '';
+            if (imgbbKeyInput) imgbbKeyInput.value = localStorage.getItem('imgbbApiKey') || '';
+            if (autoSortSelect) autoSortSelect.value = localStorage.getItem('autoSortSetting') || 'off'; 
+            updateAiStatusPanel();
+            document.getElementById('settings-modal')?.classList.remove('hidden');
+        }
+
+        function renderUnconfiguredState() {
+            currentUser = null;
+            const authStatus = document.getElementById('auth-status');
+            const authText = document.getElementById('auth-text');
+            const loginBtn = document.getElementById('login-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+            const inboxList = document.getElementById('inbox-list');
+
+            if (authStatus) {
+                authStatus.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 shadow-inner shrink-0';
+            }
+            if (authText) {
+                authText.innerText = "未設定資料庫";
+            }
+            if (loginBtn) {
+                loginBtn.classList.remove('hidden');
+                loginBtn.innerHTML = '<i class="fas fa-cog text-indigo-500 mr-1"></i>設定資料庫';
+            }
+            if (logoutBtn) {
+                logoutBtn.classList.add('hidden');
+            }
+            if (inboxList) {
+                inboxList.innerHTML = `
+                    <li class="bg-amber-50/70 p-6 rounded-xl border border-amber-200 text-slate-700 text-center ignore-drag">
+                        <div class="font-bold text-base mb-1 text-slate-800">尚未設定專屬 Firebase 資料庫</div>
+                        <p class="text-xs text-slate-500 mb-4 max-w-sm mx-auto leading-relaxed">
+                            本專案採用自帶資料庫（BYOD）架構，資料僅儲存於你個人的 Firebase 中。請前往系統設定填入你的 Firebase Config。
+                        </p>
+                        <button type="button" id="inbox-setup-btn" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
+                            前往設定 Firebase
+                        </button>
+                    </li>
+                `;
+                const setupBtn = document.getElementById('inbox-setup-btn');
+                if (setupBtn) {
+                    setupBtn.addEventListener('click', () => {
+                        openSettingsModal();
+                    });
+                }
+            }
+        }
+
+        if (isFirebaseConfigured && auth) {
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    currentUser = user;
+                    document.getElementById('auth-status').classList.replace('bg-amber-500', 'bg-emerald-500');
+                    document.getElementById('auth-text').innerText = user.displayName ? `嗨，${user.displayName}` : "已登入";
+                    document.getElementById('login-btn').classList.add('hidden'); document.getElementById('logout-btn').classList.remove('hidden');
+                    setupRealtimeListeners(user.uid);
+                    
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const editorId = urlParams.get('editor');
+                    const editorCol = urlParams.get('col');
+                    if (editorId && editorCol) {
+                        getDoc(doc(db, 'artifacts', appId, 'users', user.uid, editorCol, editorId))
+                            .then(docSnap => {
+                                if (docSnap.exists()) {
+                                    const editorUrl = `${window.location.pathname}?editor=${encodeURIComponent(editorId)}&col=${encodeURIComponent(editorCol)}`;
+                                    history.replaceState({ overlay: null }, '', window.location.pathname);
+                                    history.pushState({ overlay: 'editor', itemId: editorId, collectionName: editorCol }, '', editorUrl);
+                                    openEditor(editorId, docSnap.data().text || '無標題', editorCol, { fromHistory: true });
+                                } else {
+                                    history.replaceState({ overlay: null }, '', window.location.pathname);
+                                }
+                            }).catch(err => console.error(err));
+                    }
+                    
+                    handleIncomingShare();
+                    processPendingShare();
+                } else {
+                    currentUser = null;
+                    document.getElementById('auth-status').classList.replace('bg-emerald-500', 'bg-amber-500');
+                    document.getElementById('auth-text').innerText = "請先登入";
+                    document.getElementById('login-btn').innerHTML = '<i class="fab fa-google text-red-500 mr-1"></i>登入';
+                    document.getElementById('login-btn').classList.remove('hidden'); document.getElementById('logout-btn').classList.add('hidden');
+                    handleIncomingShare();
+                }
+            });
+        } else {
+            renderUnconfiguredState();
+        }
 
         function checkAutoSortCondition() {
             if (isSorting || currentInboxItems.length === 0) return; 
@@ -1303,7 +1416,7 @@
         });
 
         // ==========================================
-        // ✨ ImgBB API 圖片上傳與表單提交流程
+        // ImgBB API 圖片上傳與表單提交流程
         // ==========================================
         const ideaInput = document.getElementById('idea-input');
         const imageUploadInput = document.getElementById('image-upload-input');
@@ -1582,8 +1695,8 @@
         function handleImageStaging(file) {
             const imgbbKey = localStorage.getItem('imgbbApiKey');
             if (!imgbbKey) {
-                alert("請先點擊右上角「⚙️ 系統設定」，填寫免費的 ImgBB API Key 才能解鎖圖片上傳功能！");
-                document.getElementById('settings-modal').classList.remove('hidden');
+                alert("請先點擊右上角「系統設定」，填寫免費的 ImgBB API Key 才能解鎖圖片上傳功能！");
+                openSettingsModal();
                 return;
             }
             
@@ -1651,7 +1764,16 @@ ${text}
         }
 
         document.getElementById('add-form').addEventListener('submit', async (e) => {
-            e.preventDefault(); if (!currentUser) return;
+            e.preventDefault();
+            if (!isFirebaseConfigured || !db) {
+                showToast('請先至「系統設定」設定 Firebase Config', 'fas fa-cog');
+                document.getElementById('settings-modal').classList.remove('hidden');
+                return;
+            }
+            if (!currentUser) {
+                showToast('請先登入 Google 帳號', 'fas fa-user-lock');
+                return;
+            }
             let text = ideaInput.value.trim(); 
             
             if (!text && !stagedImageFile) return;
@@ -1714,16 +1836,19 @@ ${text}
         });
 
         // ==========================================
-        // ✨ 設定邏輯與 AI 分類
+        // 設定邏輯與 AI 分類
         // ==========================================
         document.getElementById('settings-btn').addEventListener('click', () => {
-            closeSidebar();
-            document.getElementById('api-key-input').value = localStorage.getItem('geminiApiKey') || '';
-            document.getElementById('imgbb-key-input').value = localStorage.getItem('imgbbApiKey') || '';
-            document.getElementById('auto-sort-select').value = localStorage.getItem('autoSortSetting') || 'off'; 
-            updateAiStatusPanel();
-            document.getElementById('settings-modal').classList.remove('hidden');
+            openSettingsModal();
         });
+
+        document.getElementById('clear-firebase-btn')?.addEventListener('click', () => {
+            if (confirm('確定要清除自帶的 Firebase 資料庫設定嗎？清除後需重新設定才能同步與儲存資料。')) {
+                localStorage.removeItem('firebaseConfig');
+                window.location.reload();
+            }
+        });
+
         document.getElementById('settings-modal').addEventListener('click', (e) => {
             const settingsModal = document.getElementById('settings-modal');
             if (e.target === settingsModal) {
@@ -1746,12 +1871,36 @@ ${text}
         });
 
         document.getElementById('save-settings-btn').addEventListener('click', () => {
+            const rawFb = document.getElementById('firebase-config-input')?.value?.trim();
+            const prevFb = localStorage.getItem('firebaseConfig');
+            let fbNeedReload = false;
+
+            if (rawFb) {
+                const parsedFb = parseFirebaseConfig(rawFb);
+                if (!parsedFb) {
+                    alert('Firebase Config 格式無效！請確認包含 apiKey 與 projectId。');
+                    return;
+                }
+                const serialized = JSON.stringify(parsedFb, null, 2);
+                if (serialized !== prevFb) {
+                    localStorage.setItem('firebaseConfig', serialized);
+                    fbNeedReload = true;
+                }
+            } else if (prevFb) {
+                localStorage.removeItem('firebaseConfig');
+                fbNeedReload = true;
+            }
+
             const geminiKey = document.getElementById('api-key-input').value.trim();
             const imgbbKey = document.getElementById('imgbb-key-input').value.trim();
             if(geminiKey) { localStorage.setItem('geminiApiKey', geminiKey); if (document.getElementById('model-select').value) localStorage.setItem('geminiModel', document.getElementById('model-select').value); }
             if(imgbbKey) { localStorage.setItem('imgbbApiKey', imgbbKey); }
             localStorage.setItem('autoSortSetting', document.getElementById('auto-sort-select').value);
             document.getElementById('settings-modal').classList.add('hidden');
+
+            if (fbNeedReload) {
+                window.location.reload();
+            }
         });
 
         document.getElementById('ai-sort-btn').addEventListener('click', async () => {

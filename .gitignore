@@ -1,0 +1,5 @@
+node_modules/
+.codebase-memory/
+.DS_Store
+.env
+.env.*

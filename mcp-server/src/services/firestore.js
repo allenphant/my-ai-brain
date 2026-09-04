@@ -1,4 +1,5 @@
 import admin from 'firebase-admin';
+import fs from 'node:fs';
 
 let db = null;
 let currentAppId = 'my-personal-ai-brain';
@@ -20,9 +21,15 @@ export function initFirestore(options = {}) {
     let credential;
     if (serviceAccountKey) {
       try {
-        const parsedKey = typeof serviceAccountKey === 'string' && serviceAccountKey.trim().startsWith('{')
-          ? JSON.parse(serviceAccountKey)
-          : serviceAccountKey;
+        let parsedKey = serviceAccountKey;
+        if (typeof serviceAccountKey === 'string') {
+          const trimmed = serviceAccountKey.trim();
+          if (trimmed.startsWith('{')) {
+            parsedKey = JSON.parse(trimmed);
+          } else if (fs.existsSync(trimmed)) {
+            parsedKey = JSON.parse(fs.readFileSync(trimmed, 'utf8'));
+          }
+        }
         credential = admin.credential.cert(parsedKey);
       } catch (err) {
         throw new Error(`Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY: ${err.message}`);

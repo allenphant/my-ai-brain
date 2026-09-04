@@ -58,7 +58,7 @@ export function createMcpServer() {
       fromCategory: z.string().describe('來源分類 (如 inbox)'),
       toCategory: z.string().describe('目標分類 (如 todos)'),
       aiReasoning: z.string().optional().describe('Agent 的分類理由'),
-      tags: z.array(z.string()).optional().describe('自訂標籤陣列'),
+      tags: z.array(z.string()).optional().describe('標籤陣列 (受控白名單: 開源, AI提示詞, AI工具, AI Agent, Claude Code, 軟體開發, 前端開發, 系統架構, 雲端維運, 資訊安全, 學術研究, 資料分析, 影片與多媒體, 社群與傳播, 職涯與面試, 生活與健康, 時尚穿搭, 文件與排版)'),
       dryRun: z.boolean().optional().describe('若為 true 僅模擬變更')
     },
     async ({ itemId, fromCategory, toCategory, aiReasoning, tags, dryRun }) => {
@@ -78,7 +78,7 @@ export function createMcpServer() {
           itemId: z.string(),
           toCategory: z.string(),
           aiReasoning: z.string().optional(),
-          tags: z.array(z.string()).optional()
+          tags: z.array(z.string()).optional().describe('標籤 (受控白名單: 開源, AI提示詞, AI工具, AI Agent, Claude Code, 軟體開發, 前端開發, 系統架構, 雲端維運, 資訊安全, 學術研究, 資料分析, 影片與多媒體, 社群與傳播, 職涯與面試, 生活與健康, 時尚穿搭, 文件與排版)')
         })
       ).max(50).describe('待整理卡片陣列'),
       dryRun: z.boolean().optional().describe('若為 true 僅模擬變更')
@@ -97,10 +97,11 @@ export function createMcpServer() {
     {
       category: z.string().optional().describe('目標分類 (預設 inbox)'),
       text: z.string().describe('卡片標題或文字內容'),
-      noteText: z.string().optional().describe('卡片詳細筆記內容')
+      noteText: z.string().optional().describe('卡片詳細筆記內容'),
+      tags: z.array(z.string()).optional().describe('標籤 (受控白名單: 開源, AI提示詞, AI工具, AI Agent, Claude Code, 軟體開發, 前端開發, 系統架構, 雲端維運, 資訊安全, 學術研究, 資料分析, 影片與多媒體, 社群與傳播, 職涯與面試, 生活與健康, 時尚穿搭, 文件與排版)')
     },
-    async ({ category, text, noteText }) => {
-      const res = await domain.createItem(category, text, noteText);
+    async ({ category, text, noteText, tags }) => {
+      const res = await domain.createItem(category, text, noteText, tags);
       return {
         content: [{ type: 'text', text: JSON.stringify(res, null, 2) }]
       };

@@ -353,6 +353,20 @@
                 <button id="close-modal-btn" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
             </div>
             
+            <!-- Firebase 設定 (自帶資料庫 BYOD) -->
+            <div class="mb-5 pb-4 border-b border-slate-100">
+                <div class="flex justify-between items-center mb-1.5">
+                    <label class="block text-sm font-semibold text-slate-700">Firebase 資料庫 (BYOD)</label>
+                    <span id="firebase-status-badge" class="text-[10px] px-2 py-0.5 rounded font-bold bg-slate-100 text-slate-600">檢測中</span>
+                </div>
+                <div class="text-xs text-slate-500 mb-2">請貼上你在 Firebase Console 建立的 Web 應用設定（支援 JSON 或直接貼上程式碼）：</div>
+                <textarea id="firebase-config-input" rows="4" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "..." }' class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary/50 outline-none text-xs font-mono"></textarea>
+                <div class="flex justify-between items-center mt-1.5">
+                    <a href="https://console.firebase.google.com/" target="_blank" class="text-xs text-indigo-500 hover:underline"><i class="fas fa-external-link-alt"></i> 前往 Firebase Console</a>
+                    <button type="button" id="clear-firebase-btn" class="text-xs text-rose-500 hover:underline hidden">清除資料庫設定</button>
+                </div>
+            </div>
+            
             <div class="mb-4">
                 <label class="block text-sm font-semibold text-slate-700 mb-2">Google Gemini API Key</label>
                 <div class="flex flex-col sm:flex-row gap-2 mb-1">

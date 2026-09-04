@@ -54,7 +54,8 @@ const sseTransports = new Map();
 
 // --- 1. Streamable HTTP Transport (/mcp) ---
 const streamableTransport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: undefined // stateless mode for wide compatibility
+  sessionIdGenerator: undefined, // stateless mode for wide compatibility
+  enableJsonResponse: true
 });
 const mcpStreamableServer = createMcpServer();
 await mcpStreamableServer.connect(streamableTransport);
@@ -90,7 +91,7 @@ app.post('/messages', verifyBearerToken, async (req, res) => {
   if (!transport) {
     return res.status(404).json({ error: 'Session not found or expired' });
   }
-  await transport.handlePostMessage(req, res);
+  await transport.handlePostMessage(req, res, req.body);
 });
 
 // Start Server only if executed directly
