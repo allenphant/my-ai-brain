@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3000;
 const MCP_API_KEY = process.env.MCP_API_KEY;
 
 if (!MCP_API_KEY) {
-  console.warn('⚠️ WARNING: MCP_API_KEY is not set. Requests will be rejected.');
+  console.warn('[WARNING] MCP_API_KEY is not set. Requests will be rejected.');
 }
 
 // Constant-time token verification
@@ -99,15 +99,15 @@ const isDirectExecution = process.argv[1] && fileURLToPath(import.meta.url) === 
 if (isDirectExecution) {
   try {
     initFirestore();
-    console.log('✅ Scoped Firestore initialized successfully.');
+    console.log('[OK] Scoped Firestore initialized successfully.');
   } catch (err) {
-    console.warn(`⚠️ Firestore initialization deferred: ${err.message}`);
+    console.warn(`[WARN] Firestore initialization deferred: ${err.message}`);
   }
 
   app.listen(PORT, () => {
-    console.log(`🚀 Remote MCP Server listening on port ${PORT}`);
-    console.log(`📡 Streamable HTTP Endpoint: http://localhost:${PORT}/mcp`);
-    console.log(`📡 Legacy SSE Endpoint: http://localhost:${PORT}/sse`);
+    console.log(`Remote MCP Server listening on port ${PORT}`);
+    console.log(`Streamable HTTP Endpoint: http://localhost:${PORT}/mcp`);
+    console.log(`Legacy SSE Endpoint: http://localhost:${PORT}/sse`);
   });
 }
 

@@ -1,27 +1,27 @@
-# 🧠 My Personal AI Brain - Remote MCP Server
+# My Personal AI Brain - Remote MCP Server
 
 這是 **My Personal AI Brain** 的專屬遠端 **Model Context Protocol (MCP) Server**。  
 支援最新 MCP 2025-11-25 規範的 **Streamable HTTP (`/mcp`)** 與向後相容的 **Legacy SSE (`/sse`)**，能讓任何外部 AI Agent（例如 Claude Desktop、Cursor、Antigravity 或其他訂閱的遠端 Agentic 系統）安全地讀取、檢索、分類與建立你的個人 Firestore 靈感碎片與筆記。
 
 ---
 
-## ✨ 核心特色
+## 核心特色
 
-1. ⚡ **雙協定支援**：
+1. **雙協定支援**：
    * 最新標準：`POST/GET /mcp` (Streamable HTTP)
    * 舊版相容：`GET /sse` + `POST /messages` (Legacy SSE)
-2. 🔐 **安全與隔離 (Zero Leakage)**：
+2. **安全與隔離 (Zero Leakage)**：
    * 強制常數時間 Bearer Token 驗證 (`crypto.timingSafeEqual`)。
    * 資料讀寫嚴格限定在 `DEFAULT_USER_UID` 底下，杜絕跨用戶越權。
-3. 🌐 **SSRF 內網防護**：
+3. **SSRF 內網防護**：
    * `read_url_content` 工具內建 IP 攔截機制，禁止存取 `localhost`、RFC1918 私有網段與雲端 Metadata 服務。
-4. 🧱 **前端完全相容與原子性**：
+4. **前端完全相容與原子性**：
    * `move_item` 與 `delete_item` 採用 Firestore `runTransaction` 同步遷移/刪除 `details/note` 子集合，杜絕孤兒筆記。
    * 自動維護 `order: Date.now()` 排序欄位，確保前端 SortableJS 拖曳順序不崩潰。
 
 ---
 
-## 🛠️ 可用 MCP 工具 (Tools)
+## 可用 MCP 工具 (Tools)
 
 | 工具名稱 | 用途說明 |
 | :--- | :--- |
@@ -37,7 +37,7 @@
 
 ---
 
-## 🚀 快速開始 (本地運行)
+## 快速開始 (本地運行)
 
 ### 1. 安裝套件
 ```bash
@@ -68,7 +68,7 @@ npm start
 
 ---
 
-## ☁️ 雲端一鍵部署
+## 雲端一鍵部署
 
 ### 部署至 Render / Fly.io / Docker
 
@@ -80,7 +80,7 @@ npm start
 
 ---
 
-## 🔌 外部 Agent 連線設定 (Client Config)
+## 外部 Agent 連線設定 (Client Config)
 
 ### 在 Claude Desktop (或支援 MCP 的客戶端) 中設定：
 

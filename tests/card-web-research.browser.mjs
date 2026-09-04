@@ -49,6 +49,8 @@ const firebaseFirestoreModule = `
     const toPath = parts => parts.map(part => typeof part === 'string' ? part : part?.path || '').filter(Boolean).join('/');
     export const getFirestore = () => ({});
     export const collection = (...parts) => ({ path: toPath(parts) });
+    export const where = (field, operator, value) => ({ field, operator, value });
+    export const query = (ref, ...constraints) => ({ ...ref, constraints });
     export const doc = (...parts) => ({ path: toPath(parts) });
     export const addDoc = async () => ({ id: 'new-id' });
     export const deleteDoc = async () => {};
@@ -61,12 +63,20 @@ const firebaseFirestoreModule = `
         globalThis.__mockSetDocWrites.push({ path: ref.path, data, options });
     };
     export const getDoc = async ref => {
+        if (ref.path.endsWith('/settings/tags')) {
+            return { exists: () => true, data: () => ({ items: [{ id: 'ai', name: 'AI' }, { id: 'design', name: '設計' }] }) };
+        }
         const cardTexts = {
             'card-1': '測試文章 https://success.example',
             'card-2': '冷卻文章 https://cooldown.example',
             'card-3': '配額文章 https://quota.example',
             'card-4': '錯誤文章 https://error.example',
-            'card-5': '沒有網址的普通卡片'
+            'card-5': '沒有網址的普通卡片',
+            'card-6': '空回傳文章 https://empty.example',
+            'card-7': '影片貼文 https://video.example',
+            'card-8': 'Jina 錯誤 https://jina-error.example',
+            'card-9': '原始影片 https://youtu.be/DTKR9d0GpYs',
+            'card-10': '待回補影片 https://youtu.be/ABCDEFGHIJK'
         };
         const cardId = Object.keys(cardTexts).find(id => ref.path.endsWith('/inbox/' + id));
         if (cardId) {
@@ -84,14 +94,30 @@ const firebaseFirestoreModule = `
         return { exists: () => false, data: () => ({}) };
     };
     export const onSnapshot = (ref, callback) => {
+        if (ref.path.endsWith('/automationUsers/test-user')) {
+            queueMicrotask(() => callback({ exists: () => false, data: () => ({}) }));
+            return () => {};
+        }
+        if (ref.path.endsWith('/settings/tags')) {
+            queueMicrotask(() => callback({
+                exists: () => true,
+                data: () => ({ items: [{ id: 'ai', name: 'AI' }, { id: 'design', name: '設計' }] })
+            }));
+            return () => {};
+        }
         let rows = [];
         if (ref.path.endsWith('/inbox')) {
             rows = [
-                { id: 'card-1', data: () => ({ text: '測試文章 https://success.example', createdAt: 3 }) },
-                { id: 'card-2', data: () => ({ text: '冷卻文章 https://cooldown.example', createdAt: 2 }) },
-                { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', createdAt: 1 }) },
-                { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', createdAt: 0 }) },
-                { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) }
+                { id: 'card-1', data: () => ({ text: '測試文章 https://success.example', tagIds: ['ai', 'design'], createdAt: 3 }) },
+                { id: 'card-2', data: () => ({ text: '冷卻文章 https://cooldown.example', tagIds: ['ai'], researchSearchText: '完成', createdAt: 2 }) },
+                { id: 'card-3', data: () => ({ text: '配額文章 https://quota.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: 1 }) },
+                { id: 'card-4', data: () => ({ text: '錯誤文章 https://error.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: 0 }) },
+                { id: 'card-5', data: () => ({ text: '沒有網址的普通卡片', createdAt: -1 }) },
+                { id: 'card-6', data: () => ({ text: '空回傳文章 https://empty.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -2 }) },
+                { id: 'card-7', data: () => ({ text: '影片貼文 https://video.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -3 }) },
+                { id: 'card-8', data: () => ({ text: 'Jina 錯誤 https://jina-error.example', tagIds: ['archived'], researchSearchText: '完成', createdAt: -4 }) },
+                { id: 'card-9', data: () => ({ text: '原始影片 https://youtu.be/DTKR9d0GpYs', tagIds: ['archived'], researchSearchText: '完成', createdAt: -5 }) },
+                { id: 'card-10', data: () => ({ text: '待回補影片 https://youtu.be/ABCDEFGHIJK', createdAt: -6 }) }
             ];
         } else if (ref.path.endsWith('/categories')) {
             rows = [
@@ -99,30 +125,63 @@ const firebaseFirestoreModule = `
                 { id: 'bookmarks', data: () => ({ name: '稍後閱讀', icon: 'fas fa-bookmark', type: 'bookmark', order: 2 }) }
             ];
         } else if (ref.path.endsWith('/todos')) {
-            rows = [{ id: 'todo-1', data: () => ({ text: '待辦網址 https://todo.example', createdAt: 1 }) }];
+            rows = [{ id: 'todo-1', data: () => ({ text: '待辦網址 https://todo.example', tagIds: ['design'], researchSearchText: '完成', createdAt: 1 }) }];
         } else if (ref.path.endsWith('/bookmarks')) {
-            rows = [{ id: 'bookmark-1', data: () => ({ text: '書籤網址 https://bookmark.example', createdAt: 1 }) }];
+            rows = [{ id: 'bookmark-1', data: () => ({ text: '書籤網址 https://bookmark.example', tagIds: ['ai', 'design'], researchSearchText: '完成', createdAt: 1 }) }];
         }
-        queueMicrotask(() => callback({ forEach: handler => rows.forEach(handler) }));
+        queueMicrotask(() => callback({ docs: rows, forEach: handler => rows.forEach(handler) }));
         return () => {};
     };
     export const runTransaction = async (db, operation) => {
         globalThis.__mockTransactionWrites ||= [];
         if (globalThis.__mockTransactionShouldFail) throw new Error('Mock append failure');
         const transaction = {
-            get: async () => ({
-                exists: () => true,
-                data: () => ({
-                    data: {
-                        time: 100,
-                        version: '2.30.0',
-                        blocks: [{ type: 'paragraph', data: { text: '既有筆記' } }]
+            get: async ref => {
+                if (ref.path.endsWith('/settings/tags')) {
+                    return { exists: () => true, data: () => ({ items: [{ id: 'ai', name: 'AI' }, { id: 'design', name: '設計' }] }) };
+                }
+                if (/\\/(?:inbox|todos|bookmarks)\\/[^/]+$/.test(ref.path)) {
+                    if (globalThis.__mockTransactionCardMissing) {
+                        return { exists: () => false, data: () => ({}) };
                     }
-                })
-            }),
+                    const storedText = ref.path.endsWith('/bookmarks/bookmark-1')
+                        ? '書籤網址 https://bookmark.example'
+                        : ref.path.endsWith('/inbox/card-10')
+                        ? '待回補影片 https://youtu.be/ABCDEFGHIJK'
+                        : '測試文章 https://success.example';
+                    return { exists: () => true, data: () => ({
+                        text: globalThis.__mockTransactionCardText || storedText,
+                        tagIds: ['ai'],
+                        researchSearchText: '先前研讀'
+                    }) };
+                }
+                return {
+                    exists: () => true,
+                    data: () => ({
+                        data: {
+                            time: 100,
+                            version: '2.30.0',
+                            blocks: [{ type: 'paragraph', data: { text: '既有筆記' } }]
+                        }
+                    })
+                };
+            },
             set: (ref, data, options) => globalThis.__mockTransactionWrites.push({ path: ref.path, data, options })
         };
         return operation(transaction);
+    };
+`;
+
+const firebaseFunctionsModule = `
+    export const getFunctions = () => ({});
+    export const httpsCallable = (functions, name) => async payload => {
+        globalThis.__mockCallableCalls ||= [];
+        globalThis.__mockCallableCalls.push({ name, payload });
+        return {
+            data: name === 'updateResearchAutomation'
+                ? { ok: true, settings: payload }
+                : { created: true, reason: 'queued', status: 'queued' }
+        };
     };
 `;
 
@@ -143,6 +202,9 @@ const browserGlobalsModule = `
     window.Checklist = class {};
     window.Quote = class {};
     window.Marker = class {};
+    window.InlineCode = class {};
+    window.CodeTool = class {};
+    window.Delimiter = class {};
     window.Undo = class { constructor() {} };
 `;
 
@@ -165,11 +227,19 @@ try {
     const pageErrors = [];
     const consoleMessages = [];
     let geminiPosts = 0;
+    let webResearchPosts = 0;
+    let verificationPosts = 0;
+    let mistralPosts = 0;
+    let mistralModelGets = 0;
+    let jinaGets = 0;
+    const jinaRequests = [];
+    const requestedGeminiModels = [];
+    const researchPostBodies = [];
 
     page.on('pageerror', error => pageErrors.push(error.message));
     page.on('console', message => consoleMessages.push(`${message.type()}: ${message.text()}`));
     await page.setRequestInterception(true);
-    page.on('request', request => {
+    page.on('request', async request => {
         const url = request.url();
         if (url.startsWith(baseUrl)) {
             request.continue();
@@ -187,6 +257,104 @@ try {
             request.respond({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' }, contentType: 'text/javascript', body: firebaseFirestoreModule });
             return;
         }
+        if (url.includes('firebase-functions.js')) {
+            request.respond({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' }, contentType: 'text/javascript', body: firebaseFunctionsModule });
+            return;
+        }
+        if (url.startsWith('https://r.jina.ai/http')) {
+            const jinaCorsHeaders = {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Max-Tokens, X-Retain-Media',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+            };
+            if (request.method() === 'OPTIONS') {
+                request.respond({ status: 204, headers: jinaCorsHeaders });
+                return;
+            }
+            if (url.includes('jina-error.example')) {
+                request.abort('connectionfailed');
+                return;
+            }
+            jinaGets += 1;
+            jinaRequests.push({ url, headers: request.headers() });
+            const sourceUrl = url.replace('https://r.jina.ai/', '');
+            request.respond({
+                status: 200,
+                headers: jinaCorsHeaders,
+                contentType: 'application/json',
+                body: JSON.stringify({ data: {
+                    title: 'Jina 擷取的公開頁面',
+                    url: sourceUrl,
+                    content: sourceUrl.includes('video.example')
+                        ? '[Video 1](https://cdn.example/clip.mp4)'
+                        : `這是由 Jina Reader 從 ${sourceUrl} 擷取的公開文字，內容足夠讓 Gemini 整理。`
+                } })
+            });
+            return;
+        }
+        if (url.startsWith('https://api.mistral.ai/v1/')) {
+            const mistralCorsHeaders = {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+            };
+            if (request.method() === 'OPTIONS') {
+                request.respond({ status: 204, headers: mistralCorsHeaders });
+                return;
+            }
+            if (request.method() === 'GET' && url.endsWith('/models')) {
+                mistralModelGets += 1;
+                request.respond({
+                    status: 200,
+                    headers: mistralCorsHeaders,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ data: [
+                        { id: 'mistral-small-2603', archived: false, capabilities: { completion_chat: true } },
+                        { id: 'mistral-future-2701', archived: false, capabilities: { completion_chat: true } },
+                        { id: 'mistral-embedding', archived: false, capabilities: { completion_chat: false } }
+                    ] })
+                });
+                return;
+            }
+            mistralPosts += 1;
+            const postData = request.postData() || '';
+            if (postData.includes('quota.example') || postData.includes('"model":"mistral-quota-test"')) {
+                request.respond({
+                    status: 429,
+                    headers: { ...mistralCorsHeaders, 'Retry-After': '23' },
+                    contentType: 'application/json',
+                    body: JSON.stringify({ message: 'Mistral rate limit exceeded' })
+                });
+                return;
+            }
+            request.respond({
+                status: 200,
+                headers: mistralCorsHeaders,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    choices: [{
+                        finish_reason: 'stop',
+                        message: { content: JSON.stringify({
+                            tldr: '這是一篇由 Mistral 整理的設計工具介紹。',
+                            evaluation: '可作為設計工作流程參考。',
+                            details: '文章說明工具用途與適合的使用情境。',
+                            matchedTagIds: ['design'],
+                            suggestedTags: ['Mistral 整理']
+                        }) }
+                    }]
+                })
+            });
+            return;
+        }
+        if (url.startsWith('https://www.youtube.com/oembed?')) {
+            request.respond({
+                status: 200,
+                headers: { 'Access-Control-Allow-Origin': '*' },
+                contentType: 'application/json',
+                body: JSON.stringify({ title: '測試 YouTube 原始標題' })
+            });
+            return;
+        }
         if (url.includes('generativelanguage.googleapis.com')) {
             const corsHeaders = {
                 'Access-Control-Allow-Origin': '*',
@@ -197,22 +365,104 @@ try {
                 request.respond({ status: 204, headers: corsHeaders });
                 return;
             }
+            if (request.method() === 'GET' && url.includes('/v1beta/models?')) {
+                if (url.includes('key=query-race-key')) {
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                }
+                request.respond({
+                    status: 200,
+                    headers: corsHeaders,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ models: [
+                        { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-3.1-flash-lite', displayName: 'Gemini 3.1 Flash-Lite', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-6.0-race', displayName: 'Gemini 6 Race', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-7.0-server-error', displayName: 'Gemini 7 Server Error', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-8.0-no-search', displayName: 'Gemini 8 No Search', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/gemini-9.0-flash', displayName: 'Gemini 9 Flash', supportedGenerationMethods: ['generateContent'] },
+                        { name: 'models/text-embedding-004', displayName: 'Embedding', supportedGenerationMethods: ['embedContent'] }
+                    ] })
+                });
+                return;
+            }
             geminiPosts += 1;
-            if ((request.postData() || '').includes('quota.example')) {
+            const postData = request.postData() || '';
+            const modelMatch = url.match(/\/models\/([^:]+):generateContent/);
+            if (modelMatch) requestedGeminiModels.push(modelMatch[1]);
+            if (postData.includes('只回覆「SEARCH_OK」')) {
+                verificationPosts += 1;
+                if (url.includes('/gemini-6.0-race:')) {
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                }
+                if (url.includes('/gemini-7.0-server-error:')) {
+                    request.respond({
+                        status: 500,
+                        headers: corsHeaders,
+                        contentType: 'application/json',
+                        body: JSON.stringify({ error: { status: 'INTERNAL', message: 'Temporary server failure' } })
+                    });
+                    return;
+                }
+                if (url.includes('/gemini-3.1-flash-lite:')) {
+                    request.respond({
+                        status: 429,
+                        headers: corsHeaders,
+                        contentType: 'application/json',
+                        body: JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED', message: 'Temporary quota exhausted' } })
+                    });
+                    return;
+                }
+                if (url.includes('/gemini-8.0-no-search:')) {
+                    request.respond({
+                        status: 400,
+                        headers: corsHeaders,
+                        contentType: 'application/json',
+                        body: JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'google_search tool is not supported' } })
+                    });
+                    return;
+                }
+                request.respond({
+                    status: 200,
+                    headers: corsHeaders,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'SEARCH_OK' }] } }] })
+                });
+                return;
+            }
+            webResearchPosts += 1;
+            researchPostBodies.push(postData);
+            if (postData.includes('quota.example')) {
                 request.respond({
                     status: 429,
                     headers: corsHeaders,
                     contentType: 'application/json',
-                    body: JSON.stringify({ error: { message: 'Quota exceeded 429' } })
+                    body: JSON.stringify({ error: {
+                        status: 'RESOURCE_EXHAUSTED',
+                        message: 'Quota exceeded',
+                        details: [
+                            { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] },
+                            { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '21s' }
+                        ]
+                    } })
                 });
                 return;
             }
-            if ((request.postData() || '').includes('error.example')) {
+            if (postData.includes('error.example')) {
                 request.respond({
                     status: 500,
                     headers: corsHeaders,
                     contentType: 'application/json',
-                    body: JSON.stringify({ error: { message: 'Server failure' } })
+                    body: JSON.stringify({ error: { message: 'Server failure <img src=x onerror="globalThis.__xss=true"> AIzaSyDefinitelySecretValue' } })
+                });
+                return;
+            }
+            if (postData.includes('empty.example')) {
+                request.respond({
+                    status: 200,
+                    headers: corsHeaders,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ thought: true, text: 'private chain of thought' }] } }] })
                 });
                 return;
             }
@@ -223,7 +473,17 @@ try {
                 body: JSON.stringify({
                     candidates: [{
                         finishReason: 'STOP',
-                        content: { parts: [{ text: 'AI 整理結果\nhttps://success.example' }] }
+                        content: { parts: [
+                            { thought: true, text: '內部推理不得顯示' },
+                            { inlineData: { mimeType: 'text/plain', data: 'ignored' } },
+                            { text: JSON.stringify({
+                                tldr: '這是一篇設計工具介紹。',
+                                evaluation: '適合作為設計工作流程參考。',
+                                details: '文章說明工具用途與適合的使用情境。',
+                                matchedTagIds: ['design'],
+                                suggestedTags: ['設計工具']
+                            }) }
+                        ] }
                     }]
                 })
             });
@@ -261,24 +521,413 @@ try {
 
     assert.equal(await page.$('#polish-link-btn'), null);
     assert.equal(await page.$('#polish-add-card-btn'), null);
-    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 6);
+    assert.equal(await page.$$eval('.web-research-btn', elements => elements.length), 11);
     assert.equal(await page.$('li[data-id="card-5"] .web-research-btn'), null);
     assert.equal(await page.$eval('.web-research-btn', element => element.innerText.trim()), 'AI 研讀');
+    assert.equal(await page.$$eval('.notebooklm-research-btn', elements => elements.length), 2);
+    await page.evaluate(() => {
+        globalThis.__notebookLmOpenArgs = null;
+        globalThis.__notebookLmCopiedUrl = '';
+        window.open = (...args) => {
+            globalThis.__notebookLmOpenArgs = args;
+            return null;
+        };
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: {
+                writeText: async value => {
+                    globalThis.__notebookLmCopiedUrl = value;
+                }
+            }
+        });
+    });
+    await page.click('li[data-id="card-9"] .notebooklm-research-btn');
+    await page.waitForFunction(() => globalThis.__notebookLmCopiedUrl);
+    assert.deepEqual(
+        await page.evaluate(() => ({
+            opened: globalThis.__notebookLmOpenArgs,
+            copied: globalThis.__notebookLmCopiedUrl
+        })),
+        {
+            opened: ['https://notebooklm.google.com/', '_blank', 'noopener,noreferrer'],
+            copied: 'https://youtu.be/DTKR9d0GpYs'
+        }
+    );
     await page.screenshot({ path: '/tmp/my-ai-brain-card-research.png', fullPage: false });
+
+    await page.click('#help-center-btn');
+    await page.waitForFunction(() => !document.querySelector('#help-center-modal').classList.contains('hidden'));
+    assert.equal(await page.$$eval('[data-help-target]', buttons => buttons.length), 7);
+    assert.match(await page.$eval('#help-center-content', element => element.textContent), /收集 → 研讀 → 整理 → 找回/);
+    assert.equal(
+        await page.$eval('#help-deployment a', link => link.href),
+        'https://allenphant.github.io/my-ai-brain/'
+    );
+    await page.click('[data-help-target="help-deployment"]');
+    assert.equal(
+        await page.$eval('[data-help-target="help-deployment"]', button => button.classList.contains('text-emerald-700')),
+        true
+    );
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => document.querySelector('#help-center-modal').classList.contains('hidden'));
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => !document.querySelector('#help-center-modal').classList.contains('hidden'));
+    await page.click('#close-help-center-btn');
+    await page.waitForFunction(() => document.querySelector('#help-center-modal').classList.contains('hidden'));
+
+    await page.click('#global-search-btn');
+    await page.waitForFunction(() => !document.querySelector('#global-search-modal').classList.contains('hidden'));
+    await page.waitForFunction(() => document.activeElement === document.querySelector('#global-search-input'));
+    assert.equal(await page.$eval('#global-search-input', input => document.activeElement === input), true);
+    await page.type('#global-search-input', '完成 配額');
+    await page.waitForFunction(() => document.querySelectorAll('[data-search-card]').length === 1);
+    assert.deepEqual(
+        await page.$$eval('[data-search-group]', groups => groups.map(group => group.getAttribute('data-search-group'))),
+        ['inbox']
+    );
+    assert.equal(await page.$eval('[data-search-card]', card => card.getAttribute('data-id')), 'card-3');
+    assert.match(await page.$eval('[data-search-card]', card => card.textContent), /符合：AI 詳細筆記/);
+    await page.click('#clear-global-search-btn');
+    await page.type('#global-search-input', '設計');
+    await page.waitForFunction(() => document.querySelectorAll('[data-search-card]').length === 3);
+    assert.deepEqual(
+        await page.$$eval('[data-search-group]', groups => groups.map(group => group.getAttribute('data-search-group'))),
+        ['inbox', 'todos', 'bookmarks']
+    );
+    await page.screenshot({ path: '/tmp/my-ai-brain-global-search.png', fullPage: false });
+    await page.click('[data-search-group="inbox"] [data-search-card] [data-tag-card-open]');
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    assert.equal(await page.$eval('#global-search-modal', element => element.classList.contains('hidden')), false);
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => document.querySelector('#global-search-modal').classList.contains('hidden'));
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => !document.querySelector('#global-search-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#global-search-input', input => input.value), '設計');
+    await page.click('#close-global-search-btn');
+    await page.waitForFunction(() => document.querySelector('#global-search-modal').classList.contains('hidden'));
+
+    await page.click('#tag-browser-btn');
+    await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#tag-backfill-count', element => element.textContent), '2');
+    await page.click('#tag-backfill-toggle-btn');
+    assert.equal(await page.$eval('#tag-backfill-panel', element => element.classList.contains('hidden')), false);
+    assert.deepEqual(
+        await page.$$eval('[data-backfill-card]', cards => cards.map(card => card.getAttribute('data-backfill-card'))),
+        ['inbox/card-1', 'inbox/card-10']
+    );
+    assert.equal(await page.$eval('#start-tag-backfill-btn', element => element.disabled), true);
+    await page.click('[data-backfill-select="inbox/card-1"]');
+    assert.equal(await page.$eval('#start-tag-backfill-btn', element => element.disabled), false);
+    await page.click('#tag-backfill-toggle-btn');
+    assert.deepEqual(
+        await page.$$eval('[data-tag-browser-group]', groups => groups.map(group => group.getAttribute('data-tag-browser-group'))),
+        ['inbox', 'todos', 'bookmarks']
+    );
+    assert.match(await page.$eval('[data-tag-filter-id="ai"]', element => element.textContent), /3/);
+    assert.match(await page.$eval('[data-tag-filter-id="design"]', element => element.textContent), /3/);
+    assert.equal(await page.$eval('#clear-tag-filter-btn', element => element.classList.contains('hidden')), true);
+    await page.click('[data-tag-filter-id="ai"]');
+    assert.equal(await page.$eval('#clear-tag-filter-btn', element => element.classList.contains('hidden')), false);
+    await page.click('[data-tag-filter-id="design"]');
+    assert.deepEqual(
+        await page.$$eval('[data-tag-browser-group]', groups => groups.map(group => ({
+            id: group.getAttribute('data-tag-browser-group'),
+            cards: [...group.querySelectorAll('[data-tag-browser-card]')].map(card => card.getAttribute('data-id'))
+        }))),
+        [
+            { id: 'inbox', cards: ['card-1'] },
+            { id: 'bookmarks', cards: ['bookmark-1'] }
+        ]
+    );
+    await page.click('[data-tag-match-mode="any"]');
+    assert.deepEqual(
+        await page.$$eval('[data-tag-browser-group]', groups => groups.map(group => group.getAttribute('data-tag-browser-group'))),
+        ['inbox', 'todos', 'bookmarks']
+    );
+    await page.screenshot({ path: '/tmp/my-ai-brain-tag-browser.png', fullPage: false });
+    await page.click('[data-tag-browser-group="inbox"] [data-tag-browser-card][data-id="card-1"] [data-tag-card-open]');
+    await page.waitForFunction(() => document.body.classList.contains('editor-open'));
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
+    assert.equal(await page.$eval('#tag-browser-modal', element => element.classList.contains('hidden')), false);
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.click('#close-tag-browser-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+
+    await page.$eval('#settings-btn', button => button.click());
+    assert.match(await page.$eval('#web-research-system-prompt', element => element.value), /TL;DR/);
+    assert.equal(await page.$eval('#mistral-settings-container', element => element.classList.contains('hidden')), false);
+    assert.deepEqual(
+        await page.$$eval('#tag-manager-list input', inputs => inputs.map(input => input.value)),
+        ['AI', '設計']
+    );
+    assert.equal(
+        await page.$eval('#tag-manager-list input', input => input.scrollWidth <= input.clientWidth),
+        true
+    );
+    assert.equal(
+        await page.$$eval('[data-backfill-approval-mode="auto"]', buttons => buttons.length),
+        2
+    );
+    await page.evaluate(() => {
+        const input = document.querySelector('#idea-input');
+        input.value = 'https://example.com/mobile-paste手機說明';
+        input.selectionStart = input.selectionEnd = input.value.length;
+        input.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertFromPaste'
+        }));
+    });
+    assert.equal(
+        await page.$eval('#idea-input', input => input.value),
+        'https://example.com/mobile-paste\n手機說明'
+    );
+    await page.$eval('#idea-input', input => { input.value = ''; });
+    await page.$eval('#new-tag-input', input => { input.value = '研究'; });
+    await page.click('#add-tag-btn');
+    assert.equal(await page.$$eval('#tag-manager-list input', inputs => inputs.some(input => input.value === '研究')), true);
+    await page.$eval('#web-research-system-prompt', input => { input.value = '自訂研讀提示：只根據來源輸出繁體中文。'; });
+    await page.screenshot({ path: '/tmp/my-ai-brain-jina-settings.png', fullPage: false });
+    await page.$eval('#mistral-api-key-input', input => {
+        input.value = 'fake-mistral-key';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.$eval('#jina-api-key-input', input => {
+        input.value = 'fake-jina-key';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.click('#save-gemini-key-btn');
+    await page.click('#save-mistral-key-btn');
+    await page.click('#save-jina-key-btn');
+    assert.deepEqual(await page.evaluate(() => ({
+        gemini: localStorage.getItem('geminiApiKey'),
+        mistral: localStorage.getItem('mistralApiKey'),
+        jina: localStorage.getItem('jinaApiKey')
+    })), {
+        gemini: 'fake-key',
+        mistral: 'fake-mistral-key',
+        jina: 'fake-jina-key'
+    });
+    await page.click('#close-modal-btn');
+    await page.$eval('#settings-btn', button => button.click());
+    assert.deepEqual(await page.evaluate(() => ({
+        gemini: document.querySelector('#api-key-input').value,
+        mistral: document.querySelector('#mistral-api-key-input').value,
+        jina: document.querySelector('#jina-api-key-input').value,
+        mistralStatus: document.querySelector('#mistral-key-save-status').textContent
+    })), {
+        gemini: 'fake-key',
+        mistral: 'fake-mistral-key',
+        jina: 'fake-jina-key',
+        mistralStatus: 'Mistral Key 已儲存於此瀏覽器。 關閉設定後仍會保留。'
+    });
+    await page.$eval('#new-tag-input', input => { input.value = '研究'; });
+    await page.click('#add-tag-btn');
+    await page.$eval('#web-research-system-prompt', input => { input.value = '自訂研讀提示：只根據來源輸出繁體中文。'; });
+    assert.deepEqual(
+        await page.$$eval('#auto-research-interval-select option', options => options.map(option => option.value)),
+        ['off', '6h', '12h', 'daily', '3d', 'weekly']
+    );
+    await page.select('#auto-research-interval-select', 'daily');
+    assert.match(await page.$eval('#auto-research-schedule-status', element => element.textContent), /立即執行/);
+    await page.select('#auto-research-interval-select', 'off');
+    await page.click('#verify-mistral-key-btn');
+    await page.waitForFunction(() => document.querySelectorAll('#mistral-web-research-model-select option').length === 2);
+    assert.equal(mistralModelGets, 1);
+    assert.deepEqual(
+        await page.$$eval('#mistral-web-research-model-select option', options => options.map(option => option.value)),
+        ['mistral-small-2603', 'mistral-future-2701']
+    );
+    assert.equal(await page.$eval('#web-research-provider-select', select => select.value), 'mistral');
+    await page.select('#web-research-provider-select', 'gemini');
+    await page.click('#verify-key-btn');
+    await page.waitForFunction(() => !document.querySelector('#model-select-container').classList.contains('hidden'));
+    await page.waitForFunction(() => !document.querySelector('#web-research-model-select-container').classList.contains('hidden'));
+    assert.deepEqual(
+        await page.$$eval('#model-select option', options => options.map(option => option.value)),
+        ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-6.0-race', 'gemini-7.0-server-error', 'gemini-8.0-no-search', 'gemini-9.0-flash']
+    );
+    assert.deepEqual(
+        await page.$$eval('#web-research-model-select option', options => options.map(option => option.value)),
+        ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-6.0-race', 'gemini-7.0-server-error', 'gemini-8.0-no-search', 'gemini-9.0-flash']
+    );
+    assert.deepEqual(
+        await page.$$eval('#web-research-candidate-select option', options => options.map(option => option.value)),
+        ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-6.0-race', 'gemini-7.0-server-error', 'gemini-8.0-no-search', 'gemini-9.0-flash']
+    );
+    await page.click('#web-research-model-discovery summary');
+    await page.select('#model-select', 'gemini-3.1-flash-lite');
+    await page.select('#web-research-candidate-select', 'gemini-9.0-flash');
+    await page.click('#verify-web-research-model-btn');
+    await page.waitForFunction(
+        () => Array.from(document.querySelectorAll('#web-research-model-select option')).some(option => option.value === 'gemini-9.0-flash'),
+        { timeout: 5_000 }
+    ).catch(async error => {
+        console.error(JSON.stringify({
+            verificationPosts,
+            requestedGeminiModels,
+            status: await page.$eval('#web-research-model-verification-status', element => element.textContent),
+            options: await page.$$eval('#web-research-model-select option', options => options.map(option => option.value)),
+            pageErrors,
+            consoleMessages
+        }, null, 2));
+        throw error;
+    });
+    assert.equal(verificationPosts, 1);
+    await page.select('#web-research-candidate-select', 'gemini-7.0-server-error');
+    await page.click('#verify-web-research-model-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('gemini-7.0-server-error 暫時無法驗證'));
+    assert.equal(
+        await page.$eval('#web-research-candidate-select', select => Array.from(select.options).some(option => option.value === 'gemini-7.0-server-error')),
+        true,
+        '5xx verification must leave the model retryable'
+    );
+    await page.select('#web-research-candidate-select', 'gemini-6.0-race');
+    await page.click('#verify-web-research-model-btn');
+    await page.$eval('#api-key-input', input => { input.value = 'changed-key'; });
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('已丟棄這次測試結果'));
+    assert.equal(
+        await page.evaluate(() => Object.keys(localStorage).some(key => key.endsWith(':gemini-6.0-race'))),
+        false,
+        'a probe completed for a stale API key must not be cached'
+    );
+    await page.$eval('#api-key-input', input => { input.value = 'fake-key'; });
+    await page.select('#web-research-candidate-select', 'gemini-3.1-flash-lite');
+    await page.click('#verify-web-research-model-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('這不代表模型不支援'));
+    assert.equal(
+        await page.$eval('#web-research-candidate-select', select => Array.from(select.options).some(option => option.value === 'gemini-3.1-flash-lite')),
+        true,
+        '429 verification must leave the model retryable'
+    );
+    await page.select('#web-research-candidate-select', 'gemini-8.0-no-search');
+    await page.click('#verify-web-research-model-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('明確回覆不支援'));
+    assert.equal(
+        await page.$eval('#web-research-candidate-select', select => Array.from(select.options).some(option => option.value === 'gemini-8.0-no-search')),
+        false,
+        'clear 400 unsupported response should be cached and removed from candidates'
+    );
+    assert.equal(verificationPosts, 5);
+    assert.equal(await page.$eval('#web-research-model-select', select => Array.from(select.options).some(option => option.value === 'gemini-9.0-flash')), true);
+    await page.waitForFunction(() => !document.querySelector('#verify-key-btn').disabled);
+    await page.$eval('#api-key-input', input => { input.value = 'query-race-key'; });
+    await page.click('#verify-key-btn');
+    await page.$eval('#api-key-input', input => { input.value = 'fake-key'; });
+    await page.waitForFunction(() => document.querySelector('#web-research-model-verification-status').textContent.includes('已丟棄舊 Key'));
+    assert.equal(await page.$eval('#web-research-model-select', select => Array.from(select.options).some(option => option.value === 'gemini-9.0-flash')), true);
+    await page.select('#web-research-model-select', 'gemini-9.0-flash');
+    await page.click('#save-settings-btn');
+    assert.deepEqual(await page.evaluate(() => ({
+        general: localStorage.getItem('geminiModel'),
+        web: localStorage.getItem('geminiWebResearchModel'),
+        provider: localStorage.getItem('webResearchProvider'),
+        mistralKey: localStorage.getItem('mistralApiKey'),
+        mistralModel: localStorage.getItem('mistralWebResearchModel'),
+        prompt: localStorage.getItem('webResearchSystemPrompt')
+    })), {
+        general: 'gemini-3.1-flash-lite',
+        web: 'gemini-9.0-flash',
+        provider: 'gemini',
+        mistralKey: 'fake-mistral-key',
+        mistralModel: 'mistral-small-2603',
+        prompt: '自訂研讀提示：只根據來源輸出繁體中文。'
+    });
+    assert.equal(
+        await page.evaluate(() => (globalThis.__mockSetDocWrites || []).some(write =>
+            write.path.endsWith('/settings/tags') && write.data.items.some(tag => tag.name === '研究')
+        )),
+        true
+    );
+
+    await page.$eval('#settings-btn', button => button.click());
+    await page.$eval('#api-key-input', input => {
+        input.value = 'new-unqueried-key';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    assert.equal(await page.$eval('#model-select-container', element => element.classList.contains('hidden')), true);
+    assert.equal(await page.$eval('#web-research-model-select-container', element => element.classList.contains('hidden')), true);
+    await page.click('#save-settings-btn');
+    assert.equal(await page.$eval('#settings-modal', element => element.classList.contains('hidden')), false);
+    assert.equal(await page.evaluate(() => localStorage.getItem('geminiApiKey')), 'fake-key');
+    await page.$eval('#api-key-input', input => {
+        input.value = 'fake-key';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.click('#verify-key-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-model-select-container').classList.contains('hidden'));
+    assert.equal(await page.$eval('#web-research-model-select', select => select.value), 'gemini-9.0-flash');
+    await page.click('#save-settings-btn');
+
+    await page.evaluate(() => {
+        localStorage.setItem('webResearchProvider', 'mistral');
+        localStorage.removeItem('lastWebPolishTime');
+    });
+    await page.click('li[data-id="card-1"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.match(
+        await page.$eval('#web-research-preview-content', element => element.textContent),
+        /由 Mistral 整理/
+    );
+    assert.equal(mistralPosts, 1);
+    await page.click('#cancel-web-research-preview-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden')).catch(error => {
+        console.error(JSON.stringify({ pageErrors, consoleMessages }, null, 2));
+        throw error;
+    });
+    await page.evaluate(() => {
+        localStorage.setItem('webResearchProvider', 'gemini');
+        localStorage.removeItem('lastWebPolishTime');
+    });
 
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
-    assert.equal(
-        await page.$eval('#web-research-preview-content', element => element.textContent),
-        'AI 整理結果\nhttps://success.example'
+    assert.equal(await page.$eval('#web-research-preview-source-title', element => element.textContent), 'Jina 擷取的公開頁面');
+    assert.match(await page.$eval('#web-research-preview-source-text', element => element.textContent), /測試文章 https:\/\/success\.example/);
+    assert.equal(await page.$eval('#web-research-preview-source-url', element => element.getAttribute('href')), 'https://success.example/');
+    assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /^TL;DR：這是一篇設計工具介紹。/);
+    assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /一句話評價：適合作為設計工作流程參考。/);
+    assert.match(await page.$eval('#web-research-preview-content', element => element.textContent), /來源：https:\/\/success\.example\/$/);
+    assert.deepEqual(
+        await page.$$eval('#web-research-preview-tags input', inputs => inputs.map(input => ({ value: input.value, checked: input.checked }))),
+        [{ value: 'design', checked: true }, { value: 'new:設計工具', checked: true }]
     );
-    assert.equal(geminiPosts, 1);
+    await page.screenshot({ path: '/tmp/my-ai-brain-jina-preview.png', fullPage: false });
+    assert.equal(webResearchPosts, 1);
+    assert.equal(jinaGets, 2);
+    assert.match(researchPostBodies[0], /自訂研讀提示/);
+    assert.match(researchPostBodies[0], /Jina Reader/);
+    assert.equal(jinaRequests[0].headers.accept, 'application/json');
+    assert.equal(jinaRequests[0].headers['x-retain-media'], 'link');
+    assert.equal(jinaRequests[0].headers['x-max-tokens'], '5000');
+    assert.equal(requestedGeminiModels.at(-1), 'gemini-9.0-flash');
 
     await page.click('#cancel-web-research-preview-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     await page.click('li[data-id="card-1"] .web-research-btn');
     await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
-    assert.equal(geminiPosts, 1, 'cache hit must not make a second Gemini POST');
+    assert.equal(webResearchPosts, 1, 'cache hit must not make a second Gemini POST');
+    assert.equal(jinaGets, 2, 'cache hit must not make a second Jina request');
+    await page.$eval('#web-research-preview-tags input[value="design"]', input => { input.checked = false; });
+
+    await page.evaluate(() => { globalThis.__mockTransactionCardMissing = true; });
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#append-web-research-btn').disabled);
+    assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), false);
+    assert.equal(await page.evaluate(() => globalThis.__mockTransactionWrites.length), 0);
+    await page.evaluate(() => { globalThis.__mockTransactionCardMissing = false; });
+
+    await page.evaluate(() => { globalThis.__mockTransactionCardText = '已由其他裝置改成 https://changed.example'; });
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#append-web-research-btn').disabled);
+    assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), false);
+    assert.equal(await page.evaluate(() => globalThis.__mockTransactionWrites.length), 0);
+    await page.evaluate(() => { globalThis.__mockTransactionCardText = ''; });
 
     await page.evaluate(() => { globalThis.__mockTransactionShouldFail = true; });
     await page.click('#append-web-research-btn');
@@ -290,31 +939,66 @@ try {
     await page.click('#append-web-research-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     const writes = await page.evaluate(() => globalThis.__mockTransactionWrites);
-    assert.equal(writes.length, 1);
-    assert.match(writes[0].path, /inbox\/card-1\/details\/note$/);
-    assert.equal(writes[0].data.data.blocks[0].data.text, '既有筆記');
-    assert.match(writes[0].data.data.blocks[1].data.text, /^AI 網址研讀｜/);
-    assert.equal(writes[0].data.data.blocks[2].data.text, 'AI 整理結果<br>https://success.example');
+    assert.equal(writes.length, 3);
+    const noteWrite = writes.find(write => write.path.endsWith('/inbox/card-1/details/note'));
+    const cardWrite = writes.find(write => write.path.endsWith('/inbox/card-1'));
+    const tagWrite = writes.find(write => write.path.endsWith('/settings/tags'));
+    assert.equal(noteWrite.data.data.blocks[0].data.text, '既有筆記');
+    assert.match(noteWrite.data.data.blocks[1].data.text, /^AI 網址研讀｜/);
+    assert.match(noteWrite.data.data.blocks[2].data.text, /^TL;DR：這是一篇設計工具介紹。/);
+    assert.equal(cardWrite.data.tagIds[0], 'ai');
+    assert.match(cardWrite.data.tagIds[1], /^tag-[a-z0-9]+$/);
+    assert.equal(cardWrite.data.tagLabels, undefined);
+    assert.match(cardWrite.data.cardSearchText, /測試文章/);
+    assert.match(cardWrite.data.researchSearchText, /^先前研讀\ntl;dr/);
+    assert.equal(cardWrite.data.tagSearchText, undefined);
+    assert.equal(tagWrite.data.items.some(tag => tag.name === '設計工具'), true);
     assert.match(await page.$eval('li[data-id="card-1"]', element => element.innerText), /測試文章/);
     assert.doesNotMatch(await page.$eval('li[data-id="card-1"]', element => element.innerText), /AI 整理結果/);
 
     await page.click('li[data-id="card-2"] .web-research-btn');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '冷卻中');
-    assert.equal(geminiPosts, 1, 'cooldown must block a different uncached card');
+    assert.equal(webResearchPosts, 1, 'cooldown must block a different uncached card');
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
 
     await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
     await page.click('li[data-id="card-3"] .web-research-btn');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '配額不足');
-    assert.equal(geminiPosts, 2);
+    assert.equal(webResearchPosts, 2);
+    const quotaStatus = await page.evaluate(() => JSON.parse(localStorage.getItem('aiStatus:web')));
+    assert.match(quotaStatus.detail, /gemini-9\.0-flash/);
+    assert.match(quotaStatus.detail, /HTTP 429/);
+    assert.match(quotaStatus.detail, /GenerateRequestsPerDayPerProjectPerModel-FreeTier/);
+    assert.match(quotaStatus.detail, /21s/);
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
 
     await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
     await page.click('li[data-id="card-4"] .web-research-btn');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '失敗');
-    assert.equal(geminiPosts, 3);
+    assert.equal(webResearchPosts, 3);
     assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
     assert.match(await page.$eval('li[data-id="card-4"]', element => element.innerText), /錯誤文章/);
+    const genericErrorStatus = await page.evaluate(() => JSON.parse(localStorage.getItem('aiStatus:web')));
+    assert.doesNotMatch(genericErrorStatus.detail, /AIzaSyDefinitelySecretValue/);
+    assert.equal(await page.evaluate(() => globalThis.__xss === true), false);
+    assert.equal(await page.$$eval('#toast-container img', images => images.length), 0);
+    assert.equal(consoleMessages.some(message => message.includes('AIzaSyDefinitelySecretValue')), false);
+
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('li[data-id="card-8"] .web-research-btn');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').status === '來源擷取失敗');
+    const jinaErrorStatus = await page.evaluate(() => JSON.parse(localStorage.getItem('aiStatus:web')));
+    assert.match(jinaErrorStatus.detail, /Jina Reader/);
+    assert.equal(webResearchPosts, 3, 'a Jina transport failure must not call Gemini');
+
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('li[data-id="card-6"] .web-research-btn');
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('aiStatus:web') || '{}').detail?.includes('parts: thought'));
+    const emptyStatus = await page.evaluate(() => JSON.parse(localStorage.getItem('aiStatus:web')));
+    assert.match(emptyStatus.detail, /HTTP 200/);
+    assert.match(emptyStatus.detail, /finishReason: STOP/);
+    assert.doesNotMatch(emptyStatus.detail, /private chain of thought/);
+    assert.equal(webResearchPosts, 4);
 
     await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
     await page.click('#list-todos li[data-id="todo-1"] .web-research-btn');
@@ -333,9 +1017,35 @@ try {
     await page.click('#append-web-research-btn');
     await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
     const allWrites = await page.evaluate(() => globalThis.__mockTransactionWrites);
-    assert.equal(allWrites.length, 2);
-    assert.match(allWrites[1].path, /bookmarks\/bookmark-1\/details\/note$/);
-    assert.equal(geminiPosts, 5);
+    const allNoteWrites = allWrites.filter(write => write.path.endsWith('/details/note'));
+    assert.equal(allNoteWrites.length, 2);
+    assert.match(allNoteWrites[1].path, /bookmarks\/bookmark-1\/details\/note$/);
+    assert.equal(webResearchPosts, 6);
+
+    await page.evaluate(() => localStorage.removeItem('lastWebPolishTime'));
+    await page.click('li[data-id="card-7"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.match(await page.$eval('#web-research-preview-media-notice', element => element.textContent), /影片內容未解析/);
+    assert.equal(await page.$eval('#web-research-preview-content', element => element.textContent), '頁面沒有可供解析的文字。');
+    assert.equal(await page.$eval('#web-research-preview-tags-container', element => element.classList.contains('hidden')), true);
+    assert.equal(webResearchPosts, 6, 'video-only sources must not ask Gemini to invent a summary');
+    await page.click('#cancel-web-research-preview-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+
+    const jinaGetsBeforeYoutube = jinaGets;
+    await page.click('li[data-id="card-9"] .web-research-btn');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#web-research-preview-source-title', element => element.textContent), '測試 YouTube 原始標題');
+    assert.equal(await page.$eval('#web-research-preview-source-url', element => element.getAttribute('href')), 'https://youtu.be/DTKR9d0GpYs');
+    assert.equal(await page.$eval('#web-research-preview-content', element => element.textContent), '影片無法解析。');
+    assert.deepEqual(
+        await page.$$eval('#web-research-preview-tags input', inputs => inputs.map(input => input.value)),
+        ['new:尚未解析的影片']
+    );
+    assert.equal(jinaGets, jinaGetsBeforeYoutube, 'direct video pages should not call Jina Reader');
+    assert.equal(webResearchPosts, 6, 'direct video pages should not call Gemini');
+    await page.click('#cancel-web-research-preview-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
 
     const externalPagePromise = new Promise(resolve => browser.once('targetcreated', async target => {
         const targetPage = await target.page();
@@ -393,7 +1103,7 @@ try {
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
     await waitForNextNoteWrite(noteWritesBeforeBack);
     await page.waitForFunction(
-        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected && write.data.cardSearchText === expected.toLocaleLowerCase('zh-Hant')),
         { timeout: 2_000 },
         '返回前修改標題'
     );
@@ -409,7 +1119,7 @@ try {
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
     await waitForNextNoteWrite(noteWritesBeforeEscape);
     await page.waitForFunction(
-        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected && write.data.cardSearchText === expected.toLocaleLowerCase('zh-Hant')),
         { timeout: 2_000 },
         'Escape 前修改標題'
     );
@@ -425,7 +1135,7 @@ try {
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
     await waitForNextNoteWrite(noteWritesBeforeCloseButton);
     await page.waitForFunction(
-        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected && write.data.cardSearchText === expected.toLocaleLowerCase('zh-Hant')),
         { timeout: 2_000 },
         '關閉鈕前修改標題'
     );
@@ -441,7 +1151,7 @@ try {
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
     await waitForNextNoteWrite(noteWritesBeforeBackdrop);
     await page.waitForFunction(
-        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected),
+        expected => (globalThis.__mockUpdateDocWrites || []).some(write => write.path.endsWith('/inbox/card-1') && write.data.text === expected && write.data.cardSearchText === expected.toLocaleLowerCase('zh-Hant')),
         { timeout: 2_000 },
         'Backdrop 前修改標題'
     );
@@ -470,16 +1180,147 @@ try {
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !document.body.classList.contains('editor-open'));
 
+    await page.click('#tag-browser-btn');
+    await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.click('#tag-backfill-toggle-btn');
+    await page.click('[data-backfill-select="inbox/card-1"]');
+    await page.click('[data-backfill-select="inbox/card-10"]');
+    await page.evaluate(() => localStorage.removeItem('geminiApiKey'));
+    await page.click('#start-tag-backfill-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('缺少 Gemini API Key'));
+    assert.equal(await page.$eval('#settings-modal', element => element.classList.contains('hidden')), true);
+    await page.evaluate(() => localStorage.setItem('geminiApiKey', 'fake-key'));
+    await page.evaluate(() => {
+        localStorage.removeItem('lastWebPolishTime');
+        Object.keys(localStorage)
+            .filter(key => key.startsWith('webPolishCache:'))
+            .forEach(key => localStorage.removeItem(key));
+    });
+    await page.click('#start-tag-backfill-btn');
+    await page.click('#close-tag-browser-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.waitForFunction(() => {
+        const key = Object.keys(localStorage).find(item => item.startsWith('aiResearchReviews:v1:'));
+        return key && JSON.parse(localStorage.getItem(key) || '[]').length === 2;
+    });
+    await page.click('#tag-browser-btn');
+    await page.waitForFunction(() => !document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('佇列完成'));
+    assert.equal(await page.$eval('#web-research-preview-modal', element => element.classList.contains('hidden')), true);
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '2');
+    await page.click('#tag-review-toggle-btn');
+    assert.equal(await page.$$eval('[data-research-review]', elements => elements.length), 2);
+    await page.click('[data-review-open="inbox/card-1"]');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.click('#cancel-web-research-preview-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '2');
+    await page.click('[data-review-open="inbox/card-1"]');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '1');
+    await page.click('[data-review-open="inbox/card-10"]');
+    await page.waitForFunction(() => !document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#web-research-preview-content', element => element.textContent), '影片無法解析。');
+    assert.deepEqual(
+        await page.$$eval('#web-research-preview-tags input', inputs => inputs.map(input => input.value)),
+        ['new:尚未解析的影片']
+    );
+    await page.click('#append-web-research-btn');
+    await page.waitForFunction(() => document.querySelector('#web-research-preview-modal').classList.contains('hidden'));
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '0');
+    assert.equal(await page.$$eval('[data-research-review]', elements => elements.length), 0);
+    const writesBeforeAutoApproval = await page.evaluate(() => globalThis.__mockTransactionWrites.length);
+    await page.click('#tag-backfill-toggle-btn');
+    await page.click('[data-backfill-select="inbox/card-1"]');
+    await page.click('[data-backfill-approval-mode="auto"]');
+    await page.evaluate(() => {
+        localStorage.removeItem('lastWebPolishTime');
+        Object.keys(localStorage)
+            .filter(key => key.startsWith('webPolishCache:'))
+            .forEach(key => localStorage.removeItem(key));
+    });
+    await page.click('#start-tag-backfill-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('已自動通過'));
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('佇列完成'));
+    assert.equal(await page.$eval('#tag-review-count', element => element.textContent), '0');
+    assert.equal(await page.evaluate(() => globalThis.__mockTransactionWrites.length), writesBeforeAutoApproval + 3);
+    await page.evaluate(() => {
+        localStorage.setItem('webResearchProvider', 'mistral');
+        localStorage.setItem('mistralWebResearchModel', 'mistral-quota-test');
+        localStorage.removeItem('lastWebPolishTime');
+        Object.keys(localStorage)
+            .filter(key => key.startsWith('webPolishCache:'))
+            .forEach(key => localStorage.removeItem(key));
+    });
+    await page.click('[data-backfill-select="inbox/card-1"]');
+    const mistralPostsBeforeQuotaQueue = mistralPosts;
+    await page.click('#start-tag-backfill-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-backfill-status').textContent.includes('Mistral 配額暫停'));
+    assert.match(await page.$eval('#tag-backfill-status', element => element.textContent), /保留第 1/);
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert.equal(mistralPosts, mistralPostsBeforeQuotaQueue + 1, 'quota pause must not keep sending requests');
+    await page.click('#cancel-tag-backfill-btn');
+    await page.evaluate(() => localStorage.setItem('webResearchProvider', 'gemini'));
+    await page.click('#close-tag-browser-btn');
+    await page.waitForFunction(() => document.querySelector('#tag-browser-modal').classList.contains('hidden'));
+
+    await page.evaluate(() => document.querySelector('[data-target="research-log"]')?.click());
+    await page.waitForFunction(() => !document.querySelector('#research-log-modal').classList.contains('hidden'));
+    assert.equal(await page.$$eval('#research-log-results article', entries => entries.length > 0), true);
+    assert.match(await page.$eval('#research-log-results', element => element.textContent), /Mistral 配額不足/);
+    assert.match(await page.$eval('#research-log-results', element => element.textContent), /處理方式/);
+    assert.doesNotMatch(await page.$eval('#research-log-results', element => element.textContent), /AIzaSyDefinitelySecretValue/);
+    await page.click('[data-research-log-filter="error"]');
+    assert.equal(await page.$$eval('#research-log-results article', entries => entries.length > 0), true);
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => document.querySelector('#research-log-modal').classList.contains('hidden'));
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => !document.querySelector('#research-log-modal').classList.contains('hidden'));
+    await page.click('#close-research-log-btn');
+    await page.waitForFunction(() => document.querySelector('#research-log-modal').classList.contains('hidden'));
+
+    await page.evaluate(() => localStorage.setItem('cloudResearchEnabled', 'on'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('li[data-id="card-1"] .web-research-btn');
+    assert.equal(
+        await page.$eval('li[data-id="card-1"] .web-research-btn span', element => element.textContent),
+        '雲端研讀'
+    );
+    await page.click('li[data-id="card-1"] .web-research-btn');
+    await page.waitForFunction(() =>
+        (globalThis.__mockCallableCalls || []).some(call =>
+            call.name === 'enqueueCardResearch'
+            && call.payload.collectionName === 'inbox'
+            && call.payload.cardId === 'card-1'
+        )
+    );
+
     assert.deepEqual(pageErrors, []);
     console.log(JSON.stringify({
         cardResearchButton: 'visible',
         geminiPosts,
+        webResearchPosts,
+        verificationPosts,
+        mistralPosts,
+        mistralModelGets,
         cacheHit: true,
         cooldownBlockedSecondCard: true,
         quotaErrorPreservedCard: true,
         genericErrorPreservedCard: true,
         appendFailureRetried: true,
         todoAndBookmarkRenderers: true,
+        helpCenterDocumentedAndNavigable: true,
+        globalSearchGroupedAndIndexed: true,
+        globalSearchBackForward: true,
+        tagBrowserGrouped: true,
+        tagBrowserBackForward: true,
+        selectiveBackfillQueue: true,
+        quotaBackfillPausedOnSameCard: true,
+        automaticResearchScheduleSettings: true,
+        cloudResearchEnqueued: true,
+        researchLogVisibleFilteredAndSanitized: true,
         overlayCloseControls: true,
         stackedBackOrder: true,
         deepLinkOpenedEditor: true,

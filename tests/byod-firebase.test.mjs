@@ -49,6 +49,8 @@ const firebaseFirestoreModule = `
     export const getFirestore = () => ({});
     export const collection = () => ({});
     export const doc = () => ({});
+    export const query = () => ({});
+    export const where = () => ({});
     export const addDoc = async () => ({ id: 'new-id' });
     export const deleteDoc = async () => {};
     export const updateDoc = async () => {};
@@ -56,6 +58,11 @@ const firebaseFirestoreModule = `
     export const getDoc = async () => ({ exists: () => false, data: () => ({}) });
     export const onSnapshot = () => (() => {});
     export const runTransaction = async () => {};
+`;
+
+const firebaseFunctionsModule = `
+    export const getFunctions = () => ({});
+    export const httpsCallable = () => (async () => ({ data: {} }));
 `;
 
 test('BYOD: Unconfigured Firebase state and settings configuration flow', async () => {
@@ -108,6 +115,10 @@ test('BYOD: Unconfigured Firebase state and settings configuration flow', async 
             }
             if (url.includes('firebase-firestore.js')) {
                 req.respond({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' }, contentType: 'text/javascript', body: firebaseFirestoreModule });
+                return;
+            }
+            if (url.includes('firebase-functions.js')) {
+                req.respond({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' }, contentType: 'text/javascript', body: firebaseFunctionsModule });
                 return;
             }
             if (req.resourceType() === 'script') {
