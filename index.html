@@ -917,6 +917,36 @@
         </div>
     </div>
 
+    <!-- Migration Modal (Local to Cloud) -->
+    <div id="migration-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div class="flex items-center gap-3 mb-4 text-indigo-600">
+                <i class="fas fa-cloud-arrow-up text-2xl"></i>
+                <h3 class="text-lg font-bold text-slate-800">偵測到本機離線資料</h3>
+            </div>
+            <p class="text-sm text-slate-600 mb-4 leading-relaxed">
+                你已成功登入 Firebase 雲端。本機目前累積了 <span id="migration-count" class="font-bold text-indigo-600">0</span> 筆離線卡片與自訂設定。是否要一鍵將資料匯入你的個人雲端資料庫？
+            </p>
+            <div id="migration-progress" class="hidden mb-4 p-3 bg-indigo-50 rounded-xl border border-indigo-100 text-xs text-indigo-700">
+                <div class="flex justify-between font-semibold mb-1">
+                    <span id="migration-progress-text">準備同步...</span>
+                    <span id="migration-progress-percent">0%</span>
+                </div>
+                <div class="w-full bg-indigo-200 h-1.5 rounded-full overflow-hidden">
+                    <div id="migration-progress-bar" class="bg-indigo-600 h-full w-0 transition-all duration-300"></div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button id="dismiss-migration-btn" type="button" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-500 hover:bg-slate-100 transition-colors">
+                    暫不匯入
+                </button>
+                <button id="confirm-migration-btn" type="button" class="px-4 py-2 rounded-lg text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm">
+                    一鍵同步至雲端
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script type="module" src="./app.js"></script>
 
     <!-- Mobile Sidebar Backdrop -->

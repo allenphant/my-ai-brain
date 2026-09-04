@@ -29,6 +29,9 @@ const browserGlobalsModule = `
     window.Checklist = class {};
     window.Quote = class {};
     window.Marker = class {};
+    window.InlineCode = class {};
+    window.CodeTool = class {};
+    window.Delimiter = class {};
     window.Undo = class { constructor() {} };
 `;
 
@@ -62,31 +65,30 @@ const firebaseFirestoreModule = `
 
 const firebaseFunctionsModule = `
     export const getFunctions = () => ({});
-    export const httpsCallable = () => (async () => ({ data: {} }));
+    export const httpsCallable = () => async () => ({ data: {} });
 `;
 
-test('BYOD: Unconfigured Firebase state and settings configuration flow', async () => {
-    const server = createServer(async (request, response) => {
+test('E2E: Local-First IndexedDB persistence across page reloads', async () => {
+    const server = createServer(async (req, res) => {
         try {
-            const requestedPath = new URL(request.url, 'http://127.0.0.1').pathname;
-            const relativePath = requestedPath === '/' ? 'index.html' : requestedPath.slice(1);
-            const filePath = normalize(join(root, relativePath));
-            if (!filePath.startsWith(normalize(root))) throw new Error('Invalid path');
-            const body = await readFile(filePath);
-            response.writeHead(200, { 'Content-Type': mimeTypes[extname(filePath)] || 'application/octet-stream' });
-            response.end(body);
-        } catch {
-            response.writeHead(404);
-            response.end('Not found');
+            const rawPath = req.url.split('?')[0];
+            const safePath = normalize(rawPath).replace(/^(\.\.[/\\])+/, '');
+            const filePath = join(root, safePath === '/' ? 'index.html' : safePath);
+            const content = await readFile(filePath);
+            const ext = extname(filePath);
+            res.writeHead(200, {
+                'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+                'Access-Control-Allow-Origin': '*'
+            });
+            res.end(content);
+        } catch (e) {
+            res.writeHead(404);
+            res.end('Not found');
         }
     });
 
-    await new Promise((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(0, '127.0.0.1', resolve);
-    });
-
-    const port = server.address().port;
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
     const baseUrl = `http://127.0.0.1:${port}`;
     const pageErrors = [];
 
@@ -128,7 +130,7 @@ test('BYOD: Unconfigured Firebase state and settings configuration flow', async 
             req.respond({ status: 200, body: '' });
         });
 
-        // 確保 localStorage 沒有 firebaseConfig
+        // 確保全新本機環境
         await page.evaluateOnNewDocument(() => {
             localStorage.clear();
         });
@@ -136,40 +138,57 @@ test('BYOD: Unconfigured Firebase state and settings configuration flow', async 
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
         await page.waitForSelector('#auth-text');
 
-        // 1. 驗證頂部狀態為「本機儲存模式」
+        // 1. 驗證本機模式狀態列
         const authText = await page.$eval('#auth-text', el => el.innerText);
         assert.equal(authText, '本機儲存模式');
 
-        // 2. 驗證登入按鈕變更為「連結雲端」
-        const loginBtnText = await page.$eval('#login-btn', el => el.innerText.trim());
-        assert.equal(loginBtnText.includes('連結雲端'), true);
-
-        // 3. 驗證主畫面已自動渲染 4 個本機預設分類
+        // 2. 驗證預設分類已在 IndexedDB 中就位並渲染
         await page.waitForSelector('#list-todos');
-        const hasTodos = await page.$eval('#list-todos', el => Boolean(el));
-        assert.equal(hasTodos, true);
+        await page.waitForSelector('#list-learning');
+        await page.waitForSelector('#list-ideas');
+        await page.waitForSelector('#list-bookmarks');
 
-        // 4. 點擊「連結雲端」按鈕應彈出設定視窗以供設定 Firebase
-        await page.click('#login-btn');
-        const isSettingsOpen = await page.$eval('#settings-modal', el => !el.classList.contains('hidden'));
-        assert.equal(isSettingsOpen, true);
+        // 3. 於快速輸入框新增一張本機卡片
+        await page.type('#idea-input', '這是一張本機離線卡片');
+        await page.$eval('#category-select', el => el.value = 'todos');
+        await page.click('#submit-btn');
 
-        // 5. 驗證設定視窗內的 Firebase 徽章與輸入框
-        const badgeText = await page.$eval('#firebase-status-badge', el => el.innerText.trim());
-        assert.equal(badgeText, '未設定');
-
-        // 6. 填入無效 Firebase 設定並儲存，應提示錯誤且不關閉 Modal
-        await page.$eval('#firebase-config-input', el => el.value = 'invalid json {');
-        let dialogMessage = '';
-        page.once('dialog', async dialog => {
-            dialogMessage = dialog.message();
-            await dialog.dismiss();
+        // 等待卡片出現在 todos 清單中
+        await page.waitForFunction(() => {
+            const list = document.querySelector('#list-todos');
+            return list && list.innerText.includes('這是一張本機離線卡片');
         });
-        await page.click('#save-settings-btn');
-        assert.equal(dialogMessage.includes('無效'), true);
-        const isStillOpen = await page.$eval('#settings-modal', el => !el.classList.contains('hidden'));
-        assert.equal(isStillOpen, true);
 
+        // 4. 打勾完成此卡片
+        const checkbox = await page.$('#list-todos .todo-checkbox');
+        assert.ok(checkbox);
+        await checkbox.click();
+        await page.waitForSelector('#list-todos .todo-item-completed');
+
+        // 5. 重新整理頁面，驗證 IndexedDB 持久化保留了卡片與完成狀態
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await page.waitForSelector('#list-todos');
+
+        await page.waitForFunction(() => {
+            const list = document.querySelector('#list-todos');
+            return list && list.innerText.includes('這是一張本機離線卡片');
+        });
+
+        const reloadedCheckboxChecked = await page.$eval('#list-todos .todo-checkbox', el => el.checked);
+        assert.equal(reloadedCheckboxChecked, true);
+
+        // 6. 點擊卡片開啟 Editor
+        await page.click('#list-todos li');
+        await page.waitForSelector('#editor-modal:not(.hidden)');
+        const editorTitle = await page.$eval('#editor-title', el => el.innerText);
+        assert.equal(editorTitle, '這是一張本機離線卡片');
+
+        // 關閉 Editor
+        await page.click('#editor-close-btn');
+
+        if (pageErrors.length > 0) {
+            console.error('Page errors caught:', pageErrors);
+        }
         assert.equal(pageErrors.length, 0);
     } finally {
         await browser.close();
