@@ -232,6 +232,15 @@
                 <button id="tag-browser-btn" type="button" class="min-h-9 shrink-0 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 transition-colors hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-300" aria-haspopup="dialog" aria-controls="tag-browser-modal">
                     <i class="fas fa-tags mr-1"></i><span class="hidden sm:inline">Tag 瀏覽</span>
                 </button>
+                <button id="knowledge-graph-btn" type="button" class="min-h-9 shrink-0 rounded-lg bg-sky-50 px-3 text-xs font-bold text-sky-700 transition-colors hover:bg-sky-100 focus:outline-none focus:ring-2 focus:ring-sky-300" aria-haspopup="dialog" aria-controls="knowledge-graph-modal">
+                    <svg class="mr-1 inline-block h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="18" cy="5" r="3"></circle>
+                        <circle cx="6" cy="12" r="3"></circle>
+                        <circle cx="18" cy="19" r="3"></circle>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg><span class="hidden sm:inline">知識圖譜</span>
+                </button>
                 <button id="help-center-btn" type="button" class="min-h-9 shrink-0 rounded-lg bg-emerald-50 px-3 text-xs font-bold text-emerald-700 transition-colors hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300" aria-haspopup="dialog" aria-controls="help-center-modal">
                     <i class="fas fa-circle-question mr-1"></i><span class="hidden sm:inline">使用說明</span>
                 </button>
@@ -545,6 +554,118 @@
                     <p class="mt-1 text-sm text-slate-400">請調整 Tag 或切換「符合任一」。</p>
                 </div>
             </div>
+        </div>
+    </div>
+    <!-- 2D 知識圖譜全螢幕互動視窗 -->
+    <div id="knowledge-graph-modal" class="hidden fixed inset-0 z-[90] bg-slate-950 flex flex-col" role="dialog" aria-modal="true" aria-labelledby="knowledge-graph-title">
+        <!-- 頂部懸浮控制列 -->
+        <div class="flex items-center justify-between border-b border-slate-800 bg-slate-900/90 px-4 py-3 backdrop-blur-md z-10 shrink-0">
+            <div class="flex items-center gap-3 min-w-0 flex-1">
+                <div class="flex items-center gap-2 shrink-0">
+                    <svg class="h-5 w-5 text-indigo-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="18" cy="5" r="3"></circle>
+                        <circle cx="6" cy="12" r="3"></circle>
+                        <circle cx="18" cy="19" r="3"></circle>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg>
+                    <h2 id="knowledge-graph-title" class="text-base md:text-lg font-bold text-white shrink-0">知識圖譜</h2>
+                </div>
+                <!-- 搜尋輸入框 -->
+                <div class="relative max-w-xs w-full hidden sm:block">
+                    <input id="graph-search-input" type="text" placeholder="搜尋節點或關鍵實體..." class="w-full rounded-xl bg-slate-800/80 border border-slate-700 px-3 py-1.5 pl-8 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                    <svg class="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                </div>
+                <!-- 實體快速篩選 Chips -->
+                <div id="graph-entity-chips" class="hidden md:flex items-center gap-1.5 overflow-x-auto custom-scrollbar py-0.5 max-w-xl">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- 控制動作按鈕 -->
+            <div class="flex items-center gap-2 shrink-0 ml-3">
+                <button id="graph-reset-view-btn" type="button" class="min-h-9 rounded-xl bg-slate-800 px-3 text-xs font-semibold text-slate-300 hover:bg-slate-700 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500" title="重設視角">
+                    <svg class="mr-1 inline-block h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                        <path d="M3 3v5h5"></path>
+                    </svg>
+                    <span class="hidden sm:inline">重設視角</span>
+                </button>
+                <button id="close-knowledge-graph-btn" type="button" class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-slate-500" aria-label="關閉知識圖譜">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- 圖譜畫布與右側抽屜主體 -->
+        <div class="relative flex-1 min-h-0 overflow-hidden bg-slate-950">
+            <!-- Canvas 容器 -->
+            <canvas id="knowledge-graph-canvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+
+            <!-- 圖例與資訊提示 (左下角) -->
+            <div class="absolute bottom-4 left-4 rounded-xl bg-slate-900/80 p-2.5 backdrop-blur-md border border-slate-800 text-[11px] text-slate-400 pointer-events-none hidden sm:flex flex-col gap-1.5">
+                <div class="flex items-center gap-3">
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#38bdf8]"></span>待學習</span>
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#818cf8]"></span>收藏</span>
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#34d399]"></span>待辦</span>
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#fbbf24]"></span>點子</span>
+                </div>
+                <div id="graph-stats-hint" class="text-slate-500">滾輪或雙指捏合可縮放，拖曳可平移</div>
+            </div>
+
+            <!-- 右側知識脈絡抽屜 (Inspector Drawer) -->
+            <aside id="knowledge-graph-drawer" class="translate-x-full transition-transform duration-300 ease-in-out absolute top-0 right-0 bottom-0 w-full sm:w-96 bg-slate-900/95 border-l border-slate-800 shadow-2xl flex flex-col z-20 backdrop-blur-md">
+                <!-- 抽屜頂部 -->
+                <div class="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+                    <span id="graph-drawer-category" class="rounded-full bg-indigo-950/80 text-indigo-300 border border-indigo-700/50 px-2.5 py-0.5 text-xs font-semibold">分類</span>
+                    <button id="close-graph-drawer-btn" type="button" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+                <!-- 抽屜滾動內容 -->
+                <div class="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                    <div>
+                        <h3 id="graph-drawer-title" class="text-base font-bold text-white leading-snug">卡片標題</h3>
+                        <p id="graph-drawer-tldr" class="mt-2 text-xs text-slate-300 bg-slate-800/60 p-2.5 rounded-xl border border-slate-700/60 leading-relaxed hidden"></p>
+                    </div>
+
+                    <!-- 實體與標籤清單 -->
+                    <div>
+                        <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">核心實體與標籤</div>
+                        <div id="graph-drawer-tags" class="flex flex-wrap gap-1.5"></div>
+                    </div>
+
+                    <!-- 雙向關聯節點 (Direct Links) -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">雙向關聯鏈結</span>
+                            <span id="graph-drawer-links-count" class="text-[10px] rounded-full bg-slate-800 px-2 py-0.5 text-slate-400">0</span>
+                        </div>
+                        <ul id="graph-drawer-links" class="space-y-1.5 text-xs"></ul>
+                    </div>
+                </div>
+
+                <!-- 抽屜底部操作列 -->
+                <div class="border-t border-slate-800 p-3 bg-slate-900 shrink-0">
+                    <button id="graph-locate-card-btn" type="button" class="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-500 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                            <polyline points="15 3 21 3 21 9"></polyline>
+                            <line x1="10" y1="14" x2="21" y2="3"></line>
+                        </svg>
+                        在看板中定位此卡片
+                    </button>
+                </div>
+            </aside>
         </div>
     </div>
     <div id="research-log-modal" class="hidden fixed inset-0 z-[95] bg-slate-900/55 backdrop-blur-sm md:p-4" role="dialog" aria-modal="true" aria-labelledby="research-log-title">
