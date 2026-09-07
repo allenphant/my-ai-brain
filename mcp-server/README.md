@@ -32,7 +32,9 @@
 | `batch_classify_items` | 一次批次整理最多 50 筆收件匣碎片。 |
 | `create_item` | 在指定分類建立新卡片（若傳入 noteText 會自動轉為 Editor.js JSON 格式）。 |
 | `delete_item` | 刪除卡片與關聯的筆記子集合。 |
-| `search_items` | 跨分類模糊搜尋卡片文字。 |
+| `search_items` | 跨分類全文搜尋卡片標題、正文與標籤（具備權重評分與 TL;DR 預覽）。 |
+| `get_knowledge_graph` | 取得雙向鏈結知識圖譜 (LLM Wiki & Graph Network)，輸出 Obsidian 風格 `[[雙向鏈結]]` 與實體拓撲。 |
+| `enrich_media_card` | 對指定卡片執行多模態影音/多圖深入解析（自動提取開源庫/指令/代碼、產出結構化筆記並對齊標籤）。 |
 | `read_url_content` | 抓取並解析目標網址的正文內容（SSRF 安全防護，以 Readability 抽取乾淨 Markdown）。 |
 
 ---

@@ -139,6 +139,43 @@ export function createMcpServer() {
   );
 
   server.tool(
+    'get_knowledge_graph',
+    '取得個人大腦的雙向鏈結知識圖譜 (LLM Wiki & Graph Network)。支援以關鍵字、標籤或卡片ID查詢關聯節點與脈絡，輸出 Obsidian 風格的 [[雙向鏈結]] Markdown 與圖譜拓撲。',
+    {
+      query: z.string().optional().describe('查詢核心：關鍵字、標籤名稱或卡片 ID (若留空則展示全庫核心技術樞紐)'),
+      maxNodes: z.number().min(5).max(50).optional().describe('最大節點數量 (預設 20)'),
+      minWeight: z.number().min(1).max(10).optional().describe('最低關聯權重門檻 (預設 2)')
+    },
+    async ({ query, maxNodes, minWeight }) => {
+      const { buildKnowledgeGraph } = await import('./services/graph.js');
+      const res = await buildKnowledgeGraph({ query, maxNodes, minWeight });
+      return {
+        content: [
+          { type: 'text', text: res.wikiMarkdown },
+          { type: 'text', text: `\n\n\`\`\`json\n${JSON.stringify(res.graph, null, 2)}\n\`\`\`` }
+        ]
+      };
+    }
+  );
+
+  server.tool(
+    'enrich_media_card',
+    '對指定卡片執行多模態影音/多圖深入解析 (支援 Instagram Reel、YouTube、Carousel 多圖貼文)，自動提取工具清單、產出結構化筆記、對齊標籤並建立全文檢索索引。',
+    {
+      itemId: z.string().describe('卡片 ID'),
+      category: z.string().optional().describe('卡片所在分類 (若不確定可留空，將全庫自動定位)'),
+      forceRefresh: z.boolean().optional().describe('若為 true 則強制覆蓋現有筆記重新解析')
+    },
+    async ({ itemId, category, forceRefresh }) => {
+      const { enrichMediaCard } = await import('./services/media_enricher.js');
+      const res = await enrichMediaCard({ itemId, category, forceRefresh });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(res, null, 2) }]
+      };
+    }
+  );
+
+  server.tool(
     'read_url_content',
     '抓取並萃取指定網址之正文內容 (具備 SSRF 防護)',
     {
@@ -155,3 +192,4 @@ export function createMcpServer() {
 
   return server;
 }
+

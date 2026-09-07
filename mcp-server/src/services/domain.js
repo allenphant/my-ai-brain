@@ -1,4 +1,4 @@
-import { getDb, getUserCollectionRef, getUserDocRef, getUserNoteRef } from './firestore.js';
+import { getDb, getUserBasePath, getUserCollectionRef, getUserDocRef, getUserNoteRef } from './firestore.js';
 
 export const CONTROLLED_TAGS = [
   '開源',
@@ -108,6 +108,37 @@ export function sanitizeTags(tags, categoryName = '') {
   return Array.from(sanitized).slice(0, 2);
 }
 
+let tagMapCache = null;
+let lastTagMapTime = 0;
+const TAG_MAP_TTL_MS = 5 * 60 * 1000;
+
+export async function getTagMaps() {
+  const now = Date.now();
+  if (tagMapCache && (now - lastTagMapTime < TAG_MAP_TTL_MS)) {
+    return tagMapCache;
+  }
+  const db = getDb();
+  const settingsRef = db.doc(`${getUserBasePath()}/settings/tags`);
+  const snap = await settingsRef.get();
+  const tagsList = snap.exists ? (snap.data().items || []) : [];
+  const nameToId = new Map(tagsList.map(t => [t.name.toLowerCase().trim(), t.id]));
+  const idToName = new Map(tagsList.map(t => [t.id, t.name]));
+  tagMapCache = { nameToId, idToName };
+  lastTagMapTime = now;
+  return tagMapCache;
+}
+
+export async function resolveTagsAndTagIds(tags, categoryName = '') {
+  const cleanNames = sanitizeTags(tags, categoryName);
+  const { nameToId } = await getTagMaps();
+  const tagIds = [];
+  for (const name of cleanNames) {
+    const id = nameToId.get(name.toLowerCase().trim());
+    if (id) tagIds.push(id);
+  }
+  return { tags: cleanNames, tagIds };
+}
+
 export function wrapInEditorJs(text) {
   return {
     time: Date.now(),
@@ -173,6 +204,7 @@ export async function getInboxItems(limit = 20) {
       hasNote: !!data.hasNote,
       order: data.order || data.createdAt || Date.now(),
       tags: Array.isArray(data.tags) ? data.tags : undefined,
+      tagIds: Array.isArray(data.tagIds) ? data.tagIds : undefined,
       aiReasoning: data.aiReasoning || undefined
     });
   });
@@ -195,6 +227,7 @@ export async function getCategoryItems(category, limit = 20) {
       order: data.order || data.createdAt || Date.now(),
       completed: typeof data.completed === 'boolean' ? data.completed : undefined,
       tags: Array.isArray(data.tags) ? data.tags : undefined,
+      tagIds: Array.isArray(data.tagIds) ? data.tagIds : undefined,
       aiReasoning: data.aiReasoning || undefined
     });
   });
@@ -222,9 +255,10 @@ export async function createItem(category = 'inbox', text, noteText, tags) {
     cardData.completed = false;
   }
 
-  const cleanTags = sanitizeTags(tags, category);
+  const { tags: cleanTags, tagIds: cleanTagIds } = await resolveTagsAndTagIds(tags, category);
   if (cleanTags.length > 0) {
     cardData.tags = cleanTags;
+    cardData.tagIds = cleanTagIds;
   }
 
   await db.runTransaction(async (t) => {
@@ -295,12 +329,14 @@ export async function moveItem(itemId, fromCategory, toCategory, aiReasoning, ta
       targetData.aiReasoning = aiReasoning;
     }
     
-    const rawTags = Array.isArray(tags) ? tags : sourceData.tags;
-    const cleanTags = sanitizeTags(rawTags, toCategory);
+    const rawTags = Array.isArray(tags) ? tags : (sourceData.tags || sourceData.tagIds);
+    const { tags: cleanTags, tagIds: cleanTagIds } = await resolveTagsAndTagIds(rawTags, toCategory);
     if (cleanTags.length > 0) {
       targetData.tags = cleanTags;
+      targetData.tagIds = cleanTagIds;
     } else {
       delete targetData.tags;
+      delete targetData.tagIds;
     }
 
     t.set(targetDocRef, targetData);
@@ -373,30 +409,41 @@ export async function searchItems(keyword, limit = 20) {
     throw new Error('keyword is required.');
   }
 
-  const lowerKeyword = keyword.toLowerCase();
-  const categories = await listCategories();
-  const results = [];
+  const { loadAllCards } = await import('./graph.js');
+  const cards = await loadAllCards();
+  const lowerKeyword = keyword.toLowerCase().trim();
 
-  for (const cat of categories) {
-    const colRef = getUserCollectionRef(cat.id);
-    const snapshot = await colRef.limit(50).get();
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      const text = data.text || '';
-      if (text.toLowerCase().includes(lowerKeyword)) {
-        results.push({
-          id: doc.id,
-          text,
-          category: cat.id,
-          createdAt: data.createdAt || 0,
-          hasNote: !!data.hasNote,
-          tags: Array.isArray(data.tags) ? data.tags : undefined,
-          aiReasoning: data.aiReasoning || undefined
-        });
-      }
-    });
-    if (results.length >= limit) break;
+  const scoredResults = [];
+
+  for (const card of cards) {
+    let score = 0;
+    const titleLower = card.title.toLowerCase();
+    const textLower = card.text.toLowerCase();
+    const searchLower = card.searchText.toLowerCase();
+    const noteLower = card.fullNoteText.toLowerCase();
+
+    if (titleLower.includes(lowerKeyword)) score += 10;
+    if (card.entities.some(e => e.toLowerCase().includes(lowerKeyword))) score += 8;
+    if (searchLower.includes(lowerKeyword)) score += 5;
+    if (textLower.includes(lowerKeyword)) score += 3;
+    if (noteLower.includes(lowerKeyword)) score += 2;
+    if (card.tagIds.some(t => t.toLowerCase().includes(lowerKeyword))) score += 4;
+
+    if (score > 0) {
+      scoredResults.push({
+        id: card.id,
+        title: card.title || card.text,
+        text: card.text,
+        category: card.col,
+        createdAt: card.updatedAt || 0,
+        hasNote: card.hasNote,
+        tags: card.tagIds,
+        tldr: card.tldr || undefined,
+        score
+      });
+    }
   }
 
-  return results.slice(0, limit);
+  scoredResults.sort((a, b) => b.score - a.score);
+  return scoredResults.slice(0, limit);
 }
