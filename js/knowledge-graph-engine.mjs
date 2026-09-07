@@ -10,13 +10,13 @@ export class ForceSimulation2D {
 
     this.alpha = 1.0;
     this.alphaMin = 0.001;
-    this.alphaDecay = 0.02;
-    this.velocityDecay = 0.88;
+    this.alphaDecay = 0.015;
+    this.velocityDecay = 0.85;
 
-    this.chargeStrength = -140;
+    this.chargeStrength = -80;
     this.linkDistance = 90;
-    this.linkStrength = 0.25;
-    this.centerStrength = 0.06;
+    this.linkStrength = 0.08;
+    this.centerStrength = 0.04;
 
     this.nodeMap = new Map();
 
@@ -50,76 +50,78 @@ export class ForceSimulation2D {
 
   tick(iterations = 1) {
     for (let iter = 0; iter < iterations; iter++) {
-      if (this.alpha < this.alphaMin) return;
-
+      const isSimulating = this.alpha >= this.alphaMin;
       const cx = this.width / 2;
       const cy = this.height / 2;
       const nodes = this.nodes;
       const numNodes = nodes.length;
 
-      // 1. 節點間相互斥力 (Charge Repulsion)
-      for (let i = 0; i < numNodes; i++) {
-        const nodeA = nodes[i];
-        for (let j = i + 1; j < numNodes; j++) {
-          const nodeB = nodes[j];
-          let dx = nodeB.x - nodeA.x;
-          let dy = nodeB.y - nodeA.y;
-          let distSq = dx * dx + dy * dy;
-          if (distSq === 0) {
-            dx = (Math.random() - 0.5) * 2;
-            dy = (Math.random() - 0.5) * 2;
-            distSq = dx * dx + dy * dy;
-          }
-          const dist = Math.sqrt(distSq);
-          if (dist < 500) {
-            // 庫倫斥力
-            const force = (this.chargeStrength * this.alpha) / distSq;
-            const fx = (dx / dist) * force;
-            const fy = (dy / dist) * force;
+      if (isSimulating) {
+        // 1. 節點間相互斥力 (Charge Repulsion)
+        for (let i = 0; i < numNodes; i++) {
+          const nodeA = nodes[i];
+          for (let j = i + 1; j < numNodes; j++) {
+            const nodeB = nodes[j];
+            let dx = nodeB.x - nodeA.x;
+            let dy = nodeB.y - nodeA.y;
+            let distSq = dx * dx + dy * dy;
+            if (distSq === 0) {
+              dx = (Math.random() - 0.5) * 2;
+              dy = (Math.random() - 0.5) * 2;
+              distSq = dx * dx + dy * dy;
+            }
+            const dist = Math.sqrt(distSq);
+            if (dist < 450) {
+              const force = (this.chargeStrength * this.alpha) / distSq;
+              const fx = (dx / dist) * force;
+              const fy = (dy / dist) * force;
 
-            nodeA.vx -= fx;
-            nodeA.vy -= fy;
-            nodeB.vx += fx;
-            nodeB.vy += fy;
+              nodeA.vx -= fx;
+              nodeA.vy -= fy;
+              nodeB.vx += fx;
+              nodeB.vy += fy;
+            }
           }
         }
-      }
 
-      // 2. 邊線彈簧引力 (Link Spring Force)
-      for (let i = 0; i < this.edges.length; i++) {
-        const edge = this.edges[i];
-        const source = edge.sourceNode;
-        const target = edge.targetNode;
-        if (!source || !target) continue;
+        // 2. 邊線彈簧引力 (Link Spring Force)
+        for (let i = 0; i < this.edges.length; i++) {
+          const edge = this.edges[i];
+          const source = edge.sourceNode;
+          const target = edge.targetNode;
+          if (!source || !target) continue;
 
-        let dx = target.x - source.x;
-        let dy = target.y - source.y;
-        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          let dx = target.x - source.x;
+          let dy = target.y - source.y;
+          let dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-        // 依權重適當縮短距離
-        const desiredDist = Math.max(40, this.linkDistance - (edge.weight || 1) * 2);
-        const displacement = dist - desiredDist;
-        const force = displacement * this.linkStrength * this.alpha;
+          const desiredDist = Math.max(40, this.linkDistance - (edge.weight || 1) * 2);
+          const displacement = dist - desiredDist;
+          const force = displacement * this.linkStrength * this.alpha;
 
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
 
-        source.vx += fx;
-        source.vy += fy;
-        target.vx -= fx;
-        target.vy -= fy;
-      }
+          source.vx += fx;
+          source.vy += fy;
+          target.vx -= fx;
+          target.vy -= fy;
+        }
 
-      // 3. 中心重力 (Center Gravity)
-      for (let i = 0; i < numNodes; i++) {
-        const node = nodes[i];
-        const dx = cx - node.x;
-        const dy = cy - node.y;
-        node.vx += dx * this.centerStrength * this.alpha;
-        node.vy += dy * this.centerStrength * this.alpha;
+        // 3. 中心重力 (Center Gravity)
+        for (let i = 0; i < numNodes; i++) {
+          const node = nodes[i];
+          const dx = cx - node.x;
+          const dy = cy - node.y;
+          node.vx += dx * this.centerStrength * this.alpha;
+          node.vy += dy * this.centerStrength * this.alpha;
+        }
+
+        this.alpha -= this.alphaDecay;
       }
 
       // 4. 更新位置與速度阻尼
+      let maxVelocity = 0;
       for (let i = 0; i < numNodes; i++) {
         const node = nodes[i];
         if (typeof node.fx === 'number' && typeof node.fy === 'number') {
@@ -132,10 +134,15 @@ export class ForceSimulation2D {
           node.vy *= this.velocityDecay;
           node.x += node.vx;
           node.y += node.vy;
+
+          const speed = Math.abs(node.vx) + Math.abs(node.vy);
+          if (speed > maxVelocity) maxVelocity = speed;
         }
       }
 
-      this.alpha -= this.alphaDecay;
+      if (!isSimulating && maxVelocity < 0.01) {
+        return;
+      }
     }
   }
 
