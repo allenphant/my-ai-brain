@@ -1861,6 +1861,241 @@
             keyLayers.pop('tag-browser');
         }
 
+        let graphViewer = null;
+
+        async function openKnowledgeGraph({ fromHistory = false } = {}) {
+            const modal = document.getElementById('knowledge-graph-modal');
+            modal.classList.remove('hidden');
+            keyLayers.push({ name: 'knowledge-graph', keys: modalKeys(closeKnowledgeGraph) });
+            if (!fromHistory) history.pushState({ overlay: 'knowledge-graph' }, '', window.location.href);
+
+            const allCards = [
+                ...(Array.isArray(currentInboxItems) ? currentInboxItems.map(c => ({ ...c, collection: 'inbox' })) : []),
+                ...[...(currentItemsByCollection instanceof Map ? currentItemsByCollection.entries() : [])].flatMap(([col, items]) =>
+                    (Array.isArray(items) ? items.map(c => ({ ...c, collection: col })) : [])
+                )
+            ];
+
+            const tagNameMap = new Map((currentTags || []).map(t => [t.id, t.name]));
+            const enrichedCards = allCards.map(c => {
+                let resolvedTags = Array.isArray(c.tags) ? [...c.tags] : [];
+                if (resolvedTags.length === 0 && Array.isArray(c.tagIds)) {
+                    resolvedTags = c.tagIds.map(id => tagNameMap.get(id)).filter(Boolean);
+                }
+                return {
+                    ...c,
+                    tags: resolvedTags
+                };
+            });
+
+            const { buildClientGraphData, TECH_ENTITIES } = await import('./js/knowledge-graph-data.mjs');
+            const { KnowledgeGraphViewer } = await import('./js/knowledge-graph-engine.mjs');
+
+            const graphData = buildClientGraphData({ cards: enrichedCards, minWeight: 2 });
+            const canvas = document.getElementById('knowledge-graph-canvas');
+
+            if (graphViewer) {
+                graphViewer.stop();
+            }
+
+            graphViewer = new KnowledgeGraphViewer({
+                canvas,
+                graphData,
+                onNodeSelect: (node, neighbors) => {
+                    renderGraphDrawer(node, neighbors);
+                },
+                onCanvasClick: () => {
+                    closeGraphDrawer();
+                }
+            });
+
+            graphViewer.start();
+
+            // 渲染實體快速篩選 Chips
+            renderGraphEntityChips(TECH_ENTITIES, graphData);
+
+            // 綁定搜尋輸入框
+            const searchInput = document.getElementById('graph-search-input');
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.oninput = () => {
+                    const val = searchInput.value.trim().toLowerCase();
+                    if (!val) {
+                        graphViewer.deselect();
+                        closeGraphDrawer();
+                        return;
+                    }
+                    const match = graphData.nodes.find(n =>
+                        n.title.toLowerCase().includes(val) ||
+                        n.entities.some(e => e.toLowerCase().includes(val)) ||
+                        n.tags.some(t => t.toLowerCase().includes(val))
+                    );
+                    if (match) {
+                        graphViewer.focusOnNode(match.id);
+                    }
+                };
+            }
+
+            // 綁定重設視角按鈕
+            const resetBtn = document.getElementById('graph-reset-view-btn');
+            if (resetBtn) {
+                resetBtn.onclick = () => {
+                    graphViewer.centerView();
+                    graphViewer.deselect();
+                    closeGraphDrawer();
+                };
+            }
+
+            // 更新左下角統計提示
+            const statsHint = document.getElementById('graph-stats-hint');
+            if (statsHint) {
+                statsHint.textContent = `共 ${graphData.nodes.length} 個節點、${graphData.edges.length} 條關聯線 | 支援滾輪/雙指縮放與拖曳`;
+            }
+        }
+
+        function closeKnowledgeGraph({ fromHistory = false } = {}) {
+            if (!fromHistory && history.state?.overlay === 'knowledge-graph') {
+                history.back();
+                return;
+            }
+            const modal = document.getElementById('knowledge-graph-modal');
+            if (modal) modal.classList.add('hidden');
+            keyLayers.pop('knowledge-graph');
+            if (graphViewer) {
+                graphViewer.stop();
+            }
+            closeGraphDrawer();
+        }
+
+        function renderGraphDrawer(node, neighbors = []) {
+            const drawer = document.getElementById('knowledge-graph-drawer');
+            if (!drawer) return;
+            drawer.classList.remove('translate-x-full');
+
+            const catEl = document.getElementById('graph-drawer-category');
+            const catNames = { inbox: '收件匣', todos: '待辦事項', learning: '學習筆記', ideas: '點子庫', bookmarks: '收藏貼文' };
+            catEl.textContent = catNames[node.category] || node.category;
+
+            const titleEl = document.getElementById('graph-drawer-title');
+            titleEl.textContent = node.title || '無標題';
+
+            const tldrEl = document.getElementById('graph-drawer-tldr');
+            if (node.tldr) {
+                tldrEl.textContent = `TL;DR：${node.tldr}`;
+                tldrEl.classList.remove('hidden');
+            } else {
+                tldrEl.classList.add('hidden');
+            }
+
+            // 標籤與實體
+            const tagsContainer = document.getElementById('graph-drawer-tags');
+            tagsContainer.replaceChildren();
+
+            (node.entities || []).forEach(entity => {
+                const span = document.createElement('span');
+                span.className = 'rounded-full bg-indigo-900/80 text-indigo-300 border border-indigo-700/60 px-2 py-0.5 text-[11px] font-semibold';
+                span.textContent = `#${entity}`;
+                tagsContainer.appendChild(span);
+            });
+
+            (node.tags || []).forEach(tag => {
+                const span = document.createElement('span');
+                span.className = 'rounded-full bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 text-[11px]';
+                span.textContent = tag;
+                tagsContainer.appendChild(span);
+            });
+
+            // 關聯節點列表
+            const linksCount = document.getElementById('graph-drawer-links-count');
+            linksCount.textContent = String(neighbors.length);
+
+            const linksList = document.getElementById('graph-drawer-links');
+            linksList.replaceChildren();
+
+            if (neighbors.length === 0) {
+                const li = document.createElement('li');
+                li.className = 'text-slate-500 italic py-2 text-center';
+                li.textContent = '無直接雙向關聯節點';
+                linksList.appendChild(li);
+            } else {
+                neighbors.forEach(({ node: targetNode, edge }) => {
+                    const li = document.createElement('li');
+                    li.className = 'group flex items-center justify-between p-2 rounded-xl bg-slate-800/40 hover:bg-slate-800 border border-slate-800/80 cursor-pointer transition-colors';
+
+                    const sharedText = [
+                        ...(edge.sharedEntities || []),
+                        ...(edge.sharedTags || [])
+                    ].slice(0, 2).join(', ');
+
+                    li.innerHTML = `
+                        <div class="min-w-0 flex-1 pr-2">
+                            <div class="font-medium text-slate-200 group-hover:text-indigo-300 truncate">${escapeHtml(targetNode.title)}</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">共享：${escapeHtml(sharedText || '關鍵關聯')}</div>
+                        </div>
+                        <span class="text-[10px] font-bold text-indigo-400 bg-indigo-950/60 px-1.5 py-0.5 rounded shrink-0">W: ${edge.weight}</span>
+                    `;
+
+                    li.onclick = () => {
+                        if (graphViewer) {
+                            graphViewer.focusOnNode(targetNode.id);
+                        }
+                    };
+                    linksList.appendChild(li);
+                });
+            }
+
+            // 定位按鈕
+            const locateBtn = document.getElementById('graph-locate-card-btn');
+            locateBtn.onclick = () => {
+                closeKnowledgeGraph();
+                locateCardInBoard(node.id, node.category);
+            };
+        }
+
+        function closeGraphDrawer() {
+            const drawer = document.getElementById('knowledge-graph-drawer');
+            if (drawer) drawer.classList.add('translate-x-full');
+        }
+
+        function renderGraphEntityChips(entities, graphData) {
+            const container = document.getElementById('graph-entity-chips');
+            if (!container) return;
+            container.replaceChildren();
+
+            const activeEntities = entities
+                .map(e => ({ name: e, count: graphData.entityClusters.get(e)?.length || 0 }))
+                .filter(e => e.count > 0)
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 8);
+
+            activeEntities.forEach(ent => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'rounded-full bg-slate-800 hover:bg-indigo-950 border border-slate-700 hover:border-indigo-600 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:text-indigo-200 transition-colors shrink-0';
+                btn.textContent = `${ent.name} (${ent.count})`;
+                btn.onclick = () => {
+                    const firstId = graphData.entityClusters.get(ent.name)?.[0];
+                    if (firstId && graphViewer) {
+                        graphViewer.focusOnNode(firstId);
+                    }
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        function locateCardInBoard(cardId, categoryId) {
+            setTimeout(() => {
+                const cardEl = document.querySelector(`li[data-id="${cardId}"]`);
+                if (cardEl) {
+                    cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    cardEl.classList.add('ring-4', 'ring-indigo-500', 'transition-all', 'duration-500');
+                    setTimeout(() => {
+                        cardEl.classList.remove('ring-4', 'ring-indigo-500');
+                    }, 2500);
+                }
+            }, 350);
+        }
+
         function getResearchLogUserId() {
             return currentUser?.uid || 'anonymous';
         }
@@ -2001,6 +2236,9 @@
         });
         document.getElementById('tag-browser-btn').addEventListener('click', () => openTagBrowser());
         document.getElementById('close-tag-browser-btn').addEventListener('click', () => closeTagBrowser());
+        document.getElementById('knowledge-graph-btn')?.addEventListener('click', () => openKnowledgeGraph());
+        document.getElementById('close-knowledge-graph-btn')?.addEventListener('click', () => closeKnowledgeGraph());
+        document.getElementById('close-graph-drawer-btn')?.addEventListener('click', () => closeGraphDrawer());
         document.getElementById('research-log-btn').addEventListener('click', () => openResearchLog());
         document.getElementById('close-research-log-btn').addEventListener('click', () => closeResearchLog());
         document.getElementById('research-log-modal').addEventListener('click', event => {
@@ -5298,9 +5536,19 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 closeTagBrowser({ fromHistory: true });
                 return;
             }
+            const knowledgeGraphModal = document.getElementById('knowledge-graph-modal');
+            if (knowledgeGraphModal && !knowledgeGraphModal.classList.contains('hidden') && targetOverlay !== 'knowledge-graph') {
+                closeKnowledgeGraph({ fromHistory: true });
+                return;
+            }
             const researchLogModal = document.getElementById('research-log-modal');
             if (!researchLogModal.classList.contains('hidden') && targetOverlay !== 'research-log') {
                 closeResearchLog({ fromHistory: true });
+                return;
+            }
+
+            if (targetOverlay === 'knowledge-graph') {
+                openKnowledgeGraph({ fromHistory: true });
                 return;
             }
 
