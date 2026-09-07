@@ -158,8 +158,21 @@ test('BYOD: Unconfigured Firebase state and settings configuration flow', async 
         const badgeText = await page.$eval('#firebase-status-badge', el => el.innerText.trim());
         assert.equal(badgeText, '未設定');
 
-        // 6. 填入無效 Firebase 設定並儲存，應提示錯誤且不關閉 Modal
+        // 6. 驗證設定視窗具備固定底列結構與就近儲存按鈕
+        const hasModalBody = await page.$eval('#settings-modal-body', el => Boolean(el && el.classList.contains('overflow-y-auto')));
+        assert.equal(hasModalBody, true);
+        const hasSaveFirebaseBtn = await page.$eval('#save-firebase-btn', el => Boolean(el && el.innerText.includes('儲存並連線')));
+        assert.equal(hasSaveFirebaseBtn, true);
+
+        // 7. 填入無效 Firebase 設定並點擊專屬「儲存並連線」按鈕，應在下方顯示錯誤且不關閉 Modal
         await page.$eval('#firebase-config-input', el => el.value = 'invalid json {');
+        await page.click('#save-firebase-btn');
+        const statusText = await page.$eval('#firebase-save-status', el => el.innerText.trim());
+        assert.equal(statusText.includes('無效'), true);
+        const isStillOpenAfterInlineSave = await page.$eval('#settings-modal', el => !el.classList.contains('hidden'));
+        assert.equal(isStillOpenAfterInlineSave, true);
+
+        // 8. 驗證全局「儲存設定」按鈕亦相容無效檢查
         let dialogMessage = '';
         page.once('dialog', async dialog => {
             dialogMessage = dialog.message();
@@ -169,6 +182,21 @@ test('BYOD: Unconfigured Firebase state and settings configuration flow', async 
         assert.equal(dialogMessage.includes('無效'), true);
         const isStillOpen = await page.$eval('#settings-modal', el => !el.classList.contains('hidden'));
         assert.equal(isStillOpen, true);
+
+        // 9. 填入有效 Firebase 設定並點擊「儲存並連線」，應成功寫入 localStorage
+        const validConfig = JSON.stringify({ apiKey: "AIzaSyFakeKey12345", projectId: "fake-brain-proj" });
+        await page.$eval('#firebase-config-input', (el, val) => {
+            el.value = val;
+            el.dispatchEvent(new Event('input'));
+        }, validConfig);
+        const statusClearedOnInput = await page.$eval('#firebase-save-status', el => el.innerText.trim());
+        assert.equal(statusClearedOnInput, '');
+
+        await page.click('#save-firebase-btn');
+        const successStatus = await page.$eval('#firebase-save-status', el => el.innerText.trim());
+        assert.equal(successStatus.includes('已儲存'), true);
+        const savedInStorage = await page.evaluate(() => localStorage.getItem('firebaseConfig'));
+        assert.equal(savedInStorage.includes('AIzaSyFakeKey12345'), true);
 
         assert.equal(pageErrors.length, 0);
     } finally {
