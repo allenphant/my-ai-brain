@@ -1,6 +1,10 @@
 /**
  * 2D 物理力導向模擬引擎 (ForceSimulation2D)
- * 專為知識圖譜設計之星系級力導向佈局，具備硬性碰撞避免與休眠收斂
+ * 專為知識圖譜設計之星系級力導向佈局，具備：
+ * 1. 多核心群落引力場 (Multi-Focal Cluster Centers) - 打造如 PCA/UMAP 般鮮明的群島星系
+ * 2. ForceAtlas2 LinLog 對數彈簧引力 (Logarithmic Link Force) - 防止遠距連線引發黑洞向心坍縮
+ * 3. 節點度數自適應斥力 (Degree-Adaptive Repulsion) - 核心節點自然向外傘狀展開
+ * 4. 硬性剛體防重疊碰撞約束 (Hard Collision Separation) 與自適應休眠
  */
 export class ForceSimulation2D {
   constructor({ nodes = [], edges = [], width = 800, height = 600 } = {}) {
@@ -14,15 +18,17 @@ export class ForceSimulation2D {
     this.alphaDecay = 0.012;
     this.velocityDecay = 0.82;
 
-    // 物理力參數：強調斥力展開、極弱向心漂移、適度彈簧引力
-    this.chargeStrength = -320;
-    this.linkDistance = 110;
-    this.linkStrength = 0.045;
-    this.centerStrength = 0.006;
+    // 物理力參數：強調斥力展開、多核心群落吸附、對數彈簧引力
+    this.chargeStrength = -260;
+    this.linkDistance = 90;
+    this.linkStrength = 0.05;
+    this.centerStrength = 0.003; // 微弱全局防漂移
+    this.clusterStrength = 0.025; // 強群落向心力，將節點拉聚向各自的星系核心
     this.collisionPadding = 18;
 
     this.isSettled = false;
     this.nodeMap = new Map();
+    this.clusterCenters = new Map();
 
     this.init();
   }
@@ -30,23 +36,51 @@ export class ForceSimulation2D {
   init() {
     const cx = this.width / 2;
     const cy = this.height / 2;
+
+    // 1. 計算所有分類並佈設「多核心星系引力點 (Multi-Focal Centers)」
+    const categories = [...new Set(this.nodes.map(n => n.category || 'inbox'))];
+    const numClusters = Math.max(1, categories.length);
+    // 星系半徑：畫布短邊的 26% ~ 32%，環繞中央均勻散開
+    const clusterOrbitRadius = Math.min(this.width, this.height) * 0.28;
+
+    this.clusterCenters.clear();
+    categories.forEach((cat, idx) => {
+      if (numClusters === 1) {
+        this.clusterCenters.set(cat, { x: cx, y: cy });
+      } else {
+        const angle = (idx / numClusters) * Math.PI * 2 - Math.PI / 2;
+        this.clusterCenters.set(cat, {
+          x: cx + Math.cos(angle) * clusterOrbitRadius,
+          y: cy + Math.sin(angle) * clusterOrbitRadius
+        });
+      }
+    });
+
+    // 2. 節點座標初始化：依所屬星系核心圍繞展開，起手即呈群島佈局
+    const clusterIndexCount = new Map();
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 
-    this.nodes.forEach((node, idx) => {
+    this.nodes.forEach(node => {
       this.nodeMap.set(node.id, node);
+      const cat = node.category || 'inbox';
+      const focal = this.clusterCenters.get(cat) || { x: cx, y: cy };
+
       if (typeof node.x !== 'number') {
-        // 利用費馬螺線 (Fermat spiral) 自然展開節點，避免初始群聚碰撞
-        const dist = 36 + Math.sqrt(idx + 1) * 38;
-        const angle = idx * goldenAngle;
-        node.x = cx + Math.cos(angle) * dist;
-        node.y = cy + Math.sin(angle) * dist;
+        const cIdx = clusterIndexCount.get(cat) || 0;
+        clusterIndexCount.set(cat, cIdx + 1);
+
+        // 以該分類之核心為圓心，用費馬螺線展開
+        const dist = 16 + Math.sqrt(cIdx + 1) * 26;
+        const angle = cIdx * goldenAngle;
+        node.x = focal.x + Math.cos(angle) * dist;
+        node.y = focal.y + Math.sin(angle) * dist;
       }
       if (typeof node.vx !== 'number') node.vx = 0;
       if (typeof node.vy !== 'number') node.vy = 0;
       if (!node.radius) node.radius = 6;
     });
 
-    // 建立邊線對象引用
+    // 3. 建立邊線對象引用
     this.edges.forEach(edge => {
       edge.sourceNode = this.nodeMap.get(edge.source);
       edge.targetNode = this.nodeMap.get(edge.target);
@@ -64,14 +98,16 @@ export class ForceSimulation2D {
       const numNodes = nodes.length;
 
       if (isSimulating) {
-        // 1. 節點間相互斥力 (Charge Repulsion) 與硬性防重疊碰撞 (Hard Collision Separation)
+        // 1. 度數自適應庫倫斥力 (Degree-Adaptive Repulsion) 與硬性防重疊碰撞 (Hard Collision Separation)
         for (let i = 0; i < numNodes; i++) {
           const nodeA = nodes[i];
           const rA = nodeA.radius || 6;
+          const degFactorA = 1 + Math.sqrt(nodeA.degree || 1) * 0.35;
 
           for (let j = i + 1; j < numNodes; j++) {
             const nodeB = nodes[j];
             const rB = nodeB.radius || 6;
+            const degFactorB = 1 + Math.sqrt(nodeB.degree || 1) * 0.35;
 
             let dx = nodeB.x - nodeA.x;
             let dy = nodeB.y - nodeA.y;
@@ -83,9 +119,10 @@ export class ForceSimulation2D {
             }
             const dist = Math.sqrt(distSq);
 
-            // (1) 庫倫斥力 (Charge Repulsion)
+            // (1) 庫倫斥力：重要核心樞紐具備更強推力，將星系撐開
             if (dist < 600) {
-              const force = (this.chargeStrength * this.alpha) / Math.max(30, distSq);
+              const effectiveCharge = this.chargeStrength * degFactorA * degFactorB * 0.35;
+              const force = (effectiveCharge * this.alpha) / Math.max(30, distSq);
               const fx = (dx / dist) * force;
               const fy = (dy / dist) * force;
 
@@ -111,7 +148,7 @@ export class ForceSimulation2D {
           }
         }
 
-        // 2. 邊線彈簧引力 (Link Spring Force)
+        // 2. ForceAtlas2 LinLog 對數彈簧引力 (Logarithmic Spring Force)
         for (let i = 0; i < this.edges.length; i++) {
           const edge = this.edges[i];
           const source = edge.sourceNode;
@@ -122,10 +159,22 @@ export class ForceSimulation2D {
           let dy = target.y - source.y;
           let dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-          const desiredDist = Math.max(50, this.linkDistance - (edge.weight || 1) * 2);
-          const displacement = dist - desiredDist;
-          const force = displacement * this.linkStrength * this.alpha;
+          // 判斷是否為同分類邊線 (Intra-cluster vs Inter-cluster)
+          const isSameCategory = source.category && target.category && source.category === target.category;
+          const desiredDist = isSameCategory
+            ? Math.max(45, this.linkDistance - (edge.weight || 1) * 3)
+            : Math.max(110, this.linkDistance * 1.5 - (edge.weight || 1) * 2);
 
+          let displacement;
+          if (dist > desiredDist) {
+            // LinLog 對數彈簧：遠距拉力對數飽和，防止跨群連線把不同星系暴力拉扁成球
+            displacement = desiredDist * Math.log(1 + (dist - desiredDist) / desiredDist);
+          } else {
+            // 壓縮時線性推開，保持節點彈性
+            displacement = dist - desiredDist;
+          }
+
+          const force = displacement * this.linkStrength * this.alpha;
           const fx = (dx / dist) * force;
           const fy = (dy / dist) * force;
 
@@ -135,13 +184,23 @@ export class ForceSimulation2D {
           target.vy -= fy;
         }
 
-        // 3. 微弱中心漂移 (Gentle Center Drift - 防止無限飄移但絕不向心坍縮)
+        // 3. 多核心群落向心引力 (Multi-Focal Cluster Attraction) 與全局防飄移
         for (let i = 0; i < numNodes; i++) {
           const node = nodes[i];
-          const dx = cx - node.x;
-          const dy = cy - node.y;
-          node.vx += dx * this.centerStrength * this.alpha;
-          node.vy += dy * this.centerStrength * this.alpha;
+          const cat = node.category || 'inbox';
+          const focal = this.clusterCenters.get(cat) || { x: cx, y: cy };
+
+          // (1) 朝向所屬分類星系核心的向心吸附力
+          const fdx = focal.x - node.x;
+          const fdy = focal.y - node.y;
+          node.vx += fdx * this.clusterStrength * this.alpha;
+          node.vy += fdy * this.clusterStrength * this.alpha;
+
+          // (2) 微弱全局中心漂移 (防止整個星系脫離畫布視界)
+          const gdx = cx - node.x;
+          const gdy = cy - node.y;
+          node.vx += gdx * this.centerStrength * this.alpha;
+          node.vy += gdy * this.centerStrength * this.alpha;
         }
 
         this.alpha -= this.alphaDecay;

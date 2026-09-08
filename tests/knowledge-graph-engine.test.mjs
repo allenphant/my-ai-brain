@@ -151,4 +151,32 @@ test('KnowledgeGraphViewer manages label modes and filter groups', async () => {
   assert.equal(viewer.filterGroup, null);
 });
 
+test('ForceSimulation2D sets up multi-focal cluster centers and pulls nodes to category anchors', () => {
+  const nodes = [
+    { id: '1', title: 'Node 1', category: 'learning' },
+    { id: '2', title: 'Node 2', category: 'bookmarks' }
+  ];
+  const edges = [];
+
+  const sim = new ForceSimulation2D({ nodes, edges, width: 800, height: 600 });
+
+  // 驗證為兩個分類建立了獨立的引力中心
+  assert.equal(sim.clusterCenters.size, 2);
+  const focalA = sim.clusterCenters.get('learning');
+  const focalB = sim.clusterCenters.get('bookmarks');
+  assert.ok(focalA && focalB);
+
+  // 兩中心應在空間中保持明確距離 (例如 > 200px)
+  const centerDist = Math.hypot(focalA.x - focalB.x, focalA.y - focalB.y);
+  assert.ok(centerDist > 200, `Cluster centers distance ${centerDist} should be separated`);
+
+  // 執行步進，兩節點應保持在各自星系周邊
+  sim.tick(60);
+  const distA = Math.hypot(nodes[0].x - focalA.x, nodes[0].y - focalA.y);
+  const distB = Math.hypot(nodes[1].x - focalB.x, nodes[1].y - focalB.y);
+  assert.ok(distA < 150, `Node 1 should orbit near its category focal center`);
+  assert.ok(distB < 150, `Node 2 should orbit near its category focal center`);
+});
+
+
 
