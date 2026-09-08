@@ -50,7 +50,13 @@ export function extractMatchedEntities(combinedText = '') {
   return TECH_ENTITIES.filter(entity => lower.includes(entity.toLowerCase()));
 }
 
-export function buildClientGraphData({ cards = [], minWeight = 2, maxNodes = 250, query = '' } = {}) {
+export function buildClientGraphData({
+  cards = [],
+  minWeight = 3,
+  maxEdgesPerNode = 5,
+  maxNodes = 250,
+  query = ''
+} = {}) {
   const lowerQuery = (query || '').toLowerCase().trim();
 
   // 1. 整理所有節點
@@ -94,11 +100,9 @@ export function buildClientGraphData({ cards = [], minWeight = 2, maxNodes = 250
 
   // 限制節點數量
   const selectedNodes = eligibleNodes.slice(0, maxNodes);
-  const nodeMap = new Map(selectedNodes.map(n => [n.id, n]));
 
-  // 3. 計算關聯邊 (Edges)
-  const edges = [];
-  const edgeSet = new Set();
+  // 3. 計算關聯邊候選池 (Candidate Edges)
+  const candidateEdges = [];
 
   for (let i = 0; i < selectedNodes.length; i++) {
     const nodeA = selectedNodes[i];
@@ -110,33 +114,51 @@ export function buildClientGraphData({ cards = [], minWeight = 2, maxNodes = 250
       // 計算共享標籤
       const sharedTags = nodeA.tags.filter(t => nodeB.tags.includes(t));
 
-      const weight = (sharedEntities.length * 3) + (sharedTags.length * 2);
+      // 權重計算：實體是強語意關聯 (+3/個)；單一標籤不足以成邊，需多標籤(+2/個)或結合實體(+2)
+      let weight = sharedEntities.length * 3;
+      if (sharedTags.length >= 2) {
+        weight += sharedTags.length * 2;
+      } else if (sharedTags.length === 1 && sharedEntities.length > 0) {
+        weight += 2;
+      }
 
       if (weight >= minWeight) {
-        const edgeId = `${nodeA.id}->${nodeB.id}`;
-        if (!edgeSet.has(edgeId)) {
-          edgeSet.add(edgeId);
-          edges.push({
-            id: edgeId,
-            source: nodeA.id,
-            target: nodeB.id,
-            weight,
-            sharedEntities,
-            sharedTags
-          });
-          nodeA.degree++;
-          nodeB.degree++;
-        }
+        candidateEdges.push({
+          id: `${nodeA.id}->${nodeB.id}`,
+          source: nodeA.id,
+          target: nodeB.id,
+          weight,
+          sharedEntities,
+          sharedTags
+        });
       }
     }
   }
 
-  // 4. 動態計算節點半徑 (依 degree，介於 6px ~ 18px)
+  // 4. K-NN 邊線修剪 (Pruning: 避免毛球效應，限制每個節點最大關聯邊數)
+  candidateEdges.sort((a, b) => b.weight - a.weight);
+  const nodeDegree = new Map();
+  const edges = [];
+
+  for (const edge of candidateEdges) {
+    const degA = nodeDegree.get(edge.source) || 0;
+    const degB = nodeDegree.get(edge.target) || 0;
+
+    if (degA < maxEdgesPerNode && degB < maxEdgesPerNode) {
+      edges.push(edge);
+      nodeDegree.set(edge.source, degA + 1);
+      nodeDegree.set(edge.target, degB + 1);
+    }
+  }
+
+  // 回填 degree 與節點半徑
   selectedNodes.forEach(node => {
-    node.radius = Math.min(18, Math.max(6, 6 + Math.sqrt(node.degree) * 2.5));
+    node.degree = nodeDegree.get(node.id) || 0;
+    // 5. 節點半徑採用 Obsidian 標準尺寸：4px ~ 9px (避免重疊覆蓋)
+    node.radius = Math.min(9, Math.max(4, 4 + Math.sqrt(node.degree) * 1.5));
   });
 
-  // 5. 建立實體叢集 (Entity Clusters)
+  // 6. 建立實體叢集 (Entity Clusters)
   const entityClusters = new Map();
   for (const entity of TECH_ENTITIES) {
     const matched = selectedNodes.filter(n => n.entities.includes(entity));

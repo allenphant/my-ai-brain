@@ -1891,7 +1891,18 @@
             const { buildClientGraphData, TECH_ENTITIES } = await import('./js/knowledge-graph-data.mjs');
             const { KnowledgeGraphViewer } = await import('./js/knowledge-graph-engine.mjs');
 
-            const graphData = buildClientGraphData({ cards: enrichedCards, minWeight: 2 });
+            const categoryMap = {
+                inbox: '收件匣',
+                todos: '待辦事項',
+                learning: '學習筆記',
+                ideas: '點子庫',
+                bookmarks: '收藏貼文'
+            };
+            (currentCategories || []).forEach(c => {
+                if (c.id && c.name) categoryMap[c.id] = c.name;
+            });
+
+            const graphData = buildClientGraphData({ cards: enrichedCards, minWeight: 3, maxEdgesPerNode: 5 });
             const canvas = document.getElementById('knowledge-graph-canvas');
 
             if (graphViewer) {
@@ -1901,6 +1912,7 @@
             graphViewer = new KnowledgeGraphViewer({
                 canvas,
                 graphData,
+                categoryMap,
                 onNodeSelect: (node, neighbors) => {
                     renderGraphDrawer(node, neighbors);
                 },
@@ -1973,8 +1985,8 @@
             drawer.classList.remove('translate-x-full');
 
             const catEl = document.getElementById('graph-drawer-category');
-            const catNames = { inbox: '收件匣', todos: '待辦事項', learning: '學習筆記', ideas: '點子庫', bookmarks: '收藏貼文' };
-            catEl.textContent = catNames[node.category] || node.category;
+            const catName = graphViewer?.categoryMap?.[node.category] || node.category;
+            catEl.textContent = catName;
 
             const titleEl = document.getElementById('graph-drawer-title');
             titleEl.textContent = node.title || '無標題';

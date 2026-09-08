@@ -42,3 +42,60 @@ test('ForceSimulation2D respects fixed coordinates during drag', () => {
   assert.equal(nodes[0].x, 150);
   assert.equal(nodes[0].y, 250);
 });
+
+test('ForceSimulation2D settles and enters isSettled state', () => {
+  const nodes = [
+    { id: '1', title: 'Node 1', radius: 6 },
+    { id: '2', title: 'Node 2', radius: 6 }
+  ];
+  const edges = [{ source: '1', target: '2', weight: 2 }];
+
+  const sim = new ForceSimulation2D({ nodes, edges, width: 800, height: 600 });
+
+  // 模擬足夠步數，驗證系統成功收斂休眠
+  sim.tick(120);
+  assert.equal(sim.isSettled, true);
+
+  // 重新加熱後，狀態重設為未收斂
+  sim.reheat();
+  assert.equal(sim.isSettled, false);
+});
+
+test('ForceSimulation2D collision avoidance enforces distance between overlapping nodes', () => {
+  const nodes = [
+    { id: '1', title: 'Node 1', radius: 6, x: 400, y: 300 },
+    { id: '2', title: 'Node 2', radius: 6, x: 400.1, y: 300.1 }
+  ];
+  const edges = [];
+
+  const sim = new ForceSimulation2D({ nodes, edges, width: 800, height: 600 });
+  // 覆寫初始座標使其高度重疊
+  nodes[0].x = 400;
+  nodes[0].y = 300;
+  nodes[1].x = 400.1;
+  nodes[1].y = 300.1;
+
+  // 執行一步物理模擬
+  sim.tick(1);
+
+  // 驗證碰撞排斥力使兩者速度方向相反且迅速彈開
+  const dist = Math.hypot(nodes[1].x - nodes[0].x, nodes[1].y - nodes[0].y);
+  assert.ok(dist > 0.5, `Distance ${dist} should expand immediately from collision force`);
+});
+
+test('getCategoryColor returns mapped or deterministic palette color', async () => {
+  const { getCategoryColor, GRAPH_PALETTE } = await import('../js/knowledge-graph-engine.mjs');
+
+  // 預設分類
+  assert.equal(getCategoryColor('learning'), '#38bdf8');
+  assert.equal(getCategoryColor('bookmarks'), '#818cf8');
+  assert.equal(getCategoryColor('todos'), '#34d399');
+
+  // 自訂分類 ID (如 Firestore 隨機字串) 應映射至調色盤顏色
+  const customColor1 = getCategoryColor('9Lup7gmE11HRsnq00WdP', '我的研究專案');
+  assert.ok(GRAPH_PALETTE.includes(customColor1));
+
+  const customColor2 = getCategoryColor('abc123xyz', '財務規劃');
+  assert.ok(GRAPH_PALETTE.includes(customColor2));
+});
+

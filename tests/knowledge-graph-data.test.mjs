@@ -71,3 +71,47 @@ test('buildClientGraphData extracts title and TL;DR from Editor.js note', () => 
   assert.equal(n.tldr, '這是一款基於 WebGL 的 3D 渲染庫，極度強大。');
   assert.ok(n.entities.includes('Three.js'));
 });
+
+test('buildClientGraphData: single generic tag does not form an edge, multiple tags do', () => {
+  const cards = [
+    { id: 'c1', collection: 'learning', text: 'Card 1', tags: ['AI工具'] },
+    { id: 'c2', collection: 'ideas', text: 'Card 2', tags: ['AI工具'] },
+    { id: 'c3', collection: 'todos', text: 'Card 3', tags: ['AI工具', '自動化'] },
+    { id: 'c4', collection: 'bookmarks', text: 'Card 4', tags: ['AI工具', '自動化'] }
+  ];
+
+  const graph = buildClientGraphData({ cards, minWeight: 3 });
+
+  // c1 與 c2 僅共享單一標籤且無實體，權重為 0，不應成邊
+  const edge12 = graph.edges.find(e =>
+    (e.source === 'c1' && e.target === 'c2') || (e.source === 'c2' && e.target === 'c1')
+  );
+  assert.equal(edge12, undefined);
+
+  // c3 與 c4 共享 2 個標籤，權重為 4 >= 3，應成功成邊
+  const edge34 = graph.edges.find(e =>
+    (e.source === 'c3' && e.target === 'c4') || (e.source === 'c4' && e.target === 'c3')
+  );
+  assert.ok(edge34);
+  assert.equal(edge34.weight, 4);
+});
+
+test('buildClientGraphData enforces maxEdgesPerNode (K-NN pruning) and Obsidian radius', () => {
+  // 建立 10 張卡片，全部共享相同的科技實體與標籤
+  const cards = Array.from({ length: 10 }, (_, i) => ({
+    id: `card-${i}`,
+    collection: 'learning',
+    text: `Card ${i} using React and TypeScript for frontend`,
+    tags: ['前端', '架構']
+  }));
+
+  const graph = buildClientGraphData({ cards, minWeight: 3, maxEdgesPerNode: 3 });
+
+  // 驗證每個節點的邊數絕對不超過 maxEdgesPerNode (3)
+  graph.nodes.forEach(node => {
+    assert.ok(node.degree <= 3, `Node ${node.id} degree ${node.degree} exceeds max 3`);
+    // 節點半徑符合 Obsidian 標準 (4px ~ 9px)
+    assert.ok(node.radius >= 4 && node.radius <= 9, `Node radius ${node.radius} out of bounds`);
+  });
+});
+
