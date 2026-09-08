@@ -1,10 +1,12 @@
 /**
  * 2D 物理力導向模擬引擎 (ForceSimulation2D)
  * 專為知識圖譜設計之星系級力導向佈局，具備：
- * 1. 多核心群落引力場 (Multi-Focal Cluster Centers) - 打造如 PCA/UMAP 般鮮明的群島星系
- * 2. ForceAtlas2 LinLog 對數彈簧引力 (Logarithmic Link Force) - 防止遠距連線引發黑洞向心坍縮
- * 3. 節點度數自適應斥力 (Degree-Adaptive Repulsion) - 核心節點自然向外傘狀展開
- * 4. 硬性剛體防重疊碰撞約束 (Hard Collision Separation) 與自適應休眠
+ * 1. 多核心群落引力場 (Multi-Focal Cluster Centers) - 打造如 PCA/UMAP 般鮮明分立的知識群島
+ * 2. 異族超距斥力倍率與海峽緩衝屏障 (Inter-Cluster Barrier) - 杜絕板塊聚合成單一晶格球體
+ * 3. ForceAtlas2 LinLog 對數彈簧引力 (Logarithmic Link Force) - 區分島內緊實與跨島長距柔性連線
+ * 4. 節點度數自適應斥力 (Degree-Adaptive Repulsion) - 核心節點自然向外傘狀展開
+ * 5. 硬性剛體防重疊碰撞約束 (Hard Collision Separation) 與自適應休眠
+ * 6. 全局質心平移校正 (Center of Mass Translation) - 消除向心坍縮，徹底打破圓球詛咒
  */
 export class ForceSimulation2D {
   constructor({ nodes = [], edges = [], width = 800, height = 600 } = {}) {
@@ -18,17 +20,18 @@ export class ForceSimulation2D {
     this.alphaDecay = 0.012;
     this.velocityDecay = 0.82;
 
-    // 物理力參數：強調斥力展開、多核心群落吸附、對數彈簧引力
+    // 物理力參數：強調群島分立、異族強斥力、對數彈簧引力
     this.chargeStrength = -260;
-    this.linkDistance = 90;
-    this.linkStrength = 0.05;
-    this.centerStrength = 0.003; // 微弱全局防漂移
-    this.clusterStrength = 0.025; // 強群落向心力，將節點拉聚向各自的星系核心
+    this.linkDistance = 75;
+    this.linkStrength = 0.06;
+    this.clusterStrength = 0.035; // 群落向心力，將節點緊實吸附於各自的星系核心
     this.collisionPadding = 18;
 
     this.isSettled = false;
     this.nodeMap = new Map();
     this.clusterCenters = new Map();
+    this.clusterRadii = new Map();
+    this.clusterCounts = new Map();
 
     this.init();
   }
@@ -37,11 +40,26 @@ export class ForceSimulation2D {
     const cx = this.width / 2;
     const cy = this.height / 2;
 
-    // 1. 計算所有分類並佈設「多核心星系引力點 (Multi-Focal Centers)」
-    const categories = [...new Set(this.nodes.map(n => n.category || 'inbox'))];
+    // 1. 統計各分類節點數，計算各自島嶼預估半徑 R = sqrt(N) * spacing
+    this.clusterCounts.clear();
+    this.clusterRadii.clear();
+    this.nodes.forEach(n => {
+      const cat = n.category || 'inbox';
+      this.clusterCounts.set(cat, (this.clusterCounts.get(cat) || 0) + 1);
+    });
+
+    const categories = Array.from(this.clusterCounts.keys());
     const numClusters = Math.max(1, categories.length);
-    // 星系半徑：畫布短邊的 26% ~ 32%，環繞中央均勻散開
-    const clusterOrbitRadius = Math.min(this.width, this.height) * 0.28;
+
+    categories.forEach(cat => {
+      const count = this.clusterCounts.get(cat) || 1;
+      const r = Math.max(65, Math.sqrt(count) * 22);
+      this.clusterRadii.set(cat, r);
+    });
+
+    // 2. 佈設群落錨點：採用寬幅橢圓軌道 (依畫布長寬比展開)
+    const orbitRx = Math.max(380, this.width * 0.36);
+    const orbitRy = Math.max(260, this.height * 0.34);
 
     this.clusterCenters.clear();
     categories.forEach((cat, idx) => {
@@ -50,13 +68,42 @@ export class ForceSimulation2D {
       } else {
         const angle = (idx / numClusters) * Math.PI * 2 - Math.PI / 2;
         this.clusterCenters.set(cat, {
-          x: cx + Math.cos(angle) * clusterOrbitRadius,
-          y: cy + Math.sin(angle) * clusterOrbitRadius
+          x: cx + Math.cos(angle) * orbitRx,
+          y: cy + Math.sin(angle) * orbitRy
         });
       }
     });
 
-    // 2. 節點座標初始化：依所屬星系核心圍繞展開，起手即呈群島佈局
+    // 群落錨點間距鬆弛 (Relaxation)：確保任意兩島核心間距 >= Ra + Rb + 140px
+    const minBuffer = 140;
+    for (let step = 0; step < 30; step++) {
+      for (let i = 0; i < categories.length; i++) {
+        for (let j = i + 1; j < categories.length; j++) {
+          const cA = categories[i];
+          const cB = categories[j];
+          const fA = this.clusterCenters.get(cA);
+          const fB = this.clusterCenters.get(cB);
+          const rA = this.clusterRadii.get(cA);
+          const rB = this.clusterRadii.get(cB);
+          const reqDist = rA + rB + minBuffer;
+
+          let dx = fB.x - fA.x;
+          let dy = fB.y - fA.y;
+          let d = Math.hypot(dx, dy) || 1;
+          if (d < reqDist) {
+            const overlap = (reqDist - d) * 0.5;
+            const pushX = (dx / d) * overlap;
+            const pushY = (dy / d) * overlap;
+            fA.x -= pushX;
+            fA.y -= pushY;
+            fB.x += pushX;
+            fB.y += pushY;
+          }
+        }
+      }
+    }
+
+    // 3. 節點座標初始化：依所屬星系核心圍繞展開，起手即呈群島分立
     const clusterIndexCount = new Map();
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 
@@ -69,8 +116,7 @@ export class ForceSimulation2D {
         const cIdx = clusterIndexCount.get(cat) || 0;
         clusterIndexCount.set(cat, cIdx + 1);
 
-        // 以該分類之核心為圓心，用費馬螺線展開
-        const dist = 16 + Math.sqrt(cIdx + 1) * 26;
+        const dist = 12 + Math.sqrt(cIdx + 1) * 18;
         const angle = cIdx * goldenAngle;
         node.x = focal.x + Math.cos(angle) * dist;
         node.y = focal.y + Math.sin(angle) * dist;
@@ -80,7 +126,7 @@ export class ForceSimulation2D {
       if (!node.radius) node.radius = 6;
     });
 
-    // 3. 建立邊線對象引用
+    // 4. 建立邊線對象引用
     this.edges.forEach(edge => {
       edge.sourceNode = this.nodeMap.get(edge.source);
       edge.targetNode = this.nodeMap.get(edge.target);
@@ -92,13 +138,11 @@ export class ForceSimulation2D {
   tick(iterations = 1) {
     for (let iter = 0; iter < iterations; iter++) {
       const isSimulating = this.alpha >= this.alphaMin;
-      const cx = this.width / 2;
-      const cy = this.height / 2;
       const nodes = this.nodes;
       const numNodes = nodes.length;
 
       if (isSimulating) {
-        // 1. 度數自適應庫倫斥力 (Degree-Adaptive Repulsion) 與硬性防重疊碰撞 (Hard Collision Separation)
+        // 1. 度數自適應庫倫斥力 + 異族強斥力 + 異群海峽緩衝屏障 + 硬碰撞分離
         for (let i = 0; i < numNodes; i++) {
           const nodeA = nodes[i];
           const rA = nodeA.radius || 6;
@@ -119,9 +163,12 @@ export class ForceSimulation2D {
             }
             const dist = Math.sqrt(distSq);
 
-            // (1) 庫倫斥力：重要核心樞紐具備更強推力，將星系撐開
+            const isSameCategory = nodeA.category === nodeB.category;
+
+            // (1) 庫倫斥力：同族凝聚（0.35），異族倍率排斥（1.4，相當於 4 倍強斥力）
             if (dist < 600) {
-              const effectiveCharge = this.chargeStrength * degFactorA * degFactorB * 0.35;
+              const clusterRepulsionMultiplier = isSameCategory ? 0.35 : 1.4;
+              const effectiveCharge = this.chargeStrength * degFactorA * degFactorB * clusterRepulsionMultiplier;
               const force = (effectiveCharge * this.alpha) / Math.max(30, distSq);
               const fx = (dx / dist) * force;
               const fy = (dy / dist) * force;
@@ -132,7 +179,19 @@ export class ForceSimulation2D {
               nodeB.vy += fy;
             }
 
-            // (2) 硬性碰撞避免 (Collision Constraint - 杜絕節點疊合葡萄串)
+            // (2) 異群海峽緩衝屏障 (Inter-Cluster Strait Barrier)
+            // 杜絕不同島嶼的邊界節點貼合融合為單一大球
+            if (!isSameCategory && dist < 120) {
+              const barrierPush = ((120 - dist) / dist) * 0.3 * this.alpha;
+              const bx = dx * barrierPush;
+              const by = dy * barrierPush;
+              nodeA.vx -= bx;
+              nodeA.vy -= by;
+              nodeB.vx += bx;
+              nodeB.vy += by;
+            }
+
+            // (3) 硬性碰撞避免 (Collision Constraint - 杜絕節點疊合葡萄串)
             const minDist = rA + rB + this.collisionPadding;
             if (dist < minDist) {
               const overlap = minDist - dist;
@@ -148,7 +207,7 @@ export class ForceSimulation2D {
           }
         }
 
-        // 2. ForceAtlas2 LinLog 對數彈簧引力 (Logarithmic Spring Force)
+        // 2. ForceAtlas2 LinLog 對數彈簧引力：區分島內緊實連線與跨島長距彈性橋樑
         for (let i = 0; i < this.edges.length; i++) {
           const edge = this.edges[i];
           const source = edge.sourceNode;
@@ -159,22 +218,27 @@ export class ForceSimulation2D {
           let dy = target.y - source.y;
           let dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-          // 判斷是否為同分類邊線 (Intra-cluster vs Inter-cluster)
           const isSameCategory = source.category && target.category && source.category === target.category;
-          const desiredDist = isSameCategory
-            ? Math.max(45, this.linkDistance - (edge.weight || 1) * 3)
-            : Math.max(110, this.linkDistance * 1.5 - (edge.weight || 1) * 2);
+
+          let desiredDist, edgeStrength;
+          if (isSameCategory) {
+            // 同島連線：短距緊實，維持島嶼內部凝聚度
+            desiredDist = Math.max(40, this.linkDistance - (edge.weight || 1) * 3);
+            edgeStrength = this.linkStrength;
+          } else {
+            // 跨島連線：超長跨海大橋，彈力極其微弱柔和，絕不將不同板塊暴力拉近碰撞
+            desiredDist = Math.max(280, this.linkDistance * 4.0);
+            edgeStrength = this.linkStrength * 0.08;
+          }
 
           let displacement;
           if (dist > desiredDist) {
-            // LinLog 對數彈簧：遠距拉力對數飽和，防止跨群連線把不同星系暴力拉扁成球
             displacement = desiredDist * Math.log(1 + (dist - desiredDist) / desiredDist);
           } else {
-            // 壓縮時線性推開，保持節點彈性
             displacement = dist - desiredDist;
           }
 
-          const force = displacement * this.linkStrength * this.alpha;
+          const force = displacement * edgeStrength * this.alpha;
           const fx = (dx / dist) * force;
           const fy = (dy / dist) * force;
 
@@ -184,29 +248,40 @@ export class ForceSimulation2D {
           target.vy -= fy;
         }
 
-        // 3. 多核心群落向心引力 (Multi-Focal Cluster Attraction) 與全局防飄移
+        // 3. 多核心群落向心引力 (Multi-Focal Cluster Attraction)
         for (let i = 0; i < numNodes; i++) {
           const node = nodes[i];
           const cat = node.category || 'inbox';
-          const focal = this.clusterCenters.get(cat) || { x: cx, y: cy };
+          const focal = this.clusterCenters.get(cat);
+          if (!focal) continue;
 
-          // (1) 朝向所屬分類星系核心的向心吸附力
           const fdx = focal.x - node.x;
           const fdy = focal.y - node.y;
           node.vx += fdx * this.clusterStrength * this.alpha;
           node.vy += fdy * this.clusterStrength * this.alpha;
+        }
 
-          // (2) 微弱全局中心漂移 (防止整個星系脫離畫布視界)
-          const gdx = cx - node.x;
-          const gdy = cy - node.y;
-          node.vx += gdx * this.centerStrength * this.alpha;
-          node.vy += gdy * this.centerStrength * this.alpha;
+        // 4. 全局質心平移修正 (防止整體飄出視界，絕不在內部向心擠壓)
+        let totalX = 0, totalY = 0;
+        for (let i = 0; i < numNodes; i++) {
+          totalX += nodes[i].x;
+          totalY += nodes[i].y;
+        }
+        const meanX = totalX / numNodes;
+        const meanY = totalY / numNodes;
+        const cx = this.width / 2;
+        const cy = this.height / 2;
+        const driftX = (cx - meanX) * 0.002 * this.alpha;
+        const driftY = (cy - meanY) * 0.002 * this.alpha;
+        for (let i = 0; i < numNodes; i++) {
+          nodes[i].vx += driftX;
+          nodes[i].vy += driftY;
         }
 
         this.alpha -= this.alphaDecay;
       }
 
-      // 4. 更新位置與速度阻尼
+      // 5. 更新位置與速度阻尼
       let maxVelocity = 0;
       for (let i = 0; i < numNodes; i++) {
         const node = nodes[i];
@@ -252,6 +327,19 @@ export const GRAPH_PALETTE = [
   '#a855f7', // 紫羅蘭 (Purple)
   '#fb923c'  // 暖陽橘 (Orange)
 ];
+
+/**
+ * 將 16 進位色碼轉為 RGBA 字串
+ */
+export function hexToRgba(hex, alpha = 1) {
+  if (!hex || typeof hex !== 'string' || !hex.startsWith('#') || hex.length < 7) {
+    return `rgba(148, 163, 184, ${alpha})`;
+  }
+  const r = parseInt(hex.slice(1, 3), 16) || 0;
+  const g = parseInt(hex.slice(3, 5), 16) || 0;
+  const b = parseInt(hex.slice(5, 7), 16) || 0;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 /**
  * 根據分類 ID 或名稱取得確定性調色盤顏色
@@ -363,11 +451,44 @@ export class KnowledgeGraphViewer {
     this.requestRender();
   }
 
-  centerView() {
-    this.panX = 0;
-    this.panY = 0;
-    this.zoom = 1.0;
+  fitToView(padding = 70) {
+    if (!this.graphData.nodes || this.graphData.nodes.length === 0) return;
+    const width = this.canvas.clientWidth || 800;
+    const height = this.canvas.clientHeight || 600;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < this.graphData.nodes.length; i++) {
+      const n = this.graphData.nodes[i];
+      if (typeof n.x === 'number' && typeof n.y === 'number') {
+        if (n.x < minX) minX = n.x;
+        if (n.x > maxX) maxX = n.x;
+        if (n.y < minY) minY = n.y;
+        if (n.y > maxY) maxY = n.y;
+      }
+    }
+
+    if (!isFinite(minX)) return;
+
+    const graphW = Math.max(100, maxX - minX);
+    const graphH = Math.max(100, maxY - minY);
+    const availW = Math.max(100, width - padding * 2);
+    const availH = Math.max(100, height - padding * 2);
+
+    const targetZoom = Math.min(1.05, Math.min(availW / graphW, availH / graphH));
+    this.zoom = Math.max(0.35, targetZoom);
+
+    const graphCenterX = (minX + maxX) / 2;
+    const graphCenterY = (minY + maxY) / 2;
+    const cx = width / 2;
+    const cy = height / 2;
+
+    this.panX = (cx - graphCenterX) * this.zoom;
+    this.panY = (cy - graphCenterY) * this.zoom;
     this.requestRender();
+  }
+
+  centerView() {
+    this.fitToView();
   }
 
   resize() {
@@ -634,8 +755,8 @@ export class KnowledgeGraphViewer {
     // 平滑平移至中央
     const cx = this.canvas.clientWidth / 2;
     const cy = this.canvas.clientHeight / 2;
-    this.panX = cx - node.x * this.zoom;
-    this.panY = cy - node.y * this.zoom;
+    this.panX = (cx - node.x) * this.zoom;
+    this.panY = (cy - node.y) * this.zoom;
     this.simulation.reheat(0.2);
     this.wakeUp();
   }
@@ -737,6 +858,44 @@ export class KnowledgeGraphViewer {
         }
         if (matched) filterMatchedSet.add(n.id);
       });
+    }
+
+    // 0. 繪製多核心群落島嶼背景星雲微光與名稱標註 (Ambient Galaxy Nebulae & Island Watermarks)
+    if (this.simulation.clusterCenters && this.simulation.clusterCenters.size > 1) {
+      ctx.save();
+      for (const [cat, focal] of this.simulation.clusterCenters.entries()) {
+        const catName = this.categoryMap[cat] || cat;
+        const color = getCategoryColor(cat, catName);
+        const radius = this.simulation.clusterRadii?.get(cat) || 120;
+        const count = this.simulation.clusterCounts?.get(cat) || 0;
+
+        let alpha = 1.0;
+        if (isFilterActive) {
+          alpha = (filterGroup.type === 'category' && filterGroup.value === cat) ? 1.0 : 0.12;
+        }
+
+        ctx.globalAlpha = alpha;
+
+        // 背景星雲微光 (Ambient Nebula Glow)
+        const glow = ctx.createRadialGradient(focal.x, focal.y, 10, focal.x, focal.y, radius * 1.15);
+        glow.addColorStop(0, hexToRgba(color, 0.09));
+        glow.addColorStop(0.65, hexToRgba(color, 0.03));
+        glow.addColorStop(1, 'rgba(11, 15, 25, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(focal.x, focal.y, radius * 1.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 群落星系浮水印標題 (Island Title Watermark)
+        const titleFontSize = Math.max(12, Math.min(16, 14 / Math.sqrt(this.zoom)));
+        ctx.font = `700 ${titleFontSize}px "Noto Sans TC", -apple-system, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillStyle = hexToRgba(color, 0.45);
+        const label = count > 0 ? `${catName} (${count})` : catName;
+        ctx.fillText(label, focal.x, focal.y - radius - 8);
+      }
+      ctx.restore();
     }
 
     // 1. 邊線渲染 (Edges) - 區分批次繪製 (Batch) 與高亮強調 (Active)

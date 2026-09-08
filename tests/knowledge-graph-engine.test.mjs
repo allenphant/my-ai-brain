@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ForceSimulation2D } from '../js/knowledge-graph-engine.mjs';
+import { ForceSimulation2D, hexToRgba, KnowledgeGraphViewer } from '../js/knowledge-graph-engine.mjs';
 
 test('ForceSimulation2D initializes coordinates and converges velocity', () => {
   const nodes = [
@@ -176,6 +176,95 @@ test('ForceSimulation2D sets up multi-focal cluster centers and pulls nodes to c
   const distB = Math.hypot(nodes[1].x - focalB.x, nodes[1].y - focalB.y);
   assert.ok(distA < 150, `Node 1 should orbit near its category focal center`);
   assert.ok(distB < 150, `Node 2 should orbit near its category focal center`);
+});
+
+test('hexToRgba converts 6-digit hex and handles edge cases', () => {
+  assert.equal(hexToRgba('#38bdf8', 0.5), 'rgba(56, 189, 248, 0.5)');
+  assert.equal(hexToRgba('#818cf8', 1), 'rgba(129, 140, 248, 1)');
+  assert.equal(hexToRgba('invalid', 0.8), 'rgba(148, 163, 184, 0.8)');
+});
+
+test('ForceSimulation2D enforces wide inter-cluster separation preventing round ball packing', () => {
+  const nodes = [
+    // 稍後閱讀 20 個節點
+    ...Array(20).fill(0).map((_, i) => ({ id: `b_${i}`, title: `Bookmark ${i}`, category: 'bookmarks' })),
+    // 學習筆記 10 個節點
+    ...Array(10).fill(0).map((_, i) => ({ id: `l_${i}`, title: `Learning ${i}`, category: 'learning' })),
+    // 待辦事項 10 個節點
+    ...Array(10).fill(0).map((_, i) => ({ id: `t_${i}`, title: `Todo ${i}`, category: 'todos' }))
+  ];
+  // 跨島少數連線
+  const edges = [
+    { source: 'b_0', target: 'l_0', weight: 3 },
+    { source: 'b_1', target: 't_0', weight: 3 }
+  ];
+
+  const sim = new ForceSimulation2D({ nodes, edges, width: 1200, height: 800 });
+  sim.tick(80);
+
+  // 驗證跨群組節點間的最小間距絕不緊貼（杜絕單一晶格球體，保持 >= 140px 開闊海峽）
+  const bookmarksNodes = nodes.filter(n => n.category === 'bookmarks');
+  const learningNodes = nodes.filter(n => n.category === 'learning');
+  const todoNodes = nodes.filter(n => n.category === 'todos');
+
+  let minBlDist = Infinity;
+  for (const b of bookmarksNodes) {
+    for (const l of learningNodes) {
+      const d = Math.hypot(b.x - l.x, b.y - l.y);
+      if (d < minBlDist) minBlDist = d;
+    }
+  }
+
+  let minBtDist = Infinity;
+  for (const b of bookmarksNodes) {
+    for (const t of todoNodes) {
+      const d = Math.hypot(b.x - t.x, b.y - t.y);
+      if (d < minBtDist) minBtDist = d;
+    }
+  }
+
+  assert.ok(minBlDist >= 140, `Bookmarks and Learning min distance ${minBlDist} should be >= 140px`);
+  assert.ok(minBtDist >= 140, `Bookmarks and Todos min distance ${minBtDist} should be >= 140px`);
+});
+
+test('KnowledgeGraphViewer fitToView scales zoom and centers viewport on graph bounding box', () => {
+  const mockCanvas = {
+    getContext: () => ({
+      scale: () => {},
+      setTransform: () => {},
+      fillRect: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      stroke: () => {},
+      arc: () => {},
+      fill: () => {},
+      measureText: () => ({ width: 40 }),
+      fillText: () => {}
+    }),
+    clientWidth: 800,
+    clientHeight: 600,
+    addEventListener: () => {}
+  };
+
+  const graphData = {
+    nodes: [
+      { id: '1', title: 'Node 1', x: 200, y: 150, category: 'learning' },
+      { id: '2', title: 'Node 2', x: 600, y: 450, category: 'bookmarks' }
+    ],
+    edges: []
+  };
+
+  const viewer = new KnowledgeGraphViewer({ canvas: mockCanvas, graphData });
+  viewer.fitToView(60);
+
+  assert.ok(viewer.zoom > 0 && viewer.zoom <= 1.05);
+  // 驗證幾何中心 (400, 300) 對齊畫布中心 (400, 300) => panX 與 panY 應接近 0
+  assert.ok(Math.abs(viewer.panX) < 1.0);
+  assert.ok(Math.abs(viewer.panY) < 1.0);
 });
 
 
