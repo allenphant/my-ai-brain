@@ -1888,8 +1888,8 @@
                 };
             });
 
-            const { buildClientGraphData, TECH_ENTITIES } = await import('./js/knowledge-graph-data.mjs');
-            const { KnowledgeGraphViewer } = await import('./js/knowledge-graph-engine.mjs');
+            const { buildClientGraphData } = await import('./js/knowledge-graph-data.mjs');
+            const { KnowledgeGraphViewer, getCategoryColor } = await import('./js/knowledge-graph-engine.mjs');
 
             const categoryMap = {
                 inbox: '收件匣',
@@ -1923,8 +1923,21 @@
 
             graphViewer.start();
 
-            // 渲染實體快速篩選 Chips
-            renderGraphEntityChips(TECH_ENTITIES, graphData);
+            // 渲染動態多維群組過濾 Chips (全部 / 分類 / 高頻標籤)
+            renderGraphGroupChips(graphData, categoryMap, getCategoryColor);
+
+            // 綁定標籤顯示切換模式按鈕 (焦點模式 vs 全顯防撞模式)
+            const toggleLabelsBtn = document.getElementById('graph-toggle-labels-btn');
+            const toggleLabelsText = document.getElementById('graph-toggle-labels-text');
+            if (toggleLabelsBtn) {
+                if (toggleLabelsText) toggleLabelsText.textContent = '標籤：焦點';
+                toggleLabelsBtn.onclick = () => {
+                    const newMode = graphViewer.toggleLabelMode();
+                    if (toggleLabelsText) {
+                        toggleLabelsText.textContent = newMode === 'all' ? '標籤：全部' : '標籤：焦點';
+                    }
+                };
+            }
 
             // 綁定搜尋輸入框
             const searchInput = document.getElementById('graph-search-input');
@@ -1954,6 +1967,8 @@
                 resetBtn.onclick = () => {
                     graphViewer.centerView();
                     graphViewer.deselect();
+                    graphViewer.setFilterGroup(null);
+                    renderGraphGroupChips(graphData, categoryMap, getCategoryColor);
                     closeGraphDrawer();
                 };
             }
@@ -2069,30 +2084,82 @@
             if (drawer) drawer.classList.add('translate-x-full');
         }
 
-        function renderGraphEntityChips(entities, graphData) {
+        function renderGraphGroupChips(graphData, categoryMap, getCategoryColor) {
             const container = document.getElementById('graph-entity-chips');
             if (!container) return;
             container.replaceChildren();
 
-            const activeEntities = entities
-                .map(e => ({ name: e, count: graphData.entityClusters.get(e)?.length || 0 }))
-                .filter(e => e.count > 0)
-                .sort((a, b) => b.count - a.count)
-                .slice(0, 8);
+            let activeFilterKey = 'all';
+            const buttons = [];
 
-            activeEntities.forEach(ent => {
+            function updateActiveState(key) {
+                activeFilterKey = key;
+                buttons.forEach(({ key: k, btn }) => {
+                    if (k === activeFilterKey) {
+                        btn.className = 'rounded-full bg-indigo-600 text-white border border-indigo-400 px-3 py-1 text-[11px] font-semibold transition-all shrink-0 shadow-sm';
+                    } else {
+                        btn.className = 'rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-2.5 py-1 text-[11px] font-medium transition-colors shrink-0';
+                    }
+                });
+            }
+
+            // 1. 全部按鈕
+            const allBtn = document.createElement('button');
+            allBtn.type = 'button';
+            allBtn.textContent = `全部 (${graphData.nodes.length})`;
+            allBtn.onclick = () => {
+                updateActiveState('all');
+                if (graphViewer) {
+                    graphViewer.setFilterGroup(null);
+                }
+            };
+            buttons.push({ key: 'all', btn: allBtn });
+            container.appendChild(allBtn);
+
+            // 2. 真實分類群組 (Category Clusters)
+            const sortedCategories = [...(graphData.categoryClusters?.entries() || [])]
+                .filter(([, ids]) => ids.length > 0)
+                .sort((a, b) => b[1].length - a[1].length);
+
+            sortedCategories.forEach(([catId, ids]) => {
+                const catName = categoryMap[catId] || catId;
+                const catColor = getCategoryColor(catId, catName);
+
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'rounded-full bg-slate-800 hover:bg-indigo-950 border border-slate-700 hover:border-indigo-600 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:text-indigo-200 transition-colors shrink-0';
-                btn.textContent = `${ent.name} (${ent.count})`;
+                btn.innerHTML = `<span class="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style="background-color: ${catColor}"></span>${escapeHtml(catName)} (${ids.length})`;
                 btn.onclick = () => {
-                    const firstId = graphData.entityClusters.get(ent.name)?.[0];
-                    if (firstId && graphViewer) {
-                        graphViewer.focusOnNode(firstId);
+                    updateActiveState(`cat:${catId}`);
+                    if (graphViewer) {
+                        graphViewer.setFilterGroup({ type: 'category', value: catId });
                     }
                 };
+                buttons.push({ key: `cat:${catId}`, btn });
                 container.appendChild(btn);
             });
+
+            // 3. 真實高頻標籤群組 (Top Tag Clusters)
+            const sortedTags = [...(graphData.tagClusters?.entries() || [])]
+                .filter(([, ids]) => ids.length > 1)
+                .sort((a, b) => b[1].length - a[1].length)
+                .slice(0, 10);
+
+            sortedTags.forEach(([tagName, ids]) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.textContent = `#${tagName} (${ids.length})`;
+                btn.onclick = () => {
+                    updateActiveState(`tag:${tagName}`);
+                    if (graphViewer) {
+                        graphViewer.setFilterGroup({ type: 'tag', value: tagName });
+                    }
+                };
+                buttons.push({ key: `tag:${tagName}`, btn });
+                container.appendChild(btn);
+            });
+
+            // 預設全選
+            updateActiveState('all');
         }
 
         function locateCardInBoard(cardId, categoryId) {

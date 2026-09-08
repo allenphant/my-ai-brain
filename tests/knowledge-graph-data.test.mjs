@@ -115,3 +115,25 @@ test('buildClientGraphData enforces maxEdgesPerNode (K-NN pruning) and Obsidian 
   });
 });
 
+test('buildClientGraphData extracts dynamic tagClusters and categoryClusters', () => {
+  const cards = [
+    { id: 'c1', collection: 'learning', text: 'Card 1', tags: ['AI Agent', 'Python'] },
+    { id: 'c2', collection: 'bookmarks', text: 'Card 2', tags: ['AI Agent', 'Web'] },
+    { id: 'c3', collection: 'learning', text: 'Card 3', tags: ['Python'] }
+  ];
+
+  const graph = buildClientGraphData({ cards, minWeight: 2 });
+
+  // 驗證 tagClusters
+  assert.ok(graph.tagClusters instanceof Map);
+  assert.deepEqual(graph.tagClusters.get('AI Agent'), ['c1', 'c2']);
+  assert.deepEqual(graph.tagClusters.get('Python'), ['c1', 'c3']);
+  assert.deepEqual(graph.tagClusters.get('Web'), ['c2']);
+
+  // 驗證 categoryClusters
+  assert.ok(graph.categoryClusters instanceof Map);
+  assert.deepEqual(graph.categoryClusters.get('learning'), ['c1', 'c3']);
+  assert.deepEqual(graph.categoryClusters.get('bookmarks'), ['c2']);
+});
+
+

@@ -99,3 +99,56 @@ test('getCategoryColor returns mapped or deterministic palette color', async () 
   assert.ok(GRAPH_PALETTE.includes(customColor2));
 });
 
+test('KnowledgeGraphViewer manages label modes and filter groups', async () => {
+  const { KnowledgeGraphViewer } = await import('../js/knowledge-graph-engine.mjs');
+  const mockCanvas = {
+    getContext: () => ({
+      scale: () => {},
+      setTransform: () => {},
+      fillRect: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      stroke: () => {},
+      arc: () => {},
+      fill: () => {},
+      measureText: () => ({ width: 40 }),
+      fillText: () => {}
+    }),
+    clientWidth: 800,
+    clientHeight: 600,
+    addEventListener: () => {}
+  };
+
+  const graphData = {
+    nodes: [
+      { id: '1', title: 'Node 1', category: 'learning', tags: ['AI'] },
+      { id: '2', title: 'Node 2', category: 'bookmarks', tags: ['Web'] }
+    ],
+    edges: []
+  };
+
+  const viewer = new KnowledgeGraphViewer({ canvas: mockCanvas, graphData });
+  assert.equal(viewer.labelMode, 'focus');
+
+  // 切換為 all 模式
+  const mode = viewer.toggleLabelMode();
+  assert.equal(mode, 'all');
+  assert.equal(viewer.labelMode, 'all');
+
+  // 切換回 focus 模式
+  viewer.toggleLabelMode();
+  assert.equal(viewer.labelMode, 'focus');
+
+  // 設定群組過濾
+  viewer.setFilterGroup({ type: 'category', value: 'learning' });
+  assert.deepEqual(viewer.filterGroup, { type: 'category', value: 'learning' });
+
+  viewer.setFilterGroup(null);
+  assert.equal(viewer.filterGroup, null);
+});
+
+

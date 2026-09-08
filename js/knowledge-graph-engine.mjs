@@ -252,6 +252,12 @@ export class KnowledgeGraphViewer {
     // 多點觸控縮放
     this.lastTouchDist = 0;
 
+    // 標籤模式：'focus' (預設，僅顯示選取/懸停/鄰居) 或 'all' (全顯，帶 AABB 防撞字)
+    this.labelMode = 'focus';
+
+    // 群組過濾：null 或 { type: 'category' | 'tag' | 'entity', value: string }
+    this.filterGroup = null;
+
     // 動畫與休眠控制
     this.isRunning = false;
     this.isSleeping = false;
@@ -280,6 +286,22 @@ export class KnowledgeGraphViewer {
     this.centerView();
 
     this.bindEvents();
+  }
+
+  setLabelMode(mode) {
+    this.labelMode = mode === 'all' ? 'all' : 'focus';
+    this.requestRender();
+  }
+
+  toggleLabelMode() {
+    this.labelMode = this.labelMode === 'focus' ? 'all' : 'focus';
+    this.requestRender();
+    return this.labelMode;
+  }
+
+  setFilterGroup(filter) {
+    this.filterGroup = filter;
+    this.requestRender();
   }
 
   centerView() {
@@ -347,49 +369,51 @@ export class KnowledgeGraphViewer {
       }
     });
 
-    window.addEventListener('mousemove', e => {
-      const rect = cv.getBoundingClientRect();
-      const sx = e.clientX - rect.left;
-      const sy = e.clientY - rect.top;
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mousemove', e => {
+        const rect = cv.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
 
-      if (this.draggedNode) {
-        const { x, y } = this.screenToWorld(sx, sy);
-        this.draggedNode.fx = x;
-        this.draggedNode.fy = y;
-        this.simulation.reheat(0.15);
-        this.wakeUp();
-        return;
-      }
-
-      if (this.isPanning) {
-        this.panX = sx - this.panStartX;
-        this.panY = sy - this.panStartY;
-        this.requestRender();
-        return;
-      }
-
-      // 懸停偵測
-      if (!this.isTouchDevice) {
-        const hovered = this.findNodeAt(sx, sy);
-        const nextHoverId = hovered ? hovered.id : null;
-        if (nextHoverId !== this.hoveredNodeId) {
-          this.hoveredNodeId = nextHoverId;
-          cv.style.cursor = hovered ? 'pointer' : 'default';
-          this.requestRender();
+        if (this.draggedNode) {
+          const { x, y } = this.screenToWorld(sx, sy);
+          this.draggedNode.fx = x;
+          this.draggedNode.fy = y;
+          this.simulation.reheat(0.15);
+          this.wakeUp();
+          return;
         }
-      }
-    });
 
-    window.addEventListener('mouseup', () => {
-      if (this.draggedNode) {
-        this.draggedNode.fx = null;
-        this.draggedNode.fy = null;
-        this.draggedNode = null;
-        this.simulation.reheat(0.1);
-        this.wakeUp();
-      }
-      this.isPanning = false;
-    });
+        if (this.isPanning) {
+          this.panX = sx - this.panStartX;
+          this.panY = sy - this.panStartY;
+          this.requestRender();
+          return;
+        }
+
+        // 懸停偵測
+        if (!this.isTouchDevice) {
+          const hovered = this.findNodeAt(sx, sy);
+          const nextHoverId = hovered ? hovered.id : null;
+          if (nextHoverId !== this.hoveredNodeId) {
+            this.hoveredNodeId = nextHoverId;
+            cv.style.cursor = hovered ? 'pointer' : 'default';
+            this.requestRender();
+          }
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (this.draggedNode) {
+          this.draggedNode.fx = null;
+          this.draggedNode.fy = null;
+          this.draggedNode = null;
+          this.simulation.reheat(0.1);
+          this.wakeUp();
+        }
+        this.isPanning = false;
+      });
+    }
 
     cv.addEventListener('click', e => {
       const rect = cv.getBoundingClientRect();
@@ -637,6 +661,24 @@ export class KnowledgeGraphViewer {
 
     const selectedId = this.selectedNodeId;
     const hoveredId = this.hoveredNodeId;
+    const filterGroup = this.filterGroup;
+
+    // 判斷群組過濾集合 (Filter Group Matching)
+    const isFilterActive = Boolean(filterGroup && filterGroup.type && filterGroup.type !== 'all');
+    const filterMatchedSet = new Set();
+    if (isFilterActive) {
+      this.graphData.nodes.forEach(n => {
+        let matched = false;
+        if (filterGroup.type === 'category') {
+          matched = n.category === filterGroup.value;
+        } else if (filterGroup.type === 'tag') {
+          matched = (n.tags || []).includes(filterGroup.value);
+        } else if (filterGroup.type === 'entity') {
+          matched = (n.entities || []).includes(filterGroup.value);
+        }
+        if (matched) filterMatchedSet.add(n.id);
+      });
+    }
 
     // 1. 邊線渲染 (Edges) - 區分批次繪製 (Batch) 與高亮強調 (Active)
     const normalEdges = [];
@@ -666,7 +708,14 @@ export class KnowledgeGraphViewer {
         ctx.moveTo(e.sourceNode.x, e.sourceNode.y);
         ctx.lineTo(e.targetNode.x, e.targetNode.y);
       }
-      ctx.strokeStyle = selectedId ? 'rgba(51, 65, 85, 0.15)' : 'rgba(148, 163, 184, 0.22)';
+
+      if (selectedId) {
+        ctx.strokeStyle = 'rgba(51, 65, 85, 0.12)';
+      } else if (isFilterActive) {
+        ctx.strokeStyle = 'rgba(71, 85, 105, 0.10)';
+      } else {
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+      }
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -709,10 +758,13 @@ export class KnowledgeGraphViewer {
       const isSelected = n.id === selectedId;
       const isHovered = n.id === hoveredId;
       const isNeighbor = neighborSet.has(n.id);
+      const isFilterMatch = !isFilterActive || filterMatchedSet.has(n.id);
 
       let alpha = 1.0;
-      if (selectedId && !isSelected && !isNeighbor) {
-        alpha = 0.12;
+      if (selectedId) {
+        if (!isSelected && !isNeighbor) alpha = 0.10;
+      } else if (isFilterActive) {
+        if (!isFilterMatch) alpha = 0.08;
       }
 
       ctx.save();
@@ -748,21 +800,25 @@ export class KnowledgeGraphViewer {
       ctx.fillStyle = baseColor;
       ctx.fill();
 
-      // 判斷是否需要繪製標籤 (Obsidian 體驗：避免文字覆蓋成黑球)
-      // 1. 選取中 或 懸停中：永遠顯示
-      // 2. 一度鄰居：顯示
-      // 3. 縮放足夠大 (zoom >= 1.3)：全局節點顯露標籤
-      // 4. 中等縮放 (zoom >= 0.85) 且核心高度節點 (degree >= 4)：顯露標籤
-      const shouldShowText = isSelected || isHovered || isNeighbor ||
-        (this.zoom >= 1.3) ||
-        (this.zoom >= 0.85 && n.degree >= 4);
+      // 標籤候選篩選 (Obsidian 體驗：預設焦點模式下絕不干擾星空全景)
+      let shouldShowText = false;
+      if (isSelected || isHovered) {
+        shouldShowText = true;
+      } else if (isNeighbor) {
+        shouldShowText = true;
+      } else if (this.labelMode === 'all') {
+        shouldShowText = (alpha > 0.2);
+      } else if (this.zoom >= 2.0) {
+        shouldShowText = (alpha > 0.2);
+      }
 
-      if (shouldShowText && alpha > 0.2) {
+      if (shouldShowText && alpha > 0.15) {
         nodesToDrawText.push({
           node: n,
           isSelected,
           isHovered,
           isNeighbor,
+          degree: n.degree || 0,
           radius
         });
       }
@@ -770,35 +826,57 @@ export class KnowledgeGraphViewer {
       ctx.restore();
     });
 
-    // 3. 標籤文字 (在所有節點之上繪製，附帶半透明文字氣泡底襯防干擾)
+    // 3. 標籤文字 (在所有節點之上繪製，嚴格執行 AABB 空間包圍盒防重疊演算法)
     if (nodesToDrawText.length > 0) {
       const fontSize = Math.max(10, Math.min(13, 11 / Math.sqrt(this.zoom)));
       ctx.font = `500 ${fontSize}px "Noto Sans TC", -apple-system, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
+      // 依重要度降冪排序：選取(1000) > 懸停(500) > 一度鄰居(100) > 節點度數
+      nodesToDrawText.sort((a, b) => {
+        const scoreA = (a.isSelected ? 1000 : 0) + (a.isHovered ? 500 : 0) + (a.isNeighbor ? 100 : 0) + a.degree;
+        const scoreB = (b.isSelected ? 1000 : 0) + (b.isHovered ? 500 : 0) + (b.isNeighbor ? 100 : 0) + b.degree;
+        return scoreB - scoreA;
+      });
+
+      const drawnRects = [];
+
       for (let i = 0; i < nodesToDrawText.length; i++) {
         const item = nodesToDrawText[i];
         const n = item.node;
         const rawTitle = n.title || '無標題';
-        const title = rawTitle.length > 20 ? rawTitle.substring(0, 19) + '…' : rawTitle;
+        const title = rawTitle.length > 18 ? rawTitle.substring(0, 17) + '…' : rawTitle;
 
         const metrics = ctx.measureText(title);
         const textW = metrics.width;
         const textH = fontSize + 4;
-        const boxY = n.y + item.radius + 5 + textH / 2;
+        const boxX = n.x - textW / 2 - 4;
+        const boxY = n.y + item.radius + 4;
+        const boxW = textW + 8;
+        const boxH = textH;
 
-        // 膠囊底襯
-        ctx.fillStyle = item.isSelected ? 'rgba(30, 41, 59, 0.95)' : 'rgba(15, 23, 42, 0.82)';
+        // AABB 碰撞檢測：選取與懸停強制繪製，其餘重疊標籤自動剔除防撞字
+        const rect = { x1: boxX - 2, y1: boxY - 2, x2: boxX + boxW + 2, y2: boxY + boxH + 2 };
+        const isHighPriority = item.isSelected || item.isHovered;
+
+        const hasCollision = drawnRects.some(r =>
+          !(rect.x2 < r.x1 || rect.x1 > r.x2 || rect.y2 < r.y1 || rect.y1 > r.y2)
+        );
+
+        if (hasCollision && !isHighPriority) {
+          continue;
+        }
+
+        drawnRects.push(rect);
+
+        // 繪製背景膠囊底襯
+        ctx.fillStyle = item.isSelected ? 'rgba(30, 41, 59, 0.95)' : 'rgba(15, 23, 42, 0.84)';
         ctx.beginPath();
-        const rx = n.x - textW / 2 - 4;
-        const ry = boxY - textH / 2;
-        const rw = textW + 8;
-        const rh = textH;
         if (ctx.roundRect) {
-          ctx.roundRect(rx, ry, rw, rh, 4);
+          ctx.roundRect(boxX, boxY, boxW, boxH, 4);
         } else {
-          ctx.rect(rx, ry, rw, rh);
+          ctx.rect(boxX, boxY, boxW, boxH);
         }
         ctx.fill();
 
@@ -819,7 +897,7 @@ export class KnowledgeGraphViewer {
           ctx.fillStyle = '#cbd5e1';
         }
 
-        ctx.fillText(title, n.x, boxY);
+        ctx.fillText(title, n.x, boxY + boxH / 2);
       }
     }
 

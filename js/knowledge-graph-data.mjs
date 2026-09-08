@@ -167,9 +167,31 @@ export function buildClientGraphData({
     }
   }
 
+  // 7. 建立真實標籤叢集 (Tag Clusters - 動態統計所有出現的真實標籤)
+  const tagClusters = new Map();
+  selectedNodes.forEach(node => {
+    (node.tags || []).forEach(tag => {
+      const trimmed = (tag || '').trim();
+      if (!trimmed) return;
+      if (!tagClusters.has(trimmed)) tagClusters.set(trimmed, []);
+      tagClusters.get(trimmed).push(node.id);
+    });
+  });
+
+  // 8. 建立分類叢集 (Category Clusters - 動態統計所有出現的分類集合)
+  const categoryClusters = new Map();
+  selectedNodes.forEach(node => {
+    const cat = node.category || 'inbox';
+    if (!categoryClusters.has(cat)) categoryClusters.set(cat, []);
+    categoryClusters.get(cat).push(node.id);
+  });
+
   return {
     nodes: selectedNodes,
     edges,
-    entityClusters
+    entityClusters,
+    tagClusters,
+    categoryClusters
   };
 }
+
