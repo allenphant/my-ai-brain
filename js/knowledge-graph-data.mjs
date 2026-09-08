@@ -45,19 +45,102 @@ export function extractCardTldr(card) {
   return '';
 }
 
-export function extractMatchedEntities(combinedText = '') {
+// 停用詞過濾表（避免常見非主題詞彙誤判成邊）
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'this', 'that', 'what', 'how', 'when',
+  'where', 'why', 'who', 'using', 'into', 'over', 'more', 'about', 'some', 'your',
+  'http', 'https', 'com', 'org', 'net', 'html', 'www', 'github',
+  'card', 'item', 'test', 'page', 'app', 'note', 'text', 'link', 'data', 'todo', 'idea', 'user',
+  '可以', '這個', '那個', '如果', '以及', '或者', '因為', '所以', '筆記', '專案',
+  '文章', '內容', '教學', '分享', '整理', '說明', '記錄', '進行', '使用', '相關'
+]);
+
+/**
+ * 從卡片集合中自動動態發掘跨篇高頻技術實體 (0 按鈕、純前端毫秒級統計)
+ */
+export function extractDynamicEntities(cards = [], { minDocumentFrequency = 2, maxEntities = 60 } = {}) {
+  const docFreq = new Map(); // entity -> Set of card IDs
+
+  // 1. 抽取正則：英文縮寫詞 (如 CLABSI, VAP, MCP, PR, CI/CD 等)
+  const acronymRegex = /\b[A-Z]{2,10}(?:-[A-Za-z0-9]+)?\b/g;
+  // 2. 駝峰式專有名詞 (如 FastAPI, Three.js, GraphQL, PyTorch 等)
+  const camelCaseRegex = /\b[A-Z][a-z0-9]+[A-Z][a-zA-Z0-9_\-\.]*\b/g;
+  // 3. 複合名詞 (如 Prompt Engineering, Cloud Functions, Agentic Workflow 等)
+  const compoundRegex = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g;
+
+  cards.forEach(card => {
+    const cardId = card.id;
+    const text = [
+      extractCardTitle(card),
+      extractCardTldr(card),
+      card.text || ''
+    ].join(' ');
+
+    const candidateSet = new Set();
+
+    const compounds = text.match(compoundRegex) || [];
+    compounds.forEach(term => candidateSet.add(term.trim()));
+
+    const acronyms = text.match(acronymRegex) || [];
+    acronyms.forEach(term => candidateSet.add(term.trim()));
+
+    const camelWords = text.match(camelCaseRegex) || [];
+    camelWords.forEach(term => candidateSet.add(term.trim()));
+
+    if (Array.isArray(card.entities)) {
+      card.entities.forEach(e => {
+        const clean = String(e || '').trim();
+        if (clean.length >= 2) candidateSet.add(clean);
+      });
+    }
+
+    candidateSet.forEach(term => {
+      const lower = term.toLowerCase();
+      if (STOP_WORDS.has(lower) || term.length < 2) return;
+      if (!docFreq.has(term)) {
+        docFreq.set(term, new Set());
+      }
+      docFreq.get(term).add(cardId);
+    });
+  });
+
+  const recurringEntities = [];
+  for (const [term, idSet] of docFreq.entries()) {
+    if (idSet.size >= minDocumentFrequency) {
+      recurringEntities.push({ term, freq: idSet.size });
+    }
+  }
+
+  recurringEntities.sort((a, b) => b.freq - a.freq);
+  return recurringEntities.slice(0, maxEntities).map(item => item.term);
+}
+
+export function extractMatchedEntities(combinedText = '', entityList = TECH_ENTITIES) {
   const lower = combinedText.toLowerCase();
-  return TECH_ENTITIES.filter(entity => lower.includes(entity.toLowerCase()));
+  return (entityList || TECH_ENTITIES).filter(entity => {
+    const term = String(entity || '').toLowerCase().trim();
+    return term.length >= 2 && lower.includes(term);
+  });
 }
 
 export function buildClientGraphData({
   cards = [],
+  customEntities = [],
+  autoExtractEntities = false,
   minWeight = 3,
   maxEdgesPerNode = 5,
   maxNodes = 250,
   query = ''
 } = {}) {
   const lowerQuery = (query || '').toLowerCase().trim();
+
+  // 若啟用自動動態萃取，發掘跨篇高頻技術實體
+  const dynamicEntities = autoExtractEntities ? extractDynamicEntities(cards) : [];
+  const activeEntityCatalog = Array.from(new Set([
+    ...TECH_ENTITIES,
+    ...dynamicEntities,
+    ...(Array.isArray(customEntities) ? customEntities : [])
+  ]));
 
   // 1. 整理所有節點
   const allNodes = cards.map(card => {
@@ -67,7 +150,10 @@ export function buildClientGraphData({
     const noteText = card.note?.blocks ? card.note.blocks.map(b => stripHtml(b.data?.text || '')).join(' ') : '';
     const searchText = card.researchSearchText || card.cardSearchText || '';
     const combined = `${title} ${text} ${noteText} ${searchText}`;
-    const entities = extractMatchedEntities(combined);
+
+    const cardExplicitEntities = Array.isArray(card.entities) ? card.entities : [];
+    const matchedEntities = extractMatchedEntities(combined, activeEntityCatalog);
+    const entities = Array.from(new Set([...matchedEntities, ...cardExplicitEntities]));
 
     const tags = Array.isArray(card.tags) ? card.tags : [];
     const tagIds = Array.isArray(card.tagIds) ? card.tagIds : [];
@@ -160,7 +246,7 @@ export function buildClientGraphData({
 
   // 6. 建立實體叢集 (Entity Clusters)
   const entityClusters = new Map();
-  for (const entity of TECH_ENTITIES) {
+  for (const entity of activeEntityCatalog) {
     const matched = selectedNodes.filter(n => n.entities.includes(entity));
     if (matched.length > 0) {
       entityClusters.set(entity, matched.map(n => n.id));

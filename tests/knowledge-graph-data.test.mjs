@@ -136,4 +136,35 @@ test('buildClientGraphData extracts dynamic tagClusters and categoryClusters', (
   assert.deepEqual(graph.categoryClusters.get('bookmarks'), ['c2']);
 });
 
+test('buildClientGraphData with autoExtractEntities dynamically discovers recurring entities without hardcoding', () => {
+  // CLABSI 和 FastAPI 並不在預設的 TECH_ENTITIES 白名單中
+  assert.equal(TECH_ENTITIES.includes('CLABSI'), false);
+  assert.equal(TECH_ENTITIES.includes('FastAPI'), false);
+
+  const cards = [
+    { id: 'm1', collection: 'learning', text: '醫院感控年報 CLABSI 監視數據統計與標準化比值分析' },
+    { id: 'm2', collection: 'bookmarks', text: 'CLABSI 導管相關血流感染預防指引與組合式照護' },
+    { id: 'dev1', collection: 'cdc_projects', text: '後端服務採用 FastAPI 建構非同步微服務' },
+    { id: 'dev2', collection: 'todos', text: '優化 FastAPI 接口路由與 Swagger 文檔' }
+  ];
+
+  const graph = buildClientGraphData({ cards, autoExtractEntities: true, minWeight: 3 });
+
+  // 驗證 m1 與 m2 自動透過未寫死的 CLABSI 成邊 (權重 +3)
+  const medEdge = graph.edges.find(e =>
+    (e.source === 'm1' && e.target === 'm2') || (e.source === 'm2' && e.target === 'm1')
+  );
+  assert.ok(medEdge, 'Should form edge between m1 and m2 via dynamically extracted CLABSI');
+  assert.equal(medEdge.weight, 3);
+  assert.ok(medEdge.sharedEntities.includes('CLABSI'));
+
+  // 驗證 dev1 與 dev2 自動透過未寫死的 FastAPI 成邊 (權重 +3)
+  const devEdge = graph.edges.find(e =>
+    (e.source === 'dev1' && e.target === 'dev2') || (e.source === 'dev2' && e.target === 'dev1')
+  );
+  assert.ok(devEdge, 'Should form edge between dev1 and dev2 via dynamically extracted FastAPI');
+  assert.equal(devEdge.weight, 3);
+  assert.ok(devEdge.sharedEntities.includes('FastAPI'));
+});
+
 

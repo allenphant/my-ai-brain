@@ -1902,7 +1902,20 @@
                 if (c.id && c.name) categoryMap[c.id] = c.name;
             });
 
-            const graphData = buildClientGraphData({ cards: enrichedCards, minWeight: 3, maxEdgesPerNode: 5 });
+            // 讀取儲存的自訂語意實體對齊快取
+            let customEntities = [];
+            try {
+                const cached = localStorage.getItem('my_ai_brain_dynamic_entities');
+                if (cached) customEntities = JSON.parse(cached);
+            } catch (e) {}
+
+            const graphData = buildClientGraphData({
+                cards: enrichedCards,
+                customEntities,
+                autoExtractEntities: true,
+                minWeight: 3,
+                maxEdgesPerNode: 5
+            });
             const canvas = document.getElementById('knowledge-graph-canvas');
 
             if (graphViewer) {
@@ -1925,6 +1938,69 @@
 
             // 渲染動態多維群組過濾 Chips (全部 / 分類 / 高頻標籤)
             renderGraphGroupChips(graphData, categoryMap, getCategoryColor);
+
+            // 綁定 AI 語意對齊按鈕
+            const alignSemanticsBtn = document.getElementById('graph-align-semantics-btn');
+            const alignSemanticsText = document.getElementById('graph-align-semantics-text');
+            if (alignSemanticsBtn) {
+                alignSemanticsBtn.onclick = async () => {
+                    const apiKey = document.getElementById('api-key-input')?.value || localStorage.getItem('geminiApiKey');
+                    if (!apiKey) {
+                        alert('請先在「系統設定」中填入 Google Gemini API Key，即可啟用 AI 語意對齊。');
+                        return;
+                    }
+
+                    alignSemanticsBtn.disabled = true;
+                    const prevText = alignSemanticsText ? alignSemanticsText.textContent : '語意對齊';
+                    if (alignSemanticsText) alignSemanticsText.textContent = '對齊中...';
+
+                    try {
+                        const targetModel = localStorage.getItem('geminiModel') || 'gemini-2.5-flash';
+                        // 挑選最多 35 張代表性卡片
+                        const cardSamples = enrichedCards.slice(0, 35).map(c => {
+                            const title = c.text?.replace(/https?:\/\/[^\s]+/g, '').trim() || '';
+                            const tldr = c.researchSummary || c.tldr || '';
+                            const tags = (c.tags || []).join(',');
+                            return `[${c.collection || 'inbox'}] ${title} ${tldr ? 'TLDR:' + tldr : ''} Tags:${tags}`;
+                        }).join('\n');
+
+                        const prompt = `你是一個專業知識圖譜架構師。請分析以下卡片，提煉出 10 到 30 個貫穿多張卡片的核心概念或技術實體名詞（例如 FastMCP, CLABSI, Prompt Engineering, Rust 等），將同義詞或中英文歸納為標準繁體中文或業界通用英文。請只回傳 JSON 字串陣列，例如 ["實體A", "實體B"]，不要任何 Markdown 或額外文字：\n${cardSamples}`;
+
+                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: prompt }] }]
+                            })
+                        });
+
+                        const data = await response.json();
+                        if (data.error) throw new Error(data.error.message);
+                        const rawResp = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '[]';
+                        const cleanJson = rawResp.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
+                        const parsedEntities = JSON.parse(cleanJson);
+
+                        if (Array.isArray(parsedEntities) && parsedEntities.length > 0) {
+                            localStorage.setItem('my_ai_brain_dynamic_entities', JSON.stringify(parsedEntities));
+                            localStorage.setItem('my_ai_brain_entities_updated_at', Date.now().toString());
+                            // 立即以新實體重新整理圖譜
+                            openKnowledgeGraph({ fromHistory: true });
+                            if (alignSemanticsText) alignSemanticsText.textContent = `已對齊 (${parsedEntities.length})`;
+                        } else {
+                            throw new Error('未取得有效實體');
+                        }
+                    } catch (err) {
+                        console.error('語意對齊失敗：', err);
+                        alert(`語意對齊失敗：${err.message || '未知錯誤'}`);
+                        if (alignSemanticsText) alignSemanticsText.textContent = prevText;
+                    } finally {
+                        alignSemanticsBtn.disabled = false;
+                        setTimeout(() => {
+                            if (alignSemanticsText) alignSemanticsText.textContent = '語意對齊';
+                        }, 3000);
+                    }
+                };
+            }
 
             // 綁定標籤顯示切換模式按鈕 (焦點模式 vs 全顯防撞模式)
             const toggleLabelsBtn = document.getElementById('graph-toggle-labels-btn');
