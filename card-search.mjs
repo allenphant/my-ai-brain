@@ -27,21 +27,24 @@ function buildSnippet(value, terms, maxLength = 150) {
 }
 
 function searchItem(item, terms, tagNamesById) {
+    const id = normalizeSearchValue(item?.id);
     const title = normalizeSearchValue(item?.cardSearchText || item?.text);
     const research = normalizeSearchValue(item?.researchSearchText);
     const tagNames = (Array.isArray(item?.tagIds) ? item.tagIds : [])
         .map(id => tagNamesById.get(String(id)) || '')
         .filter(Boolean);
     const tags = normalizeSearchValue(tagNames.join(' '));
-    const combined = `${title} ${research} ${tags}`;
+    const combined = `${id} ${title} ${research} ${tags}`;
     if (!terms.every(term => combined.includes(term))) return null;
 
     const matchTypes = [];
+    if (id && terms.some(term => id.includes(term))) matchTypes.push('id');
     if (terms.some(term => title.includes(term))) matchTypes.push('title');
     if (terms.some(term => research.includes(term))) matchTypes.push('research');
     if (terms.some(term => tags.includes(term))) matchTypes.push('tag');
     const score = terms.reduce((total, term) => (
         total
+        + (id === term ? 20 : id.startsWith(term) ? 12 : id.includes(term) ? 8 : 0)
         + (title.startsWith(term) ? 8 : title.includes(term) ? 5 : 0)
         + (tags.includes(term) ? 3 : 0)
         + (research.includes(term) ? 2 : 0)

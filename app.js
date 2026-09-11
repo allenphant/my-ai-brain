@@ -803,7 +803,7 @@
             const card = renderTagBrowserCard(item, group);
             card.removeAttribute('data-tag-browser-card');
             card.setAttribute('data-search-card', '');
-            const matchLabels = { title: '卡片文字', research: 'AI 詳細筆記', tag: 'Tag' };
+            const matchLabels = { id: '卡片編號', title: '卡片文字', research: 'AI 詳細筆記', tag: 'Tag' };
             const matches = document.createElement('div');
             matches.className = 'flex flex-wrap items-center gap-1.5';
             (item.searchMatchTypes || []).forEach(type => {
@@ -812,7 +812,9 @@
                     ? 'rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700'
                     : type === 'tag'
                         ? 'rounded-full bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-700'
-                        : 'rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700';
+                        : type === 'id'
+                            ? 'rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 font-mono'
+                            : 'rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700';
                 badge.textContent = `符合：${matchLabels[type] || type}`;
                 matches.appendChild(badge);
             });
@@ -876,7 +878,7 @@
                 : '開始搜尋你的知識庫';
             document.getElementById('global-search-empty-detail').textContent = hasQuery
                 ? '試著縮短關鍵字，或改用 Tag 名稱搜尋。'
-                : '可搜尋網址、標題、AI 研讀內容與 Tag 名稱。';
+                : '可搜尋卡片編號、網址、標題、AI 研讀內容與 Tag 名稱。';
         }
 
         function openGlobalSearch({ fromHistory = false } = {}) {

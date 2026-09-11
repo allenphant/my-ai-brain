@@ -88,3 +88,30 @@ test('production markup exposes the accessible global search and visible Mistral
     assert.match(appSource, /history\.pushState\(\{ overlay: 'global-search'/);
     assert.match(appSource, /getElementById\('mistral-settings-container'\)\.classList\.remove\('hidden'\)/);
 });
+
+test('search matches card ID and prioritizes exact ID match with highest rank', () => {
+    const groups = groupCardsBySearch({
+        inboxItems: [
+            { id: 'card-abc-123', text: '普通說明內容', researchSearchText: '', createdAt: 10 },
+            { id: 'card-xyz-999', text: '其他文字內容', researchSearchText: '', createdAt: 20 }
+        ],
+        query: 'card-abc-123'
+    });
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].items.length, 1);
+    assert.equal(groups[0].items[0].id, 'card-abc-123');
+    assert.ok(groups[0].items[0].searchMatchTypes.includes('id'));
+});
+
+test('search matches card ID case-insensitively and partial prefix ID', () => {
+    const groups = groupCardsBySearch({
+        inboxItems: [
+            { id: '9mYE5sLe5Xav7Z3cRop2', text: '粒子動畫網頁prompt', createdAt: 10 }
+        ],
+        query: '9mye5sle'
+    });
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].items.length, 1);
+    assert.equal(groups[0].items[0].id, '9mYE5sLe5Xav7Z3cRop2');
+    assert.ok(groups[0].items[0].searchMatchTypes.includes('id'));
+});
