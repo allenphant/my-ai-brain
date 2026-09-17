@@ -71,7 +71,7 @@
         import { parseFirebaseConfig } from './firebase-config.mjs';
         import { StorageController } from './js/storage-controller.mjs';
         import * as LocalDb from './js/local-db.mjs';
-        import { buildTimelineBuckets, getCardTimestamp } from './timeline-browser.mjs';
+        import { buildTimelineBuckets, getCardTimestamp, getCardDisplayName } from './timeline-browser.mjs';
         import { selectDailySparks, getTodayDateString } from './daily-sparks.mjs';
 
         // --- Firebase 初始化 (BYOD 架構) ---
@@ -604,9 +604,11 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 `;
                 bucket.items.forEach(card => {
-                    const preview = escapeHtml(card.previewText || '無文字內容');
+                    const displayName = escapeHtml(card.displayName || getCardDisplayName(card));
+                    const preview = escapeHtml(card.previewText || '');
                     const colName = escapeHtml(card.collectionName || '未分類');
                     const timeStr = escapeHtml(card.formattedTime || '');
+                    const showSecondary = preview && preview !== displayName && preview !== '無文字內容';
                     html += `
                         <div class="timeline-card-item bg-white border border-slate-200 hover:border-indigo-300 hover:shadow-sm rounded-xl p-3.5 transition-all cursor-pointer flex flex-col justify-between" data-card-id="${escapeHtml(card.id)}" data-card-col="${escapeHtml(card.collection)}">
                             <div class="flex-1 min-w-0">
@@ -614,7 +616,8 @@
                                     <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 truncate max-w-[120px]">${colName}</span>
                                     <span class="text-[11px] text-slate-400 font-medium shrink-0">${timeStr}</span>
                                 </div>
-                                <p class="text-sm font-medium text-slate-800 line-clamp-3 leading-snug break-words">${preview}</p>
+                                <h4 class="text-sm font-bold text-slate-800 leading-snug break-words line-clamp-2">${displayName}</h4>
+                                ${showSecondary ? `<p class="mt-1 text-xs text-slate-500 line-clamp-2 leading-relaxed break-words">${preview}</p>` : ''}
                             </div>
                             <div class="mt-2.5 pt-2 border-t border-slate-50 flex items-center justify-end">
                                 <span class="text-xs text-indigo-600 font-semibold flex items-center gap-1">
@@ -663,6 +666,29 @@
             const modal = document.getElementById('timeline-browser-modal');
             if (modal) modal.classList.add('hidden');
             keyLayers.pop('timeline-browser');
+        }
+
+        function findCardInCurrentState(cardId, cardCol) {
+            if (!cardId) return null;
+            if (cardCol === 'inbox') {
+                return currentInboxItems.find(i => i && i.id === cardId) || null;
+            }
+            if (cardCol) {
+                const colItems = currentItemsByCollection.get(cardCol);
+                if (Array.isArray(colItems)) {
+                    const found = colItems.find(i => i && i.id === cardId);
+                    if (found) return found;
+                }
+            }
+            const inboxFound = currentInboxItems.find(i => i && i.id === cardId);
+            if (inboxFound) return inboxFound;
+            for (const items of currentItemsByCollection.values()) {
+                if (Array.isArray(items)) {
+                    const f = items.find(i => i && i.id === cardId);
+                    if (f) return f;
+                }
+            }
+            return null;
         }
 
         function renderDailySparks() {
@@ -740,21 +766,77 @@
                 `;
 
                 if (hasItem) {
-                    const preview = escapeHtml(item.previewText || '無文字內容');
-                    const colName = escapeHtml(item.collectionName || '');
+                    const displayName = item.displayName || getCardDisplayName(item);
+                    const { previewHTML, textWithoutUrl } = getLinkPreviewData(item.text);
+                    const colName = escapeHtml(item.collectionName || '未分類');
+                    const isTodo = track.trackId === 'todos' || item.collectionType === 'todo';
+                    const isCompleted = Boolean(item.completed);
+
+                    let secondaryText = '';
+                    if (textWithoutUrl) {
+                        const lines = textWithoutUrl.split('\n');
+                        if (lines.length > 1) {
+                            if (lines[0].trim() === displayName.trim()) {
+                                secondaryText = lines.slice(1).join('\n').trim();
+                            } else {
+                                secondaryText = textWithoutUrl.trim();
+                            }
+                        } else if (textWithoutUrl.trim() !== displayName.trim()) {
+                            secondaryText = textWithoutUrl.trim();
+                        }
+                    }
+
+                    const researchSnippet = (typeof item.researchTldr === 'string' && item.researchTldr.trim())
+                        ? item.researchTldr.trim()
+                        : ((typeof item.researchSummary === 'string' && item.researchSummary.trim()) ? item.researchSummary.trim() : '');
+
                     html += `
-                            <div class="daily-spark-target-click cursor-pointer rounded-lg bg-slate-50 hover:bg-indigo-50/60 p-2.5 transition-colors border border-slate-100" data-card-id="${escapeHtml(item.id)}" title="點擊定位到該卡片">
-                                <p class="text-xs font-medium text-slate-700 line-clamp-3 leading-relaxed break-words">${preview}</p>
-                                ${colName ? `
-                                <div class="mt-2 flex items-center justify-between text-[10px] text-slate-400">
-                                    <span class="bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 font-medium">${colName}</span>
-                                    <span class="text-indigo-600 font-medium flex items-center gap-0.5">
-                                        定位
+                            <div class="daily-spark-item-card rounded-xl bg-slate-50/80 hover:bg-slate-50 border border-slate-200/90 p-3 transition-all flex flex-col gap-2 relative group cursor-pointer" data-card-id="${escapeHtml(item.id)}" data-card-col="${escapeHtml(item.collection || '')}">
+                                <div class="flex items-start gap-2 min-w-0">
+                                    ${isTodo ? `
+                                    <input type="checkbox" ${isCompleted ? 'checked' : ''} class="daily-spark-todo-checkbox w-4 h-4 text-emerald-500 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer shrink-0 mt-0.5" data-card-id="${escapeHtml(item.id)}" data-card-col="${escapeHtml(item.collection || '')}">
+                                    ` : ''}
+                                    <h4 class="daily-spark-card-title text-sm font-bold text-slate-800 leading-snug break-words flex-1 ${isTodo && isCompleted ? 'line-through text-slate-400' : ''}">
+                                        ${escapeHtml(displayName)}
+                                    </h4>
+                                </div>
+                                ${secondaryText ? `
+                                <p class="text-xs text-slate-600 line-clamp-3 leading-relaxed break-words whitespace-pre-wrap ${isTodo && isCompleted ? 'line-through text-slate-400' : ''}">${escapeHtml(secondaryText)}</p>
+                                ` : ''}
+                                ${getImageHTML(item.imageUrl)}
+                                ${previewHTML}
+                                ${researchSnippet ? `
+                                <div class="rounded-lg bg-indigo-50/70 border border-indigo-100 p-2 text-xs text-slate-700">
+                                    <div class="text-[10px] font-bold text-indigo-700 uppercase tracking-wide mb-0.5 flex items-center gap-1">
                                         <svg class="h-2.5 w-2.5 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <polyline points="9 18 15 12 9 6"></polyline>
+                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                            <polyline points="14 2 14 8 20 8"></polyline>
+                                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                                            <line x1="16" y1="17" x2="8" y2="17"></line>
                                         </svg>
-                                    </span>
-                                </div>` : ''}
+                                        TL;DR
+                                    </div>
+                                    <p class="line-clamp-2 text-slate-600 leading-relaxed">${escapeHtml(researchSnippet)}</p>
+                                </div>
+                                ` : ''}
+                                <div class="mt-1 pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs">
+                                    <span class="bg-white border border-slate-200 px-2 py-0.5 rounded-md text-slate-600 text-[11px] font-medium truncate max-w-[120px]">${colName}</span>
+                                    <div class="flex items-center gap-1">
+                                        <button type="button" class="daily-spark-locate-btn text-indigo-600 hover:text-indigo-800 font-medium px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors flex items-center gap-1" data-card-id="${escapeHtml(item.id)}" title="定位到看板中的該卡片">
+                                            定位
+                                            <svg class="h-3 w-3 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="9 18 15 12 9 6"></polyline>
+                                            </svg>
+                                        </button>
+                                        <button type="button" class="daily-spark-edit-btn text-slate-500 hover:text-slate-700 font-medium px-2 py-0.5 rounded hover:bg-slate-100 transition-colors flex items-center gap-1" data-card-id="${escapeHtml(item.id)}" data-card-col="${escapeHtml(item.collection || '')}" title="編輯卡片">
+                                            編輯
+                                            <svg class="h-3 w-3 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                     `;
                 } else {
@@ -785,11 +867,70 @@
                 });
             });
 
-            // 綁定點擊跳轉定位
-            container.querySelectorAll('.daily-spark-target-click').forEach(el => {
-                el.addEventListener('click', () => {
-                    const cardId = el.getAttribute('data-card-id');
+            // 綁定定位按鈕
+            container.querySelectorAll('.daily-spark-locate-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const cardId = btn.getAttribute('data-card-id');
                     if (cardId) scrollAndHighlightCard(cardId);
+                });
+            });
+
+            // 綁定編輯按鈕
+            container.querySelectorAll('.daily-spark-edit-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const cardId = btn.getAttribute('data-card-id');
+                    const cardCol = btn.getAttribute('data-card-col');
+                    const item = findCardInCurrentState(cardId, cardCol);
+                    if (item && cardCol) {
+                        openEditor(item.id, item.text, cardCol);
+                    }
+                });
+            });
+
+            // 綁定待辦 Checkbox
+            container.querySelectorAll('.daily-spark-todo-checkbox').forEach(cb => {
+                cb.addEventListener('click', (e) => e.stopPropagation());
+                cb.addEventListener('change', async (e) => {
+                    const cardId = cb.getAttribute('data-card-id');
+                    const cardCol = cb.getAttribute('data-card-col');
+                    const isChecked = e.target.checked;
+                    const cardEl = cb.closest('.daily-spark-item-card');
+                    if (cardEl) {
+                        const titleEl = cardEl.querySelector('.daily-spark-card-title');
+                        if (titleEl) {
+                            titleEl.classList.toggle('line-through', isChecked);
+                            titleEl.classList.toggle('text-slate-400', isChecked);
+                        }
+                    }
+                    if (currentUser && db) {
+                        try {
+                            await updateDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, cardCol, cardId), { completed: isChecked });
+                        } catch (err) {
+                            console.error('更新待辦狀態失敗：', err);
+                        }
+                    } else {
+                        try {
+                            await LocalDb.updateCard(cardCol, cardId, { completed: isChecked });
+                            await refreshLocalCollection(cardCol);
+                        } catch (err) {
+                            console.error('更新本機待辦狀態失敗：', err);
+                        }
+                    }
+                });
+            });
+
+            // 綁定卡片點擊開啟編輯（排除 interactive target）
+            container.querySelectorAll('.daily-spark-item-card').forEach(cardEl => {
+                cardEl.addEventListener('click', (e) => {
+                    if (isInteractiveCardTarget(e.target)) return;
+                    const cardId = cardEl.getAttribute('data-card-id');
+                    const cardCol = cardEl.getAttribute('data-card-col');
+                    const item = findCardInCurrentState(cardId, cardCol);
+                    if (item && cardCol) {
+                        openEditor(item.id, item.text, cardCol);
+                    }
                 });
             });
         }

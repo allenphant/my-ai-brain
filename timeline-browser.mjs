@@ -68,6 +68,51 @@ export function getCardPreviewText(card) {
     return '無文字內容';
 }
 
+export function getCardDisplayName(card) {
+    if (!card) return '未命名卡片';
+    if (typeof card.researchTitle === 'string' && card.researchTitle.trim()) {
+        return card.researchTitle.trim();
+    }
+    const rawText = typeof card.text === 'string' ? card.text.trim() : '';
+    if (rawText) {
+        // 排除 URL 後提取有意義的文字
+        const cleanText = rawText.replace(/https?:\/\/[^\s　-〿぀-ヿ㐀-鿿＀-￯]+/g, '').trim();
+        if (cleanText) {
+            const firstLine = cleanText.split('\n')[0].trim();
+            if (firstLine) {
+                return firstLine.length > 50 ? `${firstLine.slice(0, 50)}...` : firstLine;
+            }
+        }
+        // 若去除 URL 後沒有文字，則從第一個 URL 推斷名稱
+        const urlMatch = rawText.match(/https?:\/\/[^\s　-〿぀-ヿ㐀-鿿＀-￯]+/);
+        if (urlMatch) {
+            try {
+                const u = new URL(urlMatch[0]);
+                if (u.hostname.includes('threads.net') || u.hostname.includes('threads.com')) {
+                    const postAuthor = u.pathname.match(/@([^/]+)/);
+                    return postAuthor ? `Threads 貼文 (@${postAuthor[1]})` : 'Threads 貼文';
+                }
+                if (u.hostname.includes('twitter.com') || u.hostname.includes('x.com')) {
+                    const author = u.pathname.match(/^\/([^/]+)/);
+                    return author && author[1] !== 'i' ? `X 貼文 (@${author[1]})` : 'X 貼文';
+                }
+                if (u.hostname.includes('github.com')) {
+                    const parts = u.pathname.replace(/^\//, '').split('/');
+                    return parts.length >= 2 && parts[0] && parts[1] ? `${parts[0]}/${parts[1]}` : 'GitHub 專案';
+                }
+                if (u.hostname.includes('youtube.com') || u.hostname.includes('youtu.be')) {
+                    return 'YouTube 影片';
+                }
+                return `${u.hostname.replace(/^www\./, '')} 連結`;
+            } catch {}
+        }
+    }
+    if (typeof card.title === 'string' && card.title.trim()) {
+        return card.title.trim();
+    }
+    return '未命名卡片';
+}
+
 /**
  * 彙整所有卡片並計算時間分組桶
  */
@@ -100,6 +145,7 @@ export function buildTimelineBuckets({
                 collectionName: '收件匣',
                 timestamp: ts,
                 formattedTime: formatTimelineTime(ts, now),
+                displayName: getCardDisplayName(item),
                 previewText: getCardPreviewText(item)
             });
         });
@@ -119,6 +165,7 @@ export function buildTimelineBuckets({
                     collectionName: colName,
                     timestamp: ts,
                     formattedTime: formatTimelineTime(ts, now),
+                    displayName: getCardDisplayName(item),
                     previewText: getCardPreviewText(item)
                 });
             });
@@ -136,6 +183,7 @@ export function buildTimelineBuckets({
                     collectionName: colName,
                     timestamp: ts,
                     formattedTime: formatTimelineTime(ts, now),
+                    displayName: getCardDisplayName(item),
                     previewText: getCardPreviewText(item)
                 });
             });

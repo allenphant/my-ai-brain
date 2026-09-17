@@ -6,7 +6,7 @@
  * 軌道 3：靈感碰撞（sparks: 稍後閱讀或隨手點子隨機碰撞）
  */
 
-import { getCardTimestamp, getCardPreviewText } from './timeline-browser.mjs';
+import { getCardTimestamp, getCardPreviewText, getCardDisplayName } from './timeline-browser.mjs';
 
 /**
  * 取得 ISO 日期字串 YYYY-MM-DD（依本地時間）
@@ -68,6 +68,7 @@ export function extractAllCards({ inboxItems = [], itemsByCollection = new Map()
                 collectionName: '收件匣',
                 collectionType: 'inbox',
                 timestamp: ts,
+                displayName: getCardDisplayName(item),
                 previewText: getCardPreviewText(item)
             });
         });
@@ -87,6 +88,7 @@ export function extractAllCards({ inboxItems = [], itemsByCollection = new Map()
                 collectionName: cat.name || colId,
                 collectionType: cat.type || 'text',
                 timestamp: ts,
+                displayName: getCardDisplayName(item),
                 previewText: getCardPreviewText(item)
             });
         });

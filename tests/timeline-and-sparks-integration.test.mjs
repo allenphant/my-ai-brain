@@ -49,16 +49,28 @@ test('app.js integrates timeline browser, category sort toggle, and daily sparks
     // 今日大腦切片渲染與事件綁定
     assert.match(appSource, /renderDailySparks/);
     assert.match(appSource, /setupDailySparksSection/);
+    assert.match(appSource, /getCardDisplayName/);
+    assert.match(appSource, /daily-spark-card-title/);
+    assert.match(appSource, /daily-spark-item-card/);
+    assert.match(appSource, /daily-spark-todo-checkbox/);
+    assert.match(appSource, /daily-spark-locate-btn/);
+    assert.match(appSource, /daily-spark-edit-btn/);
 });
 
 test('no emoji exists in timeline-browser.mjs, daily-sparks.mjs, or newly added markup', async () => {
-    const [timelineSrc, sparksSrc] = await Promise.all([
+    const [timelineSrc, sparksSrc, appSrc] = await Promise.all([
         readFile(new URL('../timeline-browser.mjs', import.meta.url), 'utf8'),
-        readFile(new URL('../daily-sparks.mjs', import.meta.url), 'utf8')
+        readFile(new URL('../daily-sparks.mjs', import.meta.url), 'utf8'),
+        readFile(new URL('../app.js', import.meta.url), 'utf8')
     ]);
 
     // 驗證無 Unicode Emoji (範圍包含一般表情、符號、圖示)
     const emojiRegex = /[\u{1F300}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u;
     assert.equal(emojiRegex.test(timelineSrc), false, 'timeline-browser.mjs must not contain emoji');
     assert.equal(emojiRegex.test(sparksSrc), false, 'daily-sparks.mjs must not contain emoji');
+
+    // 擷取 app.js 中 timeline 與 daily sparks 相關函式區塊進行 emoji 檢測
+    const sparksSliceMatch = appSrc.match(/function renderTimelineBrowser[\s\S]+?function setupDailySparksSection/);
+    assert.ok(sparksSliceMatch, 'must find timeline and sparks slice in app.js');
+    assert.equal(emojiRegex.test(sparksSliceMatch[0]), false, 'app.js timeline/sparks slice must not contain emoji');
 });

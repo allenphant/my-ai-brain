@@ -5,6 +5,7 @@ import {
     getCardTimestamp,
     formatTimelineTime,
     getCardPreviewText,
+    getCardDisplayName,
     buildTimelineBuckets
 } from '../timeline-browser.mjs';
 
@@ -100,4 +101,56 @@ test('buildTimelineBuckets returns empty array when no cards exist and filters o
     });
     assert.equal(buckets.length, 1);
     assert.equal(buckets[0].id, 'today');
+});
+
+test('getCardDisplayName resolves researchTitle, plain text, social URLs, and fallback', () => {
+    // 1. 優先取 researchTitle
+    assert.equal(getCardDisplayName({
+        text: '一般內文 https://example.com',
+        researchTitle: 'AI 研讀報告標題'
+    }), 'AI 研讀報告標題');
+
+    // 2. 純文字第一行作為卡片名稱
+    assert.equal(getCardDisplayName({
+        text: '規劃 Q4 目標與計畫\n詳細內容第一點\n第二點'
+    }), '規劃 Q4 目標與計畫');
+
+    // 3. 文字包含網址：提取乾淨第一行
+    assert.equal(getCardDisplayName({
+        text: '高質量設計庫\nhttps://example.com/design\n值得收藏'
+    }), '高質量設計庫');
+
+    // 4. 純網址 - Threads 貼文帶作者
+    assert.equal(getCardDisplayName({
+        text: 'https://www.threads.net/@dustin_gmat/post/DHA5i7gJ'
+    }), 'Threads 貼文 (@dustin_gmat)');
+
+    // 5. 純網址 - GitHub 專案
+    assert.equal(getCardDisplayName({
+        text: 'https://github.com/facebook/react'
+    }), 'facebook/react');
+
+    // 6. 純網址 - X / Twitter 貼文
+    assert.equal(getCardDisplayName({
+        text: 'https://x.com/karpathy/status/18300000000'
+    }), 'X 貼文 (@karpathy)');
+
+    // 7. 純網址 - YouTube 影片
+    assert.equal(getCardDisplayName({
+        text: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+    }), 'YouTube 影片');
+
+    // 8. 純網址 - 一般網站域名
+    assert.equal(getCardDisplayName({
+        text: 'https://news.ycombinator.com/item?id=12345'
+    }), 'news.ycombinator.com 連結');
+
+    // 9. card.title 欄位
+    assert.equal(getCardDisplayName({
+        title: '備忘錄項目'
+    }), '備忘錄項目');
+
+    // 10. 空卡片或無文字
+    assert.equal(getCardDisplayName(null), '未命名卡片');
+    assert.equal(getCardDisplayName({}), '未命名卡片');
 });
