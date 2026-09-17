@@ -71,6 +71,8 @@
         import { parseFirebaseConfig } from './firebase-config.mjs';
         import { StorageController } from './js/storage-controller.mjs';
         import * as LocalDb from './js/local-db.mjs';
+        import { buildTimelineBuckets, getCardTimestamp } from './timeline-browser.mjs';
+        import { selectDailySparks, getTodayDateString } from './daily-sparks.mjs';
 
         // --- Firebase 初始化 (BYOD 架構) ---
         let firebaseConfig = null;
@@ -263,6 +265,37 @@
 
         const getOrder = (item) => item.order !== undefined ? item.order : item.createdAt;
 
+        let dailySparksOffsets = { todos: 0, memory: 0, sparks: 0 };
+        let isDailySparksCollapsed = localStorage.getItem('dailySparksCollapsed') === 'true';
+        const sortableInstances = new Map();
+
+        function getCategorySortMode(colId) {
+            try {
+                const stored = JSON.parse(localStorage.getItem('categorySortModes') || '{}');
+                return stored[colId] === 'time' ? 'time' : 'custom';
+            } catch {
+                return 'custom';
+            }
+        }
+
+        function setCategorySortMode(colId, mode) {
+            try {
+                const stored = JSON.parse(localStorage.getItem('categorySortModes') || '{}');
+                stored[colId] = mode === 'time' ? 'time' : 'custom';
+                localStorage.setItem('categorySortModes', JSON.stringify(stored));
+            } catch (err) {
+                console.error('Failed to save category sort mode:', err);
+            }
+        }
+
+        function sortCollectionItems(items, colId) {
+            if (!Array.isArray(items)) return items;
+            const mode = getCategorySortMode(colId);
+            if (mode === 'time') {
+                return items.sort((a, b) => getCardTimestamp(b) - getCardTimestamp(a));
+            }
+            return items.sort((a, b) => getOrder(b) - getOrder(a));
+        }
         
         async function saveCategory(categoryData) {
             if (!currentUser || !db) {
@@ -297,7 +330,7 @@
             if (!currentUser || !db) return;
             onSnapshot(collection(db, 'artifacts', appId, 'users', currentUser.uid, catId), (snapshot) => {
                 const items = []; snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
-                items.sort((a, b) => getOrder(b) - getOrder(a));
+                sortCollectionItems(items, catId);
                 currentItemsByCollection.set(catId, items);
                 automaticResearchLoadedCollections.add(String(catId));
                 
@@ -313,6 +346,8 @@
                 } else {
                     renderList(items, listEl, catId, `${catIcon} text-slate-400`);
                 }
+                updateCategorySortButtonState(catId);
+                renderDailySparks();
                 refreshOpenTagBrowser();
                 renderAutomaticResearchScheduleStatus();
                 if (isAutomaticResearchDataReady()) scheduleAutomaticResearchCheck();
@@ -321,9 +356,20 @@
 
         const initDragAndDrop = () => {
             document.querySelectorAll('.sortable-list').forEach(list => {
-                new Sortable(list, {
+                const colId = list.getAttribute('data-col');
+                const isTimeSort = getCategorySortMode(colId) === 'time';
+                const existing = (colId && sortableInstances.get(colId)) || (typeof Sortable !== 'undefined' && typeof Sortable.get === 'function' ? Sortable.get(list) : null);
+                if (existing) {
+                    if (typeof existing.option === 'function') {
+                        existing.option('disabled', isTimeSort);
+                    }
+                    if (colId) sortableInstances.set(colId, existing);
+                    return;
+                }
+                const sortable = new Sortable(list, {
                     group: 'shared', animation: 150, delay: 150, delayOnTouchOnly: true, fallbackTolerance: 5, forceFallback: true, fallbackClass: 'sortable-fallback',
                     ghostClass: 'sortable-ghost', dragClass: 'sortable-drag', filter: '.ignore-drag',
+                    disabled: isTimeSort,
                     onStart: function () { document.body.classList.add('is-dragging'); },
                     onChange: function (evt) {
                         document.querySelectorAll('.is-dragover').forEach(el => el.classList.remove('is-dragover'));
@@ -445,9 +491,346 @@
                         } catch(err) { console.error(err); }
                     }
                 });
+                if (colId) sortableInstances.set(colId, sortable);
             });
         };
         initDragAndDrop();
+
+        function rerenderCategory(colId) {
+            if (colId === 'inbox') {
+                sortCollectionItems(currentInboxItems, 'inbox');
+                renderList(currentInboxItems, document.getElementById('inbox-list'), 'inbox');
+                updateInboxSortButtonState();
+                return;
+            }
+            const items = currentItemsByCollection.get(colId) || [];
+            sortCollectionItems(items, colId);
+            const listEl = document.getElementById(`list-${colId}`);
+            if (!listEl) return;
+            const targetCat = currentCategories.find(c => c.id === colId);
+            const catType = targetCat ? targetCat.type : 'text';
+            if (catType === 'todo') {
+                renderTodos(items, listEl, colId);
+            } else if (catType === 'bookmark') {
+                renderBookmarks(items, listEl, colId);
+            } else {
+                renderList(items, listEl, colId, `${targetCat?.icon || 'fas fa-folder'} text-slate-400`);
+            }
+            updateCategorySortButtonState(colId);
+        }
+
+        function updateCategorySortButtonState(colId) {
+            const isTimeSort = getCategorySortMode(colId) === 'time';
+            const btn = document.querySelector(`.sort-toggle-btn-dynamic[data-col="${colId}"]`);
+            if (btn) {
+                btn.classList.toggle('text-indigo-700', isTimeSort);
+                btn.classList.toggle('bg-indigo-100', isTimeSort);
+                btn.classList.toggle('border-indigo-300', isTimeSort);
+                btn.classList.toggle('text-slate-500', !isTimeSort);
+                btn.classList.toggle('bg-slate-50', !isTimeSort);
+                btn.classList.toggle('border-slate-200', !isTimeSort);
+                btn.title = isTimeSort ? '依加入時間排序（拖曳已鎖定），點擊切換為自訂排序' : '自訂排序，點擊切換為加入時間排序';
+                const label = btn.querySelector('.sort-toggle-label');
+                if (label) label.innerText = isTimeSort ? '時間' : '自訂';
+            }
+            const listEl = document.getElementById(`list-${colId}`);
+            const sortable = sortableInstances.get(colId) || (typeof Sortable !== 'undefined' && typeof Sortable.get === 'function' && listEl ? Sortable.get(listEl) : null);
+            if (sortable && typeof sortable.option === 'function') {
+                sortable.option('disabled', isTimeSort);
+            }
+        }
+
+        function updateInboxSortButtonState() {
+            const btn = document.getElementById('inbox-sort-toggle-btn');
+            const text = document.getElementById('inbox-sort-toggle-text');
+            if (!btn) return;
+            const mode = getCategorySortMode('inbox');
+            const isTime = mode === 'time';
+            btn.classList.toggle('bg-indigo-100', isTime);
+            btn.classList.toggle('text-indigo-700', isTime);
+            btn.classList.toggle('border-indigo-300', isTime);
+            btn.classList.toggle('bg-white', !isTime);
+            btn.classList.toggle('text-slate-600', !isTime);
+            btn.classList.toggle('border-slate-200', !isTime);
+            if (text) text.innerText = isTime ? '時間排序 (已鎖定)' : '時間排序';
+            btn.title = isTime ? '目前依加入時間排序（拖曳已鎖定），點擊切換為自訂排序' : '切換為加入時間排序';
+            
+            const listEl = document.getElementById('inbox-list');
+            const sortable = sortableInstances.get('inbox') || (typeof Sortable !== 'undefined' && typeof Sortable.get === 'function' && listEl ? Sortable.get(listEl) : null);
+            if (sortable && typeof sortable.option === 'function') {
+                sortable.option('disabled', isTime);
+            }
+        }
+
+        function scrollAndHighlightCard(cardId) {
+            const cardEl = document.querySelector(`li[data-id="${cardId}"]`);
+            if (cardEl) {
+                cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                cardEl.classList.add('ring-4', 'ring-indigo-400', 'transition-all', 'duration-500');
+                setTimeout(() => {
+                    cardEl.classList.remove('ring-4', 'ring-indigo-400');
+                }, 2000);
+            }
+        }
+
+        function renderTimelineBrowser() {
+            const container = document.getElementById('timeline-browser-content');
+            const emptyEl = document.getElementById('timeline-browser-empty');
+            if (!container) return;
+
+            const buckets = buildTimelineBuckets({
+                inboxItems: currentInboxItems,
+                itemsByCollection: currentItemsByCollection,
+                categories: currentCategories,
+                now: new Date()
+            });
+
+            if (buckets.length === 0) {
+                container.innerHTML = '';
+                if (emptyEl) emptyEl.classList.remove('hidden');
+                return;
+            }
+
+            if (emptyEl) emptyEl.classList.add('hidden');
+
+            let html = '';
+            buckets.forEach(bucket => {
+                html += `
+                    <div class="timeline-bucket">
+                        <div class="flex items-center gap-2 mb-3 pb-1 border-b border-slate-200">
+                            <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-md">${escapeHtml(bucket.title)}</span>
+                            <span class="text-xs text-slate-400 font-medium">${bucket.items.length} 張卡片</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                `;
+                bucket.items.forEach(card => {
+                    const preview = escapeHtml(card.previewText || '無文字內容');
+                    const colName = escapeHtml(card.collectionName || '未分類');
+                    const timeStr = escapeHtml(card.formattedTime || '');
+                    html += `
+                        <div class="timeline-card-item bg-white border border-slate-200 hover:border-indigo-300 hover:shadow-sm rounded-xl p-3.5 transition-all cursor-pointer flex flex-col justify-between" data-card-id="${escapeHtml(card.id)}" data-card-col="${escapeHtml(card.collection)}">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between gap-2 mb-1.5">
+                                    <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 truncate max-w-[120px]">${colName}</span>
+                                    <span class="text-[11px] text-slate-400 font-medium shrink-0">${timeStr}</span>
+                                </div>
+                                <p class="text-sm font-medium text-slate-800 line-clamp-3 leading-snug break-words">${preview}</p>
+                            </div>
+                            <div class="mt-2.5 pt-2 border-t border-slate-50 flex items-center justify-end">
+                                <span class="text-xs text-indigo-600 font-semibold flex items-center gap-1">
+                                    前往定位
+                                    <svg class="h-3 w-3 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="9 18 15 12 9 6"></polyline>
+                                    </svg>
+                                </span>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+
+            container.querySelectorAll('.timeline-card-item').forEach(el => {
+                el.addEventListener('click', () => {
+                    const cardId = el.getAttribute('data-card-id');
+                    closeTimelineBrowser();
+                    setTimeout(() => {
+                        scrollAndHighlightCard(cardId);
+                    }, 150);
+                });
+            });
+        }
+
+        function openTimelineBrowser({ fromHistory = false } = {}) {
+            const modal = document.getElementById('timeline-browser-modal');
+            if (!modal) return;
+            renderTimelineBrowser();
+            modal.classList.remove('hidden');
+            keyLayers.push({ name: 'timeline-browser', keys: modalKeys(closeTimelineBrowser) });
+            if (!fromHistory) history.pushState({ overlay: 'timeline-browser' }, '', window.location.href);
+        }
+
+        function closeTimelineBrowser({ fromHistory = false } = {}) {
+            if (!fromHistory && history.state?.overlay === 'timeline-browser') {
+                history.back();
+                return;
+            }
+            const modal = document.getElementById('timeline-browser-modal');
+            if (modal) modal.classList.add('hidden');
+            keyLayers.pop('timeline-browser');
+        }
+
+        function renderDailySparks() {
+            const container = document.getElementById('daily-sparks-cards');
+            const dateEl = document.getElementById('daily-sparks-date');
+            if (!container) return;
+
+            const sparksData = selectDailySparks({
+                inboxItems: currentInboxItems,
+                itemsByCollection: currentItemsByCollection,
+                categories: currentCategories,
+                offsets: dailySparksOffsets,
+                now: Date.now()
+            });
+
+            if (dateEl) {
+                dateEl.textContent = sparksData.dateStr;
+            }
+
+            let html = '';
+            sparksData.tracks.forEach(track => {
+                const item = track.item;
+                const hasItem = Boolean(item);
+                const title = escapeHtml(track.title);
+                const subtitle = escapeHtml(track.subtitle);
+                let badgeText = '';
+                let badgeClass = 'bg-slate-100 text-slate-600';
+
+                if (track.trackId === 'todos') {
+                    if (track.status === 'ready') {
+                        badgeText = `${track.daysAgo} 天前`;
+                        badgeClass = 'bg-amber-100 text-amber-800';
+                    } else if (track.status === 'fallback') {
+                        badgeText = '待辦';
+                        badgeClass = 'bg-indigo-100 text-indigo-700';
+                    } else if (track.status === 'all_completed') {
+                        badgeText = '已搞定';
+                        badgeClass = 'bg-emerald-100 text-emerald-700';
+                    }
+                } else if (track.trackId === 'memory') {
+                    if (track.status === 'ready') {
+                        badgeText = `${track.daysAgo} 天前`;
+                        badgeClass = 'bg-sky-100 text-sky-800';
+                    } else if (track.status === 'fallback') {
+                        badgeText = '建議溫故';
+                        badgeClass = 'bg-indigo-50 text-indigo-700';
+                    }
+                } else if (track.trackId === 'sparks') {
+                    if (track.status === 'ready') {
+                        badgeText = '靈感探索';
+                        badgeClass = 'bg-purple-100 text-purple-800';
+                    } else if (track.status === 'fallback') {
+                        badgeText = '隨機碰撞';
+                        badgeClass = 'bg-slate-100 text-slate-700';
+                    }
+                }
+
+                html += `
+                    <div class="daily-spark-card bg-white rounded-xl border border-slate-200/90 p-3.5 shadow-2xs hover:shadow-sm transition-all flex flex-col justify-between" data-track="${escapeHtml(track.trackId)}">
+                        <div>
+                            <div class="flex items-center justify-between gap-2 mb-2">
+                                <div class="flex items-center gap-1.5 min-w-0">
+                                    <span class="text-xs font-bold text-slate-800 tracking-tight">${title}</span>
+                                    ${badgeText ? `<span class="text-[10px] font-bold px-1.5 py-0.2 rounded ${badgeClass}">${badgeText}</span>` : ''}
+                                </div>
+                                <button type="button" class="daily-spark-refresh-track-btn text-slate-400 hover:text-indigo-600 p-1 rounded-md hover:bg-slate-100 transition-colors" data-track="${escapeHtml(track.trackId)}" title="換一張" ${!hasItem ? 'disabled' : ''}>
+                                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="23 4 23 10 17 10"></polyline>
+                                        <polyline points="1 20 1 14 7 14"></polyline>
+                                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="text-xs text-slate-400 mb-2.5 font-medium">${subtitle}</div>
+                `;
+
+                if (hasItem) {
+                    const preview = escapeHtml(item.previewText || '無文字內容');
+                    const colName = escapeHtml(item.collectionName || '');
+                    html += `
+                            <div class="daily-spark-target-click cursor-pointer rounded-lg bg-slate-50 hover:bg-indigo-50/60 p-2.5 transition-colors border border-slate-100" data-card-id="${escapeHtml(item.id)}" title="點擊定位到該卡片">
+                                <p class="text-xs font-medium text-slate-700 line-clamp-3 leading-relaxed break-words">${preview}</p>
+                                ${colName ? `
+                                <div class="mt-2 flex items-center justify-between text-[10px] text-slate-400">
+                                    <span class="bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 font-medium">${colName}</span>
+                                    <span class="text-indigo-600 font-medium flex items-center gap-0.5">
+                                        定位
+                                        <svg class="h-2.5 w-2.5 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="9 18 15 12 9 6"></polyline>
+                                        </svg>
+                                    </span>
+                                </div>` : ''}
+                            </div>
+                    `;
+                } else {
+                    html += `
+                            <div class="rounded-lg bg-slate-50 p-3 text-center border border-dashed border-slate-200">
+                                <p class="text-xs text-slate-400">${escapeHtml(track.emptyMessage)}</p>
+                            </div>
+                    `;
+                }
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+
+            // 綁定單軌換一張
+            container.querySelectorAll('.daily-spark-refresh-track-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const trackId = btn.getAttribute('data-track');
+                    if (trackId && dailySparksOffsets[trackId] !== undefined) {
+                        dailySparksOffsets[trackId] += 1;
+                        renderDailySparks();
+                    }
+                });
+            });
+
+            // 綁定點擊跳轉定位
+            container.querySelectorAll('.daily-spark-target-click').forEach(el => {
+                el.addEventListener('click', () => {
+                    const cardId = el.getAttribute('data-card-id');
+                    if (cardId) scrollAndHighlightCard(cardId);
+                });
+            });
+        }
+
+        function setupDailySparksSection() {
+            const section = document.getElementById('daily-sparks-section');
+            const toggleBtn = document.getElementById('daily-sparks-toggle-btn');
+            const toggleIcon = document.getElementById('daily-sparks-toggle-icon');
+            const cardsContainer = document.getElementById('daily-sparks-cards');
+            const shuffleAllBtn = document.getElementById('daily-sparks-shuffle-all-btn');
+
+            if (!section || !toggleBtn || !cardsContainer) return;
+
+            const updateCollapseState = (collapsed) => {
+                isDailySparksCollapsed = collapsed;
+                localStorage.setItem('dailySparksCollapsed', String(collapsed));
+                toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+                if (collapsed) {
+                    cardsContainer.classList.add('hidden');
+                    if (toggleIcon) toggleIcon.classList.add('-rotate-90');
+                } else {
+                    cardsContainer.classList.remove('hidden');
+                    if (toggleIcon) toggleIcon.classList.remove('-rotate-90');
+                }
+            };
+
+            updateCollapseState(isDailySparksCollapsed);
+
+            toggleBtn.addEventListener('click', () => {
+                updateCollapseState(!isDailySparksCollapsed);
+            });
+
+            if (shuffleAllBtn) {
+                shuffleAllBtn.addEventListener('click', () => {
+                    dailySparksOffsets.todos += 1;
+                    dailySparksOffsets.memory += 1;
+                    dailySparksOffsets.sparks += 1;
+                    renderDailySparks();
+                });
+            }
+        }
 
 
         const initAuth = async () => { if (auth && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) try { await signInWithCustomToken(auth, __initial_auth_token); } catch (e) {} };
@@ -2393,6 +2776,19 @@
         });
         document.getElementById('tag-browser-btn').addEventListener('click', () => openTagBrowser());
         document.getElementById('close-tag-browser-btn').addEventListener('click', () => closeTagBrowser());
+        document.getElementById('timeline-browser-btn')?.addEventListener('click', () => openTimelineBrowser());
+        document.getElementById('close-timeline-browser-btn')?.addEventListener('click', () => closeTimelineBrowser());
+        document.getElementById('timeline-browser-modal')?.addEventListener('click', event => {
+            if (event.target === event.currentTarget) closeTimelineBrowser();
+        });
+        document.getElementById('inbox-sort-toggle-btn')?.addEventListener('click', () => {
+            const currentMode = getCategorySortMode('inbox');
+            const nextMode = currentMode === 'time' ? 'custom' : 'time';
+            setCategorySortMode('inbox', nextMode);
+            rerenderCategory('inbox');
+        });
+        updateInboxSortButtonState();
+        setupDailySparksSection();
         document.getElementById('knowledge-graph-btn')?.addEventListener('click', () => openKnowledgeGraph());
         document.getElementById('close-knowledge-graph-btn')?.addEventListener('click', () => closeKnowledgeGraph());
         document.getElementById('close-graph-drawer-btn')?.addEventListener('click', () => closeGraphDrawer());
@@ -2574,10 +2970,22 @@
                     </button>
                 `;
 
+                const isTimeSort = getCategorySortMode(cat.id) === 'time';
+                const sortBtnHtml = `
+                    <button type="button" class="sort-toggle-btn-dynamic text-xs font-normal ${isTimeSort ? 'text-indigo-700 bg-indigo-100 border-indigo-300' : 'text-slate-500 bg-slate-50 border-slate-200 hover:bg-slate-100'} border px-2 py-1 rounded-md transition-colors flex items-center gap-1 focus:outline-none shadow-xs" data-col="${cat.id}" title="${isTimeSort ? '依加入時間排序（拖曳已鎖定），點擊切換為自訂排序' : '自訂排序，點擊切換為加入時間排序'}">
+                        <svg class="h-3 w-3 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        <span class="hidden sm:inline sort-toggle-label">${isTimeSort ? '時間' : '自訂'}</span>
+                    </button>
+                `;
+
                 let controlsHtml = '';
                 if (cat.type === 'todo') {
                     controlsHtml = `
                     <div class="flex items-center gap-2">
+                        ${sortBtnHtml}
                         ${addBtnHtml}
                         <button class="toggle-completed-btn-dynamic text-xs font-normal text-slate-500 hover:text-indigo-600 bg-slate-50 border border-slate-200 hover:bg-indigo-50 px-2 py-1 rounded-md transition-colors flex items-center gap-1 focus:outline-none shadow-sm" data-col="${cat.id}">
                             <i class="fas fa-eye-slash toggle-icon"></i> <span class="hidden sm:inline toggle-text">隱藏已完成</span>
@@ -2587,7 +2995,7 @@
                         </button>
                     </div>`;
                 } else {
-                    controlsHtml = `<div class="flex items-center gap-2">${addBtnHtml}</div>`;
+                    controlsHtml = `<div class="flex items-center gap-2">${sortBtnHtml}${addBtnHtml}</div>`;
                 }
                 
                 let titleHtml = `<div class="flex items-center"><i class="${cat.icon || 'fas fa-folder'} text-indigo-500 mr-2 text-xl"></i>${escapeHtml(cat.name || '')} <span id="count-${cat.id}" class="bg-indigo-100 text-indigo-800 text-xs px-2 py-0.5 rounded-full font-bold ml-2">0</span></div>` + controlsHtml;
@@ -2603,6 +3011,16 @@
                 
                 grid.appendChild(wrapper);
                 setupCategoryListener(cat.id, cat.type, cat.name, cat.icon);
+
+                const sortBtn = wrapper.querySelector('.sort-toggle-btn-dynamic');
+                if (sortBtn) {
+                    sortBtn.addEventListener('click', () => {
+                        const currentMode = getCategorySortMode(cat.id);
+                        const nextMode = currentMode === 'time' ? 'custom' : 'time';
+                        setCategorySortMode(cat.id, nextMode);
+                        rerenderCategory(cat.id);
+                    });
+                }
                 
                 if (cat.type === 'todo') {
                     const toggleBtn = wrapper.querySelector('.toggle-completed-btn-dynamic');
@@ -2814,12 +3232,15 @@
                 const items = await LocalDb.getCardsByCollection(col);
                 if (col === 'inbox') {
                     currentInboxItems = items;
+                    sortCollectionItems(currentInboxItems, 'inbox');
                     renderList(items, document.getElementById('inbox-list'), 'inbox');
+                    updateInboxSortButtonState();
                     const countEl = document.getElementById('inbox-count');
                     if (countEl) countEl.innerText = items.length;
                     const aiSortBtn = document.getElementById('ai-sort-btn');
                     if (aiSortBtn) aiSortBtn.disabled = items.length === 0;
                 } else {
+                    sortCollectionItems(items, col);
                     currentItemsByCollection.set(col, items);
                     const listEl = document.getElementById(`list-${col}`);
                     const countEl = document.getElementById(`count-${col}`);
@@ -2835,8 +3256,10 @@
                             renderList(items, listEl, col);
                         }
                     }
+                    updateCategorySortButtonState(col);
                 }
                 refreshOpenTagBrowser();
+                renderDailySparks();
             } catch (err) {
                 console.error(`Failed to refresh local collection ${col}:`, err);
             }
@@ -3074,12 +3497,15 @@
             onSnapshot(getCol('inbox'), (snapshot) => {
                 currentInboxItems = []; snapshot.forEach(doc => currentInboxItems.push({ id: doc.id, ...doc.data() }));
                 automaticResearchInboxLoaded = true;
-                sortItems(currentInboxItems); renderList(currentInboxItems, document.getElementById('inbox-list'), 'inbox');
+                sortCollectionItems(currentInboxItems, 'inbox');
+                renderList(currentInboxItems, document.getElementById('inbox-list'), 'inbox');
+                updateInboxSortButtonState();
                 document.getElementById('inbox-count').innerText = currentInboxItems.length;
                 document.getElementById('ai-sort-btn').disabled = currentInboxItems.length === 0;
                 if (isInitialInboxLoad) { isInitialInboxLoad = false; setTimeout(checkAutoSortCondition, 800); }
                 setTimeout(initSidebarObserver, 100);
                 refreshOpenTagBrowser();
+                renderDailySparks();
                 renderAutomaticResearchScheduleStatus();
                 if (isAutomaticResearchDataReady()) scheduleAutomaticResearchCheck();
             });
@@ -3114,6 +3540,7 @@
                 renderSidebar(currentCategories);
                 setTimeout(initSidebarObserver, 100);
                 refreshOpenTagBrowser();
+                renderDailySparks();
                 renderAutomaticResearchScheduleStatus();
                 if (isAutomaticResearchDataReady()) scheduleAutomaticResearchCheck();
             });
@@ -5703,6 +6130,11 @@ ${JSON.stringify(inboxData, null, 2)}`;
                 closeResearchLog({ fromHistory: true });
                 return;
             }
+            const timelineBrowserModal = document.getElementById('timeline-browser-modal');
+            if (timelineBrowserModal && !timelineBrowserModal.classList.contains('hidden') && targetOverlay !== 'timeline-browser') {
+                closeTimelineBrowser({ fromHistory: true });
+                return;
+            }
 
             if (targetOverlay === 'knowledge-graph') {
                 openKnowledgeGraph({ fromHistory: true });
@@ -5763,6 +6195,10 @@ ${JSON.stringify(inboxData, null, 2)}`;
             }
             if (targetOverlay === 'research-log' && researchLogModal.classList.contains('hidden')) {
                 openResearchLog({ fromHistory: true });
+                return;
+            }
+            if (targetOverlay === 'timeline-browser' && timelineBrowserModal && timelineBrowserModal.classList.contains('hidden')) {
+                openTimelineBrowser({ fromHistory: true });
             }
         });
         document.getElementById('editor-title').addEventListener('input', (e) => {
